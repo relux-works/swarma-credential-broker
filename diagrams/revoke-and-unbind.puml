@@ -1,11 +1,11 @@
 @startuml revoke-and-unbind
 !theme plain
-title Ending access: grant revocation, task end, account withdrawal
+title Broker v0, design only: ending access, grant revocation, task end, account withdrawal
 
-actor "Person / operator" as P
-participant "swarma-dispatcher" as D
-participant "swarma-user-manager" as H
-participant "swarma-credential-broker" as B
+actor "Owner / operator\nCLI as pinned OS principal" as P
+participant "swarma-dispatcher\nown service OS account" as D
+participant "swarma-user-manager\nroot, no-argument sudo entry" as H
+participant "swarma-credential-broker\nunprivileged broker service UID" as B
 
 == a grant is revoked ==
 P -> B: revocation.put (signed revocation envelope, §6.4)
@@ -25,6 +25,15 @@ note over B: a recycled UID or a repeated label inherits nothing:\nbindings, gra
 
 == the account is withdrawn ==
 P -> B: account.revoke {account: owner/claude/personal}
-B -> B: delete the material; state revoked; every lease → lease_account_revoked
-P -> P: revoke at the vendor (Claude UI or Codex auth-owner logout);\ntokens already copied end only there or at expiry
+B -> B: account state revoked; subsequent leases / renewals refuse lease_account_revoked (§8.2)
+P -> P: revoke at vendor (Claude web interface, §10.1);\ntokens already copied end only there or at expiry
+note over B
+  Broker owns account/secret, grant/revocation, binding and lease files;
+  helper owns ledger and retirement. Record writes atomic (§12.4).
+  Material-deletion procedure / account.revoke commit point:
+  unspecified in spec §5.3 / §13.2.
+  [[../spec/broker.md#64-revocation Spec §6.4]]
+  [[lease-recovery.puml M-CB2: crash after durable revoke and fail-closed repair]]
+  [[record-states.puml M-CB3: independent record states and transition gaps]]
+end note
 @enduml

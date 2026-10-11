@@ -25,7 +25,14 @@ The first protected provider launch is Claude with an explicitly enrolled `setup
 
 The repository, standalone binary and service account are named `swarma-credential-broker`; `curator broker` is the Curator front end. The earlier `curator-broker` CLI spelling is historical design text, with no shipped alias or migration. Signed domain tags are `swarma-credential-broker grant/1` and `swarma-credential-broker revocation/1`; `broker/1` remains the peer-authenticated transport. The [grant dialect boundary](spec/broker.md#66-relation-to-the-trust-design) and [key classes](spec/broker.md#43-trust-root-and-key-classes) distinguish this v0 design from the future keeper model. Managed identity checks read the root-owned ledger at `/opt/swarma/lib/user-manager/ledger.json` ([§4.2](spec/broker.md#42-principals)). These are design contracts, not runtime qualification claims.
 
-The existing [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at-launch.puml), [enrolment](diagrams/enrol.puml), [Codex renewal](diagrams/codex-renewal.puml) and [revocation](diagrams/revoke-and-unbind.puml) sequences describe the intended flows. New component and state diagrams are later work.
+The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at-launch.puml), [enrolment](diagrams/enrol.puml), [Codex renewal](diagrams/codex-renewal.puml) and [revocation](diagrams/revoke-and-unbind.puml) sequences describe the intended flows. The module figures below show their component, recovery, state and storage boundaries. All are design contracts; visible “unspecified in spec” notes preserve gaps rather than supply implementation decisions.
+
+| Figure | PlantUML source | Defining specification |
+|---|---|---|
+| M-CB1 — v0 components and process identities | [components.puml](diagrams/components.puml) | [§3 Components](spec/broker.md#3-components), [§3.1 First consumer](spec/broker.md#31-first-consumer-and-execution-boundary), [§4 Identities](spec/broker.md#4-identities-and-trust) |
+| M-CB2 — lease refusal and recovery | [lease-recovery.puml](diagrams/lease-recovery.puml) | [§6.4 Revocation](spec/broker.md#64-revocation), [§8 Leases](spec/broker.md#8-leases), [§9 Codex auth owner](spec/broker.md#9-codex-auth-owner) |
+| M-CB3 — account, binding, lease and grant states | [record-states.puml](diagrams/record-states.puml) | [§5.1 Account record](spec/broker.md#51-record), [§6.4 Revocation](spec/broker.md#64-revocation), [§7 Bindings](spec/broker.md#7-bindings), [§8.3 Lease record](spec/broker.md#83-response-and-lease-record) |
+| M-CB4 — owned storage, socket and removal | [storage-layout.puml](diagrams/storage-layout.puml) | [§5.3 Secret store](spec/broker.md#53-secret-store), [§12.4 Files](spec/broker.md#124-files), [§15 Installation and lifecycle](spec/broker.md#15-installation-and-lifecycle) |
 
 ## License
 

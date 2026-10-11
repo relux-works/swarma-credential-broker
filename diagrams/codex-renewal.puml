@@ -3,8 +3,8 @@
 title Slice 1, qualification/adoption pending: Codex personal plan: one auth owner refreshes; launches use external tokens and renew within a deadline
 
 participant "Codex app-server\n(agent OS account, no auth.json)" as A
-participant "Agent-side executor\n(client of this execution's app-server)" as E
-participant "Broker: auth owner\n(broker-owned home + lock)" as O
+participant "Agent-side executor\nagent OS account; client of this execution's app-server" as E
+participant "swarma-credential-broker: internal auth owner\nbroker service UID; broker-owned home + lock" as O
 
 E -> O: lease.request {harness: codex_cli, channel: external-token, …}
 O -> O: verify lease checks 1–7 (active UID/generation and binding,\nlease + caller chains, current revocations, source/network qualification)
@@ -23,9 +23,13 @@ end
 alt renewed within the deadline and authorisation still valid
   O -> O: after refresh, repeat authorisation under state lock\nimmediately before releasing material
   O --> E: payload {access_token, chatgpt_account_id}
-  E -> E: same chatgpt_account_id as the lease?
-  E --> A: refresh answer {accessToken, chatgptAccountId}
-  A -> A: retry the call
+  E -> E: verify same chatgpt_account_id as the lease
+  alt account ID matches
+    E --> A: refresh answer {accessToken, chatgptAccountId}
+    A -> A: retry the call
+  else account ID differs
+    E -> E: verification fails; do not forward token\nerror/recovery unspecified in spec §9.3
+  end
 else timeout or refusal
   O --> E: renew_timeout | lease_reauth_required | …
   E --> A: error answer (no late reply, no fallback login)
@@ -33,4 +37,17 @@ else timeout or refusal
 end
 note over O: the refresh token never leaves the broker's store;\nlease_grant_revoked / lease_caller_revoked refuse renewal
 note over E,A: one private app-server per execution; ephemeral storage pinned,\nno broker-mode codex exec and no shared-file/copy fallback
+note over O
+  Broker persists account/secret, grants/revocations, binding and lease metadata;
+  helper owns UID/generation ledger. Refresh uses the approved vendor executable
+  under broker UID; stable lock covers read / refresh / reload (§9.4).
+  [[../spec/broker.md#93-external-token-mode Spec §9.3]]
+  [[lease-recovery.puml M-CB2: timeout, transient failure, reauth and disconnect]]
+end note
+note over E,O
+  Rejected token -> reauth_required, owner re-enrols; stopped owner ->
+  owner_unavailable; transient failure -> backoff while token valid (§9.4).
+  Transient-to-active and owner-restart transitions unspecified in spec §9.4.
+  Failed external-token initialisation -> external_token_init_failed (§9.3).
+end note
 @enduml

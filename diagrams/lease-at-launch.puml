@@ -3,8 +3,8 @@
 title Slice 0: curator-run verifies the caller-composed plan and protected binding, leases and starts Claude
 
 participant "curator-run\n(agent OS account, uid 30412)" as E
-participant "Broker" as B
-participant "Harness\n(Claude Code)" as H
+participant "swarma-credential-broker\nunprivileged broker service UID" as B
+participant "Harness\nClaude Code, agent OS account" as H
 
 E -> E: verify caller-composed plan; no profile resolution\nresolve protected credential_binding/1 (CIP-0010 C3.4):\nprofile, harness, account, channel, endpoint,\nexecutable digest, policy generation
 E -> E: refuse if another credential source is present\n(credential_source_conflict)
@@ -23,4 +23,15 @@ else all checks pass
   E -> B: lease.release {lease_id} (idempotent)
 end
 note over E,H: Readable-token exception: Claude can read/copy its own token.\ncredential-injection/1 requires effective-source and child-inheritance qualification;\nthis sequence is a design contract, not qualification evidence.
+note over B
+  Broker owns account/secret, grant/revocation, binding and lease files;
+  helper owns the root ledger. Lease records contain no payload (§8.3).
+  [[../spec/broker.md#82-checks-in-order Spec §8.2]]
+  [[lease-recovery.puml M-CB2: refusal, disconnect and recovery branches]]
+end note
+note over E,H
+  Claude has no refresh: owner re-enrols, executor restarts; --resume (§10.1).
+  Unreadable revocations refuse until operator repair (§6.4).
+  Cleanup after a post-lease tuple/conflict refusal is unspecified in spec §12.2.
+end note
 @enduml

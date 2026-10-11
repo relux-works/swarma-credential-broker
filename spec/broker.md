@@ -10,7 +10,7 @@
 - Names `curator-run` under the agent account as the first broker consumer, with caller-side composition and a narrow, versioned execution mode (D-EXECUTOR, 2026-10-11; §3.1, §16).
 - Separates key classes and the general-grant adapter boundary (§4.3, §6.6), fixes the helper ledger locator (§4.2), and adopts the standalone CLI name (§14).
 - Applies D-WIRE-NAMES (2026-10-11): signed domain tags are `swarma-credential-broker grant/1` and `swarma-credential-broker revocation/1`. Nothing has shipped, so no migration is needed. The body discriminators `grant/1` and `revocation/1` and transport `broker/1` remain distinct from those signing domains.
-- Corrects the existing registration, launch, renewal and revocation sequences; new diagrams remain later work (Appendix B).
+- Corrects the existing registration, launch, renewal and revocation sequences; module component, recovery, record-state and storage figures document the same design boundaries (Appendix B).
 
 These are documentation contracts, not evidence of implementation, supported vendor releases or live qualification. The platform contract table at `relux-works/curator` commit `177cb554` is the baseline; the supplied owner decisions of 2026-10-10/11 override its open choices where explicitly decided.
 
@@ -71,6 +71,8 @@ The broker is a small service that:
 | executor | The final executor of a launch: the trusted process that runs under the agent's OS account, verifies a caller-composed plan and its protected credential binding, requests the lease and starts the harness. The first consumer is `curator-run` (§3.1). |
 
 ## 3. Components
+
+Figure [M-CB1 — broker components](../diagrams/components.puml) shows the process identities, internal components, persistent-state owners and phase boundaries defined here and in §4–§9.
 
 | Component | Runs as | Job |
 |---|---|---|
@@ -141,6 +143,8 @@ For keeper integration, account retirement and identity revocation remain separa
 
 ### 5.1 Record
 
+Figure [M-CB3 — record states](../diagrams/record-states.puml) separates account states from binding, lease and grant validity, including the recovery gaps left unspecified in §9.4.
+
 ```
 account/1
 { id:           "owner/claude/personal",       // owner-chosen, unique in the broker
@@ -200,6 +204,8 @@ CIP-0003 is accepted only in its narrowed CIP-0010 C6 disposition:
 The superseded default/Keychain recommendations and “no acceptance decision” wording are historical, not competing defaults. Enterprise-token delivery is outside the first release; provider priority and release-specific preconditions that remain undecided are listed in §18.
 
 ### 5.3 Secret store
+
+Figure [M-CB4 — storage layout](../diagrams/storage-layout.puml) distinguishes secret files, metadata, the broker-owned Codex home and the external runtime socket (§12.4, §15).
 
 Material is kept behind a secret-store interface (`put`, `get`, `delete`, `describe`). **v0 ships one backend: a file with mode 0600 in a 0700 directory owned by the broker user**, on macOS and Linux alike, written by atomic replacement in its own directory. Keychain or Secret Service backends MAY be added later; a backend that can prompt a person MUST NOT be used for launches that cannot answer a prompt.
 
@@ -275,6 +281,8 @@ An agent is named in a grant by its helper account generation, `agent:<generatio
 
 ### 6.4 Revocation
 
+Figures [M-CB2 — lease recovery](../diagrams/lease-recovery.puml) and [M-CB3 — record states](../diagrams/record-states.puml) show the durable publication boundary, refusal after unreadable state and the limits of recovery specified here.
+
 A revocation is an envelope of the same construction with the domain tag `swarma-credential-broker revocation/1`:
 
 ```
@@ -310,6 +318,8 @@ Broker lease grants are not board capabilities. Broker v0 MUST refuse roles, wil
 ## 7. Bindings
 
 ### 7.1 Record
+
+Figure [M-CB3 — record states](../diagrams/record-states.puml) shows binding admission and removal separately from account and lease states.
 
 ```
 binding/1
@@ -377,6 +387,8 @@ Checks 2 to 7 run under the state lock immediately before the material is releas
 
 ### 8.3 Response and lease record
 
+Figure [M-CB3 — record states](../diagrams/record-states.puml) lists every lease state without inventing transition or persistence-order rules absent from this section.
+
 ```
 lease/1
 { lease_id,
@@ -404,6 +416,8 @@ The client library delivers material only into the process the executor starts:
 Conflicting sources are refused, never replaced (§12.2). There is no channel that writes a credential file for a launch.
 
 ### 8.5 Renewal, release and reports
+
+Figure [M-CB2 — lease recovery](../diagrams/lease-recovery.puml) covers admission refusals, reconnecting, current-authority renewal and Codex failure branches (§9.3–§9.4). The main paths remain in [lease-at-launch](../diagrams/lease-at-launch.puml) and [codex-renewal](../diagrams/codex-renewal.puml).
 
 - `lease.renew`, `lease.release` and `event.report` name a `lease_id` and are accepted only from the lease's own `(uid, generation, binding_id)` (`lease_not_owner`).
 - Renewal is refused after `authorized_until` or once the lease is released, expired or revoked. It repeats checks 1 to 7, including the caller chain, before releasing new material, including after an asynchronous refresh (§9).
@@ -435,6 +449,8 @@ The broker never adopts an existing home, imports another login or exports a key
 - The launch home contains no `auth.json`; `cli_auth_credentials_store = ephemeral` is pinned. Broker-mode `codex exec`, shared-file logins and stripped copies are not delivery paths.
 
 ### 9.4 Refresh and states
+
+Figures [M-CB2 — lease recovery](../diagrams/lease-recovery.puml) and [M-CB3 — record states](../diagrams/record-states.puml) distinguish transient refresh failure, rejected refresh tokens and a stopped owner; unspecified recovery transitions remain visible notes.
 
 - The auth owner holds a stable lock file beside the account's Codex home for the whole read, refresh and reload sequence. The vendor's own processes do not honour this lock, which is why no other consumer may use the home (§9.5).
 - When the current access token expires within the refresh window (48 hours in the reference implementation), the owner refreshes by running the approved Codex executable once; it never reimplements the vendor's token exchange. Requests queue for the owner with a bound; a full queue returns `renew_timeout`.
@@ -497,6 +513,8 @@ The broker holds every enrolled credential, so it stays minimal: one service use
 
 ### 12.4 Files
 
+Figure [M-CB4 — storage layout](../diagrams/storage-layout.puml) shows ownership, modes, atomic state replacement and the append-only audit boundary (§12.3).
+
 All broker files are owned by the broker user; directories are 0700. Every state file (configuration, accounts, grants, revocations, leases) is replaced atomically within its own directory. The broker refuses to start if its store or configuration, or any parent directory, is writable by another user.
 
 ## 13. Socket protocol `broker/1`
@@ -549,6 +567,8 @@ The broker runs as the dedicated unprivileged service user `swarma-credential-br
 
 ### 15.2 Paths
 
+Figure [M-CB4 — storage layout](../diagrams/storage-layout.puml) shows these paths and the uninstall retention boundary (§15.3); logical record boxes do not introduce new file basenames.
+
 | What | macOS | Linux |
 |---|---|---|
 | data (store, grants, revocations, leases, config, audit) | the service user's home, 0700 | the service user's home, 0700 |
@@ -592,4 +612,13 @@ Only the following broker/provider choices remain open here. D-EXECUTOR resolves
 
 ## Appendix B. Diagrams
 
-PlantUML sources in [`diagrams/`](../diagrams/): `enrol.puml`, `agent-registration.puml`, `lease-at-launch.puml`, `codex-renewal.puml`, `revoke-and-unbind.puml`.
+PlantUML sources describe draft contracts, not runtime qualification. Each module figure links its defining sections and labels phases, process identities, state custody and refusal/recovery boundaries. Where the spec is silent, a visible note records the gap.
+
+| Audit B4 figure | Source | Defining sections |
+|---|---|---|
+| M-CB1 — components | [components.puml](../diagrams/components.puml) | §3–§4, §7–§9 |
+| M-CB2 — lease recovery | [lease-recovery.puml](../diagrams/lease-recovery.puml) | §4.1–§4.2, §6.4, §8–§9, §12.2 |
+| M-CB3 — record states | [record-states.puml](../diagrams/record-states.puml) | §5.1, §6.4, §7.1–§7.4, §8.3–§8.5, §9.4 |
+| M-CB4 — storage layout | [storage-layout.puml](../diagrams/storage-layout.puml) | §5.3, §12.3–§12.4, §15 |
+
+Main sequences: [enrolment](../diagrams/enrol.puml), [agent registration](../diagrams/agent-registration.puml), [lease at launch](../diagrams/lease-at-launch.puml), [Codex renewal](../diagrams/codex-renewal.puml), and [revocation/unbind](../diagrams/revoke-and-unbind.puml). Launch, renewal and revocation link to M-CB2 for refusal/recovery detail.

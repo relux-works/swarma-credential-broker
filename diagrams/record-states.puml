@@ -1,0 +1,115 @@
+@startuml record-states
+title M-CB3: separate record states - broker v0 / Codex slice 1, design only
+hide empty description
+
+state "Account record: broker-owned persistent metadata (§5.1)" as Accounts {
+  state "active" as AccountActive
+  state "refresh_failed_transient\nCodex slice 1" as AccountTransient
+  state "reauth_required" as AccountReauth
+  state "owner_unavailable\nCodex slice 1" as AccountUnavailable
+  state "revoked" as AccountRevoked
+
+  [*] --> AccountActive : owner enrols; broker writes account + secret (§5.4, §9.2)
+  AccountActive --> AccountTransient : internal auth owner: transient refresh failure (§9.4)
+  AccountTransient --> AccountTransient : internal auth owner: retry with backoff\nwhile current token valid (§9.4)
+  AccountActive --> AccountReauth : owner account.mark; or auth owner rejects refresh (§9.4, §10.1)
+  AccountTransient --> AccountReauth : auth owner: refresh token rejected (§9.4)
+  AccountActive --> AccountUnavailable : internal auth owner stops (§9.4)
+  AccountReauth --> AccountActive : owner re-enrols via vendor ceremony (§9.2, §9.4, §10.1)
+  AccountActive --> AccountRevoked : owner account.revoke (§13.2); broker state (§5.1)
+}
+
+note right of Accounts
+  CLI runs as pinned account owner; auth owner runs INSIDE
+  broker daemon under service UID swarma-credential-broker.
+  Records / secret files: atomic replacement in broker-owned dirs (§12.4).
+  Exact transaction/ack point across account + secret files:
+  unspecified in spec §5.3-§5.4 / §12.4.
+  Non-active account refuses new leases / renewals (§8.2, §8.5).
+  Transition after successful transient retry, owner restart,
+  revoked-account re-enrol and terminal retry exhaustion:
+  unspecified in spec §9.4 / §5; no arrows invented.
+  event.report affects lease ONLY, not account state (§8.5).
+  Claude: no refresh; owner marks reauth, re-enrols and restarts
+  harness under agent UID; --resume preserves transcript (§10.1).
+  [[../spec/broker.md#51-record Spec §5.1]]
+  [[../spec/broker.md#94-refresh-and-states Spec §9.4]]
+end note
+
+state "Binding record: broker-owned persistent state (§7.1)" as Bindings {
+  state "active" as BindingActive
+  state "removed" as BindingRemoved
+  [*] --> BindingActive : dispatcher service principal: bind\nbroker verifies ledger + separate lease/caller chains (§7.2)
+  BindingActive --> BindingRemoved : creating dispatcher / operator: unbind; or broker: expiry (§7.2)
+}
+
+note right of Bindings
+  Atomic record replacement (§12.4); exact acknowledgement
+  and lease/connection update commit point unspecified in spec §7.2.
+  Unbind ends leases and closes UID connections (§7.2).
+  No active binding -> lease_unbound; retired/removed helper
+  generation -> principal_ledger_mismatch (§4.2, §7.4).
+  Helper process runs as root and owns generation ledger;
+  dispatcher unbinds BEFORE helper account retirement (§7.3).
+  Same bind effect ID + equal args returns existing binding;
+  changed args -> bind_request_conflict (§7.2).
+  No implicit extension, generation reuse or blanket keeper revoke.
+  [[../spec/broker.md#72-creating-and-removing Spec §7.2]]
+end note
+
+state "Lease record: broker-owned persistent metadata, no payload (§8.3)" as Leases {
+  state "active" as LeaseActive
+  state "released" as LeaseReleased
+  state "expired" as LeaseExpired
+  state "revoked" as LeaseRevoked
+  [*] --> LeaseActive : agent-side executor: lease.request\nbroker admits only after checks 1-7 (§8.2)
+  LeaseActive --> LeaseActive : same UID/generation/binding: renew\nbroker repeats current checks even after refresh (§8.5)
+  LeaseActive --> LeaseReleased : same lease principal: lease.release (§8.5)
+  LeaseReleased --> LeaseReleased : same principal: idempotent release (§8.5)
+}
+
+note right of Leases
+  Executor/harness: active agent OS account; broker: service UID.
+  Atomic metadata replacement (§12.4); exact issuance/release
+  durability vs response ordering unspecified in spec §8.3-§8.5.
+  expired / revoked are declared record states (§8.3);
+  precise transition triggers, scheduling and commit sequence
+  unspecified in spec §8.3-§8.5, so no arrows are invented.
+  Released/expired/revoked or past authorized_until: no renewal.
+  Wrong owner: lease_not_owner. Disconnect is not release;
+  same principal may renew through a new connection (§8.5).
+  Revocation or unbind stops access; copied payloads survive
+  until token expiry or vendor revocation (§6.4, §7.2, §12.1).
+  [[../spec/broker.md#83-response-and-lease-record Spec §8.3]]
+  [[../spec/broker.md#85-renewal-release-and-reports Spec §8.5]]
+end note
+
+state "Grant validity: derived from signed envelope + current revocations (§6)" as Grants {
+  state "valid (all chain rules + time window)" as GrantValid
+  state "revoked (grant, issuer or subject key)" as GrantRevoked
+  GrantValid --> GrantRevoked : issuer (grant only), root or operator signs revocation\nbroker commits under state lock: temp write / flush / rename / dir flush\nupdate memory, THEN acknowledge (§6.4)
+}
+
+note right of Grants
+  v0 software root: local operator Ed25519 key (§4.3).
+  Signed envelopes / authoritative revocations owned by broker;
+  validity is not an invented persisted grant state field (§6.1).
+  Effect: future lease / renew -> lease_grant_revoked or
+  lease_caller_revoked; copied tokens cannot be erased (§8.2, §12.1).
+  Unreadable / malformed revocations -> revocation_state_unavailable
+  until operator repairs; never substitute empty state (§6.4).
+  Expired/not-yet-valid, invalid chains and unsupported predicates
+  refuse under §6.2; they are not extra record enum values.
+  Un-revocation or automatic grant replacement unspecified in spec §6.4.
+  Keeper migration / adapter is later (§4.3, §6.6).
+  [[../spec/broker.md#64-revocation Spec §6.4]]
+end note
+
+legend bottom
+  Four independent views, not one composite runtime state machine.
+  Current repository: draft, nothing implemented. Broker v0 software root;
+  Claude slice 0; Codex slice 1 pending adoption / qualification (§18.4).
+  SH1/SH2 activation unspecified in spec §3.1; source-policy v1/v2
+  are separate policy versions (§5.2), not these record states.
+endlegend
+@enduml

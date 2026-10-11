@@ -1,0 +1,95 @@
+@startuml components
+title M-CB1: broker components - v0 software root, design only
+skinparam componentStyle rectangle
+
+actor "Account owner / operator\nCLI: pinned unmanaged OS principal" as Admin
+component "Caller: Curator composition\ncaller OS account" as Caller
+component "swarma-dispatcher\nown service OS account" as Dispatcher
+component "curator-run\nactive agent UID + generation\nfirst consumer, slice 0" as Executor
+component "Harness\nagent OS account" as Harness
+component "swarma-user-manager\nroot, no-argument sudo entry" as Helper
+component "Approved Codex executable\nbroker service UID, pinned digest\nslice 1" as Codex
+database "Helper ledger\nroot-owned, no secrets" as Ledger
+
+package "swarma-credential-broker daemon: one unprivileged service UID" {
+  component "Peer authenticator\nkernel effective UID; fixed role\nbroker/1 Unix socket only" as Peer
+  component "Principal / UID-generation reader\nactive helper generation or pinned identity" as Identity
+  component "Grant verifier + revocations\ntwo separate chains; v0 software root" as Grants
+  component "Binding index\ndispatcher bind / unbind" as Bindings
+  component "Lease service\nchecks 1-7; checks 2-7 under state lock\nownership on renew/release/report" as Leases
+  component "Account management + auth owner\none internal refresher per rotating account\nslice 1 Codex adapter" as Accounts
+  component "Events / audit writer\ntyped metadata only" as Events
+  database "Durable store: broker UID\naccounts + secrets, config, grants,\nrevocations, bindings, leases, audit" as Store
+}
+
+Caller --> Dispatcher : request execution with caller-composed plan
+Dispatcher --> Helper : create / retire account
+Helper --> Ledger : publish generations
+Dispatcher --> Peer : bind / unbind, no material
+Admin --> Peer : account / grant / revocation / status methods
+Executor --> Peer : fresh connection; lease methods
+Executor --> Harness : exec; env / stdin / external-token as qualified
+Peer --> Identity : authenticate principal
+Identity --> Ledger : direct read at bind / lease / renew
+Peer --> Bindings : dispatcher administration
+Peer --> Leases : bound agent only
+Peer --> Accounts : owner methods
+Peer --> Grants : grant / revocation publication
+Bindings --> Grants : leaf chain and caller chain separately
+Leases --> Bindings : active binding, UID + generation
+Leases --> Grants : current authorisation + revocation state
+Leases --> Accounts : active, qualified account / channel
+Accounts --> Codex : enrol / refresh using vendor executable
+Bindings --> Store : binding records
+Grants --> Store : signed grants + durable revocations
+Leases --> Store : lease metadata; no payload
+Accounts --> Store : account records + secret material
+Leases --> Events : outcomes / reports
+Accounts --> Events : expiry / refresh state metadata
+Events --> Store : append-only audit metadata
+
+note right of Peer
+  Refuse unavailable peer UID, wrong role or server UID.
+  Clients check broker UID before sending; close-on-exec,
+  no descriptor inheritance/passing. Role never changes.
+  [[../spec/broker.md#41-peer-identity-and-connections Spec §4.1]]
+end note
+note bottom of Identity
+  Missing, ambiguous, retired, malformed or unreadable ledger:
+  principal_ledger_mismatch; no home search or fallback.
+  Changed unmanaged identity: refuse until operator re-pins.
+  [[../spec/broker.md#42-principals Spec §4.2]]
+end note
+note bottom of Leases
+  Wrong chain/binding/account/profile, source conflict or
+  unqualified injection: refuse; executor does not exec.
+  Unreadable revocations: refuse until operator repairs.
+  Claude recovery: re-enrol + restart; no refresh (slice 0).
+  Codex: backoff for transient refresh; re-enrol on rejection;
+  unavailable owner or missed deadline: refuse (slice 1).
+  [[../spec/broker.md#82-checks-in-order Spec §8.2]]
+  [[../spec/broker.md#122-protected-binding-and-conflicting-sources Spec §12.2]]
+end note
+note bottom of Store
+  Broker owns persistent state; 0700 directories, 0600 secret files.
+  State files atomically replaced; revocation ack follows durability.
+  Harness can read/copy a leased token; already copied tokens
+  end only at expiry or vendor revocation.
+  [[../spec/broker.md#3-components Spec §3]]
+  [[../spec/broker.md#124-files Spec §12.4]]
+end note
+note top of Caller
+  Caller process UID is unspecified in spec §3.1.
+  Board runner / session host call dispatcher, not broker.
+  Later session runner: agent-side transport / renewal;
+  session host: durable session metadata (§3.1).
+  SH1/SH2 activation is unspecified in spec §3.1.
+end note
+note top of Grants
+  Keeper identity keys / versioned adapter: later, not v0.
+  Source-policy v1/v2 are distinct from broker release phases.
+  Enforced networking: slice 2, helper v1; v0 refuses it.
+  [[../spec/broker.md#43-trust-root-and-key-classes Spec §4.3]]
+  [[../spec/broker.md#16-delivery-order Spec §16]]
+end note
+@enduml
