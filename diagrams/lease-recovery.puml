@@ -1,7 +1,7 @@
 @startuml lease-recovery
 title M-CB2: lease refusals and recovery - v0 slice 0 / Codex slice 1, design only
 
-actor "Owner / operator\npinned OS principal; CLI under that UID" as Operator
+participant "Operator command\nswarma-operator: owner / operator\nno harness or shell" as Operator
 participant "curator-run / later session runner\nagent UID + active generation\nexecutor and broker client" as Executor
 participant "swarma-credential-broker\nunprivileged broker service UID" as Broker
 database "Grant / revocation store\nbroker-owned durable state" as Grants
@@ -19,6 +19,17 @@ note over Broker,Grants
   Ledger is read directly, never inferred from an agent home (§4.2).
   [[../spec/broker.md#82-checks-in-order Spec §8.2]]
   [[../spec/broker.md#64-revocation Spec §6.4]]
+end note
+
+note over Operator
+  Every operator act: verified phone-signed canonical record via
+  pinned-key-only tailnet SSH forced command, or password sudo
+  with timestamp_timeout=0 and no NOPASSWD (§14).
+  App shows exact act; phone revocation takes one biometric confirmation.
+  Widening (including re-enrol/reissue): authentication + exact content
+  confirmation, refused inside agent sessions. Narrowing: authentication only.
+  Restore/reopen classification and operator formats remain open (§18.15).
+  Lost account/root: root replacement/reissue, never restore into session UID.
 end note
 
 == Slice 0: admission before launch ==

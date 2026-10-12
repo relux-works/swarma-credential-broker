@@ -12,6 +12,8 @@ A credential broker for agent systems. It runs under its own OS user, holds subs
 - An account may require a network profile, so its traffic leaves only through a named egress.
 - Codex personal plans: a single auth owner refreshes the account with a required writer-lifecycle gate across daemon replacement; launches receive external access tokens and never hold a refresh token.
 
+The configured operator and every subscription/API account's owner are `swarma-operator`, a separate account that never hosts agent sessions and holds the v0 Ed25519 software root. The main path uses a phone-held, hardware-backed **operator device key**: biometric confirmation signs each exact operator act, SSH over the tailnet reaches a forced **operator command** with no shell, and the machine verifies the pinned phone key. Terminal fallback uses password-authenticated sudo into `swarma-operator`, no `NOPASSWD` and `timestamp_timeout=0`. Widening acts need content confirmation and are refused inside agent sessions; revocation needs authentication only. Mandatory `swarma-observer` reads status, accounts, grants and bindings without confirmation. [Operator custody and acts](spec/broker.md#43-trust-root-and-key-classes) are design requirements; [operator format and phone-key lifecycle publication](spec/broker.md#18-open-questions) remain open.
+
 The broker's v0 trusted-process exception is explicit: the harness can read and copy its leased token. Revocation stops new leases and renewals; a copied token remains usable until expiry or vendor revocation. See [the exposure limits](spec/broker.md#121-what-a-compromised-agent-can-do) and [the required injection qualification](spec/broker.md#122-protected-binding-and-conflicting-sources).
 
 ## How it fits

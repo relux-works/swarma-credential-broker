@@ -2,15 +2,34 @@
 !theme plain
 title Broker v0, design only: ending access, grant revocation, task end, account withdrawal
 
-actor "Owner / operator\nCLI as pinned OS principal" as P
+actor "Person" as P
+participant "Phone app / operator device key\nsecure element; biometric presence" as Phone
+participant "Operator command\nswarma-operator; no harness or shell" as O
 participant "swarma-dispatcher\nown service OS account" as D
 participant "swarma-user-manager\nroot, no-argument sudo entry" as H
 participant "swarma-credential-broker\nunprivileged broker service UID" as B
 
+== Authenticate each narrowing operator act ==
+alt Phone-first path
+  Phone -> P: show exact act (who, actions, until)
+  P -> Phone: single biometric confirmation
+  Phone -> O: signed canonical act; SSH over tailnet, pinned key only; forced command
+  O -> O: verify pinned phone signature for this act; no reuse for another act
+else Terminal fallback (phone not required)
+  P -> O: password-authenticated sudo into swarma-operator
+  O -> O: timestamp_timeout=0; no NOPASSWD or cached ticket
+end
+note over P,O
+  Authentication repeats for each operator act below.
+  Narrowing needs no extra content-confirmation step.
+  Widening needs exact content confirmation and is refused in agent sessions.
+  Binary, wire format, domain/canonical bytes and phone-key lifecycle open (§18.15).
+end note
+
 == a grant is revoked ==
-P -> B: revocation.put (signed revocation envelope, §6.4)
+O -> B: revocation.put (signed revocation envelope, §6.4)
 B -> B: verify swarma-credential-broker revocation/1 signature\nunder the state lock: write the new revocation state\n(temp file, flush, rename, flush directory), update memory
-B --> P: acknowledged (only after the state is durable)
+B --> O: acknowledged (only after the state is durable)
 B -> B: dispatcher revocation.check: revoked for affected chains;\nnext lease/renewal: lease_grant_revoked for the lease chain,\nlease_caller_revoked for the caller chain (method-specific refusals)
 
 == the task ends ==
@@ -29,20 +48,20 @@ H -> H: declared-key cleanup; delete home;\nremove account and group; state remo
 note over D,H
   Ordinary retirement deletes the home; export only service-generated
   closed-schema metadata without agent-controlled strings/names/links/bodies.
-  Separate explicit operator home retention cannot guarantee confidentiality.
+  Explicit home retention needs authentication + content confirmation;\n  refused inside agent sessions; cannot guarantee confidentiality.
   Unbind tombstones remain for admissible retry/reconciliation (§7.2);
   expired/missing evidence is unavailable, never not_recorded.
 end note
 H --> D: removed
-note over D,H: Future keeper integration (D-IDENTITY): after retirement,\ndispatcher separately revokes only identities registered as one-shot.\nStanding identities require a signed operator revocation;\nunbind/retire are not blanket identity revocation.
+note over D,H: Future keeper integration (D-IDENTITY): after retirement,\ndispatcher separately revokes only identities registered as one-shot.\nStanding identities require a signed operator revocation through swarma-operator;\nunbind/retire are not blanket identity revocation.
 note over B: a recycled UID or a repeated label inherits nothing:\nbindings, grants and leases are keyed by generation
 
 == Independent direct operator retirement while broker is unavailable ==
-P -> H: operator retirement through helper's local contract
+O -> H: authenticated operator retirement through helper's local contract
 H -> H: irreversible retiring ledger fence; local quiescence and deletion
-H --> P: local retirement result; NOT a broker unbind receipt
-P -> P: retain explicit durable unconfirmed binding-cleanup obligation
-note over P,B
+H --> O: local retirement result; NOT a broker unbind receipt
+O -> O: retain explicit durable unconfirmed binding-cleanup obligation
+note over O,B
   Helper has no broker principal and makes no unbind RPC.
   Later dispatcher/operator reconciliation uses original unbind effect,
   effect.observe and tombstone. Retired generation refuses lease/renew;
@@ -53,7 +72,7 @@ note over P,B
 end note
 
 == the account is withdrawn ==
-P -> B: account.revoke {account: owner/claude/personal}
+O -> B: account.revoke {account: owner/claude/personal}
 B -> B: account state revoked; subsequent leases / renewals refuse lease_account_revoked (§8.2)
 P -> P: revoke at vendor (Claude web interface, §10.1);\ntokens already copied end only there or at expiry
 note over B

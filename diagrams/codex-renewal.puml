@@ -78,7 +78,10 @@ note over O
   [[lease-recovery.puml M-CB2: timeout, transient failure, reauth and disconnect]]
 end note
 note over E,O
-  Rejected token -> reauth_required, owner re-enrols; stopped owner ->
+  Rejected token -> reauth_required; swarma-operator re-enrols through
+  operator command after phone-signed or password-sudo admission
+  (timestamp_timeout=0, no NOPASSWD), with exact content confirmation;
+  refused inside agent sessions (§14). Internal auth owner stopped ->
   owner_unavailable; safe transient failure -> backoff only after prior
   writer/outcome resolved and token valid (§9.4). Timeout may be ambiguous.
   Transient-to-active and owner-restart transitions unspecified in spec §9.4.
@@ -91,7 +94,7 @@ alt complete qualified process absence confirmed
   M --> O: previous writer absent
   O -> S: recover same attempt; reload durable vendor home
   alt prior outcome and store conclusively resolved; retry safe
-    O -> O: allow account owner recovery; any next refresh uses new durable intent
+    O -> O: allow internal auth owner recovery; any next refresh uses new durable intent
   else external rotation / store / outcome ambiguous
     O -> O: owner_unavailable or reauth_required; no blind retry
     note over O,S

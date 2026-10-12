@@ -44,7 +44,10 @@ note over B,H
   [[../spec/broker.md#85-renewal-release-and-reports Spec §8.5]]
 end note
 note over E,H
-  Claude has no refresh: owner re-enrols, executor restarts; --resume (§10.1).
+  Claude has no refresh: swarma-operator re-enrols through operator command;
+  phone-signed or password-sudo act (timestamp_timeout=0, no NOPASSWD),
+  with exact content confirmation; refused inside agent sessions (§14).
+  Executor restarts; --resume (§10.1).
   Unreadable revocations or fenced restore refuse (§6.4, §15.4).
   Prior dispatcher revocation.check cannot waive final broker checks.
   Cleanup after a post-lease tuple/conflict refusal is unspecified in spec §12.2.

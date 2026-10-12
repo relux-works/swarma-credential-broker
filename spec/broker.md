@@ -1,8 +1,14 @@
 # swarma-credential-broker: specification
 
-- **Status:** draft v0.7 (2026-10-12). Nothing is implemented.
+- **Status:** draft v0.8 (2026-10-12). Nothing is implemented.
 - **Normative language:** MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 - **Companions:** [swarma-user-manager](https://github.com/relux-works/swarma-user-manager) (per-agent OS users, the launcher that starts processes under them, and per-UID firewall rules), [curator-network-profiles](https://github.com/relux-works/curator-network-profiles) (egress profiles), curator-spec CIP-0010 and CIP-0011 (the Curator side: credential sources, the protected credential binding, the executor capability, the launch-plan extension).
+
+### Revision 0.8
+
+- Applies accepted F-23 with the owner amendment and R-OPERATOR: `swarma-operator` is the no-harness operator/account owner and v0 software-root custodian; `swarma-observer` admits confirmation-free reads (§4, §13–§15).
+- Adds the phone-held operator device key and phone-signed operator acts through the forced operator command, with password-authenticated terminal fallback, per-act widening confirmation and agent-session refusal (§4.3, §14–§15). Existing Ed25519 broker envelopes stay unchanged; unpublished operator formats and phone-key lifecycle remain open (§18.15).
+- Aligns enrolment, revocation, launch/renewal, recovery, component, record-state and storage figures with operator custody and authentication.
 
 ### Revision 0.7
 
@@ -97,7 +103,9 @@ Figure [M-CB1 — broker components](../diagrams/components.puml) shows the proc
 | grant store | files owned by the broker user | signed grants and the revocation state (§6.4) |
 | auth owners | inside the daemon, one per rotating account | refresh with at most one live vendor writer per account across daemon replacement (§9.4) |
 | client library (`pkg/client`) | inside executors, dispatchers and the CLI | the socket protocol, delivery of material to a harness, renewal |
-| CLI | the calling person or component | `curator broker …` in Curator, or the standalone `swarma-credential-broker` binary (§14) |
+| CLI front end | the calling person or component | requests the admitted operation through `curator broker …` or the standalone `swarma-credential-broker` binary (§14) |
+| operator command | `swarma-operator`, never a harness/session UID | forced narrow entry for phone-signed or terminal-authenticated owner/operator acts; custody of the v0 root (§4.3, §14) |
+| read-only client | `swarma-observer` | status, accounts, grants and bindings without confirmation (§13.2, §14) |
 
 The broker opens no network listener. Its only interface is a Unix-domain socket. **R-SVC-EGRESS:** the broker reaches the network only through the proxy, including approved vendor children under its UID. The user manager's §8 owns the v1 service-profile matrix: the broker has its own profile and proxy listener; kernel egress permits only that destination, and the proxy allowlist carries qualified vendor names. The dispatcher and session host have deny-all egress. Service-profile enforcement and resolver isolation are v1/slice-2 capabilities, not claims about cooperative v0 or a new slice-0 prerequisite (§15.2). Daemon-local ownership and an account lock alone do not establish single vendor-refresh ownership after a daemon crash: vendor children do not honour that lock. Slice 1 MUST preserve at most one live vendor refresh writer per account across replacement, using durable attempt intent and qualified service-manager containment, kill-and-confirm and recovery (§9.4, §15).
 
@@ -125,17 +133,17 @@ The kernel reports the credentials of the process that **connected**, not of who
 2. Operators and dispatchers SHOULD use one connection per operation. A process that changes credentials (for example a dispatcher starting an agent) MUST close its broker connections before the transition; the agent's executor opens a fresh connection afterwards.
 3. The broker associates each connection with the principal it authenticated at connect time (§4.2) and closes every connection of a UID when that UID's binding is removed or its account generation is retired.
 4. Clients MUST check that the server's peer UID is the configured broker service UID before sending anything (`server_identity_mismatch`).
-5. Lease methods accept only bound agent principals; administrative methods accept only operators, dispatchers and owners (§13.2). A connection never changes role.
+5. Lease methods accept only bound agent principals; administrative methods admit only the roles listed in §13.2, including the read-only observer. A connection never changes role.
 
 The socket lives in its own directory outside the broker's data tree (§15.2). Qualification covers a connection opened before a credential change, inherited and passed descriptors, and substitution of the socket path (§16).
 
 ### 4.2 Principals
 
-The broker's configuration (owned by the broker user, §15) names operators and dispatchers. Each principal is recorded as follows:
+The broker's configuration (owned by the broker user, §15) names `swarma-operator` as its configured operator and account owner, `swarma-observer` as its mandatory read-only principal, and the configured dispatchers. `swarma-operator` MUST NOT host a harness session. A person's interactive account is not the operator or account owner; its sessions have no operator authority. The user manager's `operator` UID is this same `swarma-operator` account. Each principal is recorded as follows:
 
 - **Managed principals** (accounts created by swarma-user-manager: agents, and dispatchers or services that run under helper-created service accounts) are keyed by `(uid, generation)` and are valid only while the helper ledger shows that generation as `active` for that UID. The broker reads the ledger file directly (helper §4.5); a missing, ambiguous, retired, malformed or unreadable entry refuses (`principal_ledger_mismatch`). The check is repeated on bind, lease and renew.
-- **Unmanaged principals** (people's own OS accounts acting as operators or owners) are pinned at configuration by UID plus the account's directory identity (on macOS the account's `GeneratedUID`; on Linux the user name and home path). A change refuses until an operator re-pins the principal (`principal_identity_changed`).
-- Every principal that enrols an account becomes that account's **owner**.
+- **Unmanaged principals** (dedicated operator/observer accounts when not represented by a helper-managed generation) are pinned at configuration by UID plus the account's directory identity (on macOS the account's `GeneratedUID`; on Linux the user name and home path). A change refuses until an operator re-pins the principal (`principal_identity_changed`).
+- Every enrolled subscription/API account has `swarma-operator` as its **owner**. The person performing the vendor ceremony does not acquire owner authority through their interactive UID. Helper-created operator/observer service accounts use the managed-principal checks above; other installations pin their directory identity. Neither account hosts a harness session.
 
 The root helper is a ledger publisher, not a broker principal: root privilege grants no broker bind, unbind or observation role. Cross-account child workspaces use standalone repositories with their own `.git`, configuration and hooks (F-16); Worktrees within one account and the current board workflow stay unchanged; linked worktrees across isolated accounts are forbidden. Workspace materialisation belongs to the launcher/workspace contract, not the broker.
 
@@ -143,15 +151,18 @@ The helper ledger's default locator is **`/opt/swarma/lib/user-manager/ledger.js
 
 ### 4.3 Trust root and key classes
 
-Grants are verified against one or more configured **root public keys** (Ed25519). In v0 the root is a local software key of the operator; `curator broker grant …` signs with it. v0 is therefore a local broker authorisation format with a software trust root.
+Grants are verified against one or more configured **root public keys** (Ed25519). In v0 the root is a local software key held only by `swarma-operator`, mode 0600 in its protected account storage, never in an account that runs agent sessions. Grant issuance through the **operator command** signs the existing v0 envelope with that root after the operator act is admitted (§14). v0 remains a local broker authorisation format with an Ed25519 software trust root; the phone key does not replace it or change its algorithm.
 
-Three key classes have different owners and phases:
+Four key classes have different owners and phases:
 
 | Key class | Custody and role | Phase |
 |---|---|---|
 | Dispatcher caller key (Ed25519) | Generated in the orchestrator agent home; registered by that UID against `(uid, generation)`; signs caller requests to the dispatcher (dispatcher §3.3) | Current dispatcher design; not a keeper identity key |
-| Broker operator software root (Ed25519) | Local operator key; signs the broker's v0 grants and anchors their verification | Broker v0 |
+| Broker operator software root (Ed25519) | Protected `swarma-operator` account storage, mode 0600; signs the broker's v0 grants and anchors their verification; no harness runs under this UID | Broker v0 |
+| Operator device key (hardware-backed, presence-gated) | Private key remains in the phone's Secure Enclave or StrongBox and is usable only after biometric confirmation; signs canonical operator records, verified against the pinned phone key | Phone-first operator path; operator format publication required (§18.15) |
 | Keeper-derived agent identity key | Private key retained inside the keeper, with a root-signed identity certificate and generation-aware identity registration | Architectural target; adapter and activation are later work |
+
+`swarma-operator` holds the operator signing authority and protected operator records for `team/1`, standing retirement, maintenance authority, explicit home retention and standing re-grants. Where a companion spec already names a signed operator record (`team/1`, standing retirement), the operator device key is one admitted signer. An operator act is a signed operator record over its canonical content; its signature domain and canonical bytes are unpublished (§18.15). This record is distinct from the broker's existing `grant/1` and `revocation/1` envelopes. The operator command verifies the phone record before using the account-held authority; no broker wire field or signature-algorithm change is implied. Protected binaries and configuration prevent agent accounts from replacing that command or its pins.
 
 A claim that every agent key stays inside the keeper does not apply to the caller-key or software-root phases. Broker peer identity is still kernel UID plus the active helper generation, not possession of any one of these keys.
 
@@ -231,7 +242,7 @@ Material is kept behind a secret-store interface (`put`, `get`, `delete`, `descr
 
 ### 5.4 Enrolment
 
-Enrolment is always performed by a person through the vendor's own flow:
+Enrolment is always performed by a person through the vendor's own flow and the operator command as `swarma-operator`, with authentication and exact content confirmation (§14); it is refused from inside an agent session. The vendor browser ceremony alone is not operator authentication:
 
 - **Claude:** the person runs `claude setup-token` and pipes the printed token to `curator broker enrol claude_code --account <id> --token-stdin [--issued-at <date>]`.
 - **Codex personal plan:** a ceremony run by the broker under its own user (§9.2): the broker starts the vendor's device login in a fresh broker-owned Codex home and relays the verification address and code to the person's CLI; the person completes the login in a browser. No existing login is imported, no other user's home is adopted, and no keyring item is exported.
@@ -483,7 +494,7 @@ A Codex ChatGPT login rotates its refresh token on every refresh. Several proces
 
 ### 9.2 Enrolment ceremony
 
-1. A person runs `curator broker enrol codex_cli --account <id>`.
+1. A person requests `curator broker enrol codex_cli --account <id>` through the operator command as `swarma-operator`, after authentication and exact content confirmation (§14), outside any agent session.
 2. The broker creates a fresh Codex home for the account inside its own store, configured for file credential storage, and runs the approved Codex executable (pinned path and digest) with a sanitised environment to start the vendor's device login. Under the v1 service profile, the broker explicitly supplies proxy variables to the vendor executable and its network-using children; inheritance is not assumed. Login, policy-fetch and refresh routes need separate approved endpoint-set, proxy-use and no-direct-fallback qualification (§15.2). The `credential_binding` endpoint list does not establish authentication endpoints.
 3. The broker relays the verification address and code to the person's CLI. The person completes the login in a browser.
 4. The broker reads the vendor account identifier from the new login and refuses if another broker account already maps to it (`account_duplicate`).
@@ -556,7 +567,9 @@ Events carry typed metadata only. Later versions deliver them to the session hos
 
 It can read the credential leased to it and copy it within its OS account; this trusted-process posture is a scoped, owner-approved departure from the stronger secret-free agent model of curator-trust. It cannot obtain accounts outside its grants, cannot bind itself, cannot forge its UID, cannot read the broker's store, and cannot refresh a Codex account. A revocation stops new leases and renewals; a token already copied lives until it expires or is revoked at the vendor. Stronger non-extraction (injection at an egress proxy, or a credential the process cannot read) is a separate design.
 
-Because a compromised agent can encode a copied token in arbitrary content, names or links, token scanning and path declarations cannot prove its home secret-free. Ordinary retirement quiesces the generation, performs declared-key cleanup and deletes the home (owner decision 2026-10-12); only service-generated metadata in a closed schema without agent-controlled strings, names, links or bodies may be exported. Keeping a home requires a separate explicit operator operation stating that confidentiality is not guaranteed. Code/results follow their separate git/acceptance policy; git does not establish secret absence. The user manager owns this retirement procedure, not the broker.
+Operator custody is a slice-0 boundary: no harness session runs as `swarma-operator`, and agent accounts cannot read its mode-0600 root or replace its protected command/configuration. Widening authority requires the authenticated, content-confirmed operator path (§14), which refuses widening from an agent session. The phone key remains hardware-backed and presence-gated; terminal fallback cannot reuse a cached sudo ticket. `swarma-observer` reads confer no mutation or secret access. These are required design boundaries, not measured isolation claims.
+
+Because a compromised agent can encode a copied token in arbitrary content, names or links, token scanning and path declarations cannot prove its home secret-free. Ordinary retirement quiesces the generation, performs declared-key cleanup and deletes the home (owner decision 2026-10-12); only service-generated metadata in a closed schema without agent-controlled strings, names, links or bodies may be exported. Keeping a home requires a separate explicit operator operation stating that confidentiality is not guaranteed, with authentication and exact content confirmation through `swarma-operator`; the operator CLI refuses it from inside an agent session (§14). Code/results follow their separate git/acceptance policy; git does not establish secret absence. The user manager owns this retirement procedure, not the broker.
 
 ### 12.2 Protected binding and conflicting sources
 
@@ -607,16 +620,19 @@ No wait edge carries the broker state-transition lock into the user manager, dis
 |---|---|---|
 | `hello` | any authenticated peer | version negotiation; returns the peer's principal |
 | `account.enrol`, `account.describe`, `account.revoke`, `account.mark` | the account's owner | §5, §9.2 |
-| `account.list` | owners (their own), operators | §5 |
-| `grant.put`, `grant.list`, `revocation.put` | operators, and key holders for records they signed | §6 |
+| `account.list` | owners (their own), operators, `swarma-observer` | §5 |
+| `grant.put`, `revocation.put` | operators through the operator command, and key holders for records they signed | §6; operator authentication/confirmation rules in §14 |
+| `grant.list` | operators, `swarma-observer`, and key holders for records they signed | §6 |
 | `bind` | configured dispatchers | §7, including authorised binding replacement |
 | `unbind` | creating dispatcher, operators | §7; no helper principal |
-| `binding.list` | dispatchers (their own), operators | §7 |
+| `binding.list` | dispatchers (their own), operators, `swarma-observer` | §7 |
 | `effect.observe` | original effect caller principal, operators | read bind/unbind effect evidence and current target state (§7, below) |
 | `revocation.check` | configured dispatchers | point-in-time revocation verdict for exact chains and context (§6.4, below) |
 | `lease.request` | the agent principal of an active binding | §8 |
 | `lease.renew`, `lease.release`, `event.report` | the lease's own principal and binding | §8.5 |
-| `status` | owners (their accounts), operators | accounts, owners, leases, events |
+| `status` | owners (their accounts), operators, `swarma-observer` | accounts, owners, leases, events |
+
+**Operator admission (R-OPERATOR).** Every operator-only method and every use of the owner role reaches the broker through the operator command running as `swarma-operator`, after a phone-signed or terminal-authenticated act (§14). A bare interactive UID or knowledge of the operator UID is not an admitted path; direct operator-UID calls such as `account.enrol` and `unbind` are confined to that command boundary even where the broker method requires no root signature. `swarma-observer` may read `status`, `account.list`, `grant.list` and `binding.list` without authentication prompts or content confirmation, but may not mutate state, lease material, or acquire an owner/operator role. These are broker-wide metadata reads; no secret-store or private operator-storage access is granted. Existing dispatcher methods, original-caller observations and valid signed key-holder submissions retain their bounded authority and do not become operator acts.
 
 **`revocation.check` (R-VERDICT).** Takes the exact chain or chains being checked and check context `prepare`, `dequeue` or `start`. Only a configured dispatcher authenticated under §4.1–§4.2 may call it; this does not grant operator status or private-directory access. Under the broker state lock, it answers exactly `not_revoked`, `revoked` or `unavailable`, together with the broker's revocation sequence at that check's publication point. `not_revoked` requires a complete current read; unavailable, stale or restoring evidence yields `unavailable`. While restore is fenced, it always answers `unavailable`; no fresh sequence may be claimed from unreadable or untrusted restored state. Representation of an unavailable sequence is unpublished (§18.8). The answer is tied to those exact inputs and is point-in-time evidence, never a grant, transferable authority or permit for a future start. The dispatcher still authenticates callers, verifies signatures/chains and applies spawn/quota/capacity policy; it refuses `revoked` and `unavailable` and rechecks at each declared admission point. Final broker bind, lease and renewal checks remain mandatory.
 
@@ -665,7 +681,15 @@ The standalone binary is **`swarma-credential-broker <verb>`**; through Curator'
 
 D-WIRE-NAMES explicitly replaces the earlier signing domains with `swarma-credential-broker grant/1` and `swarma-credential-broker revocation/1` (§6.1, §6.4). This is the owner-approved pre-release wire decision, separate from CLI naming. The peer-authenticated `broker/1` transport defines no broker request-signature domain (§13).
 
-Examples:
+**Phone-first path.** The phone app reaches the machine by SSH over the tailnet into `swarma-operator`, using only the pinned operator device key. SSH provides no shell: a forced, narrow **operator command** accepts operator acts only. The app shows each act's exact content (who, which actions, until when), then biometric confirmation enables signing on the phone. The machine verifies the signature against the pinned phone key and binds it to that one act's canonical content; it cannot be reused for another act. Revocation takes a single biometric confirmation, with no additional content-confirmation step. SSH login alone never authorizes an unsigned operator act.
+
+**Terminal fallback.** From a computer, the person uses password-authenticated `sudo` into `swarma-operator` to invoke the operator command. Every act requires authentication: no `NOPASSWD`, and `timestamp_timeout=0` prevents cached-ticket reuse. The terminal fallback works without the phone; no additional hardware or signature-algorithm change is required. It grants no general operator shell or harness entry.
+
+**Act confirmation.** Widening acts require authentication plus confirmation of exact content: grant issue, subscription enrolment, `team/1`, standing retirement or re-creation, explicit home retention, maintenance stop authority and renewal of standing grants. The operator CLI MUST refuse these from inside an agent session on either path. Narrowing acts (revocation, disabling an account and unbind) require authentication only. Automatic narrowing and service acts already admitted under existing authority remain available without a person; automatic re-grants may only be bounded, non-widening and explicitly pre-authorised within a published existing delegation. There is no inferred infinite renewal or maintenance authority. Classification and confirmation for other explicit operator procedures, including time reset and restore/reopen, would need publication (§18.15).
+
+**Read-only path.** `curator broker accounts`, `bindings`, `status` and the `grant.list` read use `swarma-observer` with no confirmation or password prompt. The observer cannot perform operator acts. Its entry-point spelling and the operator command's binary name, wire format, signed-record domain and canonical bytes are unpublished (§18.15); the front-end examples below do not define that mapping or bypass it. The phone record authorizes the act; existing broker Ed25519 grant/revocation envelopes retain their own signing domains (§4.3).
+
+Front-end examples (mutations through the operator command; reads through `swarma-observer`):
 
 ```
 curator broker enrol claude_code --account owner/claude/personal --token-stdin [--issued-at 2026-10-09]
@@ -684,6 +708,8 @@ Agent leaves (`agent:<generation>`) are issued by the dispatcher when it binds a
 ### 15.1 Service user and time
 
 The broker runs as the dedicated unprivileged service user `swarma-credential-broker`, created by swarma-user-manager (`user.create { kind: "service" }` from the installer principal); its home is `/opt/swarma/services/swarma-credential-broker`. The platform installer installs the binary, the service user and the service unit together.
+
+**Operator and observer installation (R-OPERATOR).** Installation MUST create the separate `swarma-operator` and `swarma-observer` accounts under the service naming rule and pin their principals (§4.2); neither may host harness sessions. `swarma-operator` is the configured broker operator, every account's owner and the user manager's `operator` UID. Protect its mode-0600 v0 root and operator records, the operator command binaries/configuration and the phone-key pin from agent accounts. The installer configures SSH over the tailnet into `swarma-operator` using only the pinned phone key and a forced narrow operator command, with no shell. It installs password-authenticated terminal sudo rules into that account with `timestamp_timeout=0`, no cached tickets and no `NOPASSWD` for operator acts, including the helper's operator role. `NOPASSWD` stays only for the dispatcher service account's helper and launcher rules; the dispatcher itself has no caller sudo entry. Install the mandatory observer's confirmation-free read path without granting mutation or secret access. Concrete account provisioning, command confinement and phone-key pin storage would need publication (§18.15). Phone-key enrolment, rotation and loss remain open there, with terminal re-enrolment under this fallback as the proposal.
 
 **R-TIME installation and confidence.** The installer MUST require an authenticated or operator-controlled time source (for example NTS). One platform time-confidence policy is reused by every service; tolerances and concrete source/start integration would need publication (§18.12). Detect-and-hold and time-confidence validation precede authority evaluation and watermark advancement. Compare wall and monotonic deltas only within one boot epoch; this cannot validate the initial RTC or slow drift. Backward steps or forward steps beyond tolerance raise an incident and hold time-based evidence reclamation. After boot, destructive time effects and watermark advances beyond tolerance hold until authenticated sync or operator confirmation establishes confidence. While time is untrusted, bind/replacement, leases and renewals refuse; explicit stops and authenticated unbind/operator retirement remain available.
 
@@ -728,7 +754,7 @@ A same-home sequence, audit file or checkpoint cannot certify its own rollback. 
 ## 16. Delivery order
 
 1. **Formats.** `grant/1`, `revocation/1` and the `broker/1` frames are frozen with canonical and negative vectors; the verifier ships with its mutant suite (§6.2).
-2. **Slice 0: one protected Claude launch.** swarma-user-manager v0 and its launcher; the broker daemon with the file store, local grants and revocation state, the fenced restore/start check, bind and unbind with retained observation evidence, R-OUTCOME tables, R-REBIND binding replacement, durable R-TIME watermark and elapsed-removal gate, `effect.observe`, `revocation.check`, lease request and release, the `env` channel, protected binding and conflict refusal, audit; the broker client in `curator-run` under the agent account (§3.1, D-EXECUTOR). **The dispatcher is an unprivileged Unix-socket service from this first slice**, using the broker connection and framing rules (§4.1, §13.1); `curator agent-user` is its client. There is no dispatcher sudo entry, command mode, `SUDO_UID` dispatcher branch, detached-command bootstrap, external sweep timer or command-to-daemon conversion. Dispatcher-to-root user-manager/launcher rules remain. Recovery and readiness precede admission; an absent/unready dispatcher refuses with no command fallback. Initial capacity closure refuses; queueing, events, long waits and advanced integrations come later behind capability gates on this same transport. The board runner and session host call the dispatcher rather than embedding broker clients. Direct worker launches and operator-enrolled orchestrators form the first slice; recursive orchestrator provisioning stays refused until the requester-signed bootstrap is published and qualified (R-DELEG). Hosted-runner acceptance exercises the deployed socket service, caller signatures, fresh principal/generation checks, server-UID verification, descriptor restrictions, durable effects/receipts and process-absence reconciliation. The dispatcher creates the account, binds with caller authorization and invokes the launcher; the executor leases and runs Claude. It MUST refuse another UID, retired generation, account/profile mismatch, expired/revoked grant, unavailable revocation evidence, fenced restore, conflicting source and unqualified harness. The token appears in no file, argv, log or child process the qualification covers. Required negative/recovery rows are below; publication gaps in §18 remain gates, not qualification claims.
+2. **Slice 0: one protected Claude launch.** swarma-user-manager v0 and its launcher; installed `swarma-operator`/`swarma-observer` and qualified operator-command admission/custody (§4, §14–§15, §18.15); the broker daemon with the file store, local grants and revocation state, the fenced restore/start check, bind and unbind with retained observation evidence, R-OUTCOME tables, R-REBIND binding replacement, durable R-TIME watermark and elapsed-removal gate, `effect.observe`, `revocation.check`, lease request and release, the `env` channel, protected binding and conflict refusal, audit; the broker client in `curator-run` under the agent account (§3.1, D-EXECUTOR). **The dispatcher is an unprivileged Unix-socket service from this first slice**, using the broker connection and framing rules (§4.1, §13.1); `curator agent-user` is its client. There is no dispatcher sudo entry, command mode, `SUDO_UID` dispatcher branch, detached-command bootstrap, external sweep timer or command-to-daemon conversion. Dispatcher-to-root user-manager/launcher rules remain. Recovery and readiness precede admission; an absent/unready dispatcher refuses with no command fallback. Initial capacity closure refuses; queueing, events, long waits and advanced integrations come later behind capability gates on this same transport. The board runner and session host call the dispatcher rather than embedding broker clients. Direct worker launches and operator-enrolled orchestrators form the first slice; recursive orchestrator provisioning stays refused until the requester-signed bootstrap is published and qualified (R-DELEG). Hosted-runner acceptance exercises the deployed socket service, caller signatures, fresh principal/generation checks, server-UID verification, descriptor restrictions, durable effects/receipts and process-absence reconciliation. The dispatcher creates the account, binds with caller authorization and invokes the launcher; the executor leases and runs Claude. It MUST refuse another UID, retired generation, account/profile mismatch, expired/revoked grant, unavailable revocation evidence, fenced restore, conflicting source and unqualified harness. The token appears in no file, argv, log or child process the qualification covers. Required negative/recovery rows are below; publication gaps in §18 remain gates, not qualification claims.
 3. **Slice 1: Codex.** The enrolment ceremony, auth owner, external tokens with renewal and deadlines, supported-release qualification and **single-writer ownership across daemon replacement** (§9.4–§9.6, §15). Activation requires every replacement/rotation row in §9.6 on both platforms; a daemon-local lock or historical renewal evidence alone is insufficient.
 4. **Slice 2: enforced networking.** Helper v1 firewall rules, R-SVC-EGRESS service rows/proxy and resolver qualification, and R-NETBIND machine-owned binding with served-policy verification; trusted applied state; accounts that require enforced profiles become serviceable (§5.5).
 
@@ -736,10 +762,16 @@ A same-home sequence, audit file or checkpoint cannot certify its own rollback. 
 
 The §6.2 rule already enforces `child.issuer == parent.subject` on every edge, including the leaf, with exact parent IDs and decreasing depth; it is unchanged. R-DELEG requires requester C to sign new orchestrator O's caller delegation after generation-bound key registration; dispatcher D verifies and records it, never signs it. When O creates worker W, the separate caller chain retained in W's binding MUST still include C. Key registration alone activates no spawn authority. The dispatcher owns bootstrap authentication, replay/rotation rules and depth/chain-length preflight; broker `broker/1` adds no `register_key` method.
 
-These required vectors must drive dispatcher admission/activation and the broker's real bind/lease/renew paths where applicable. Publication of vectors here is not evidence they have run.
+These required vectors must drive dispatcher admission/activation and the broker's real bind/lease/renew paths where applicable. The R-OPERATOR vectors drive installation and the real operator command and observer entry points; their unpublished integration remains gated by §18.15. Publication of vectors here is not evidence they have run.
 
 | Vector / recovery case | Required result |
 |---|---|
+| Attempt to configure an interactive/harness UID as operator/owner, or place the root in that account | Refuse installation/admission; `swarma-operator` owns the root and operator authority and never hosts harnesses |
+| Unsigned/forged phone act, unpinned key, altered canonical content or reuse for a different act | Operator command refuses; SSH login alone cannot authorize the act; no operator mutation |
+| Widening without exact content confirmation, or enrol/grant/standing renewal attempted inside an agent session on either path | Refuse before mutation; valid authentication alone cannot widen |
+| Terminal operator act using NOPASSWD or a cached sudo ticket | No admission; each act needs password authentication with timestamp_timeout=0; phone absence still permits authenticated fallback |
+| Revocation through phone or terminal | Single biometric confirmation on phone or fresh terminal password; no extra content-confirmation step; existing revocation signature/durability checks still apply |
+| Observer attempts enrol, grant publication, revocation, unbind or secret/lease access | Refuse mutation/material access; status, account.list, grant.list and binding.list remain confirmation-free reads |
 | C ≠ D; D signs O's delegation attached to C's leaf | Refuse wrong issuer/parent-subject edge. Control: C-signed narrowed delegation retains C and verifies independently of D's lease chain |
 | Wrong issuer at any edge, including leaf; mutate continuity check | Refuse even if signatures individually verify; no re-parenting that drops C |
 | Insufficient remaining depth or fifth envelope | Refuse before provisioning/activation; narrowing depth and four-envelope bound remain mandatory |
@@ -792,6 +824,8 @@ The following broker/provider choices and publication gates remain open here. D-
 12. **OPEN — R-TIME publication (§6.2, §7.2, §8.3, §15).** Would need the shared confidence policy/tolerances, authenticated/operator-controlled source integration, durable watermark and trusted-expiry/reset evidence outside restore rollback, boot-inclusive elapsed accumulation and lifetime anchoring. Reset must preserve genuinely expired authority; missing elapsed evidence delays destruction. The max/min checks and dual destructive gate are fixed, not open choices.
 13. **OPEN — R-LOCK publication (§13.1).** Would need concrete per-record in-flight marker/version/daemon fencing, bounded I/O/concurrency and late-result recovery mechanisms that implement the acyclic wait/lock graph without holding state locks across platform-service calls.
 14. **OPEN — R-SVC-EGRESS/R-NETBIND v1 integration (§3, §5.5, §9, §15.2).** Would need the user manager's service-profile API/matrix, start and scheduled re-verification owner/response, broker profile/listener authentication allowlist based on qualified login/refresh/policy-fetch endpoints, explicit vendor-child proxy configuration, resolver isolation and served-digest relations/re-apply fencing. These gates accompany v1 enforcement; no new grant dimension or authentication endpoint guess is introduced.
+
+15. **OPEN — R-OPERATOR publication and phone-key lifecycle (§4.2–§4.3, §13.2, §14–§15).** Would need the operator command binary name and wire format, operator-record signature domain and canonical bytes, exact content display/confirmation and per-act/replay verification, hardware-backed phone-key/SSH integration and pin storage, agent-session detection/refusal, protected command-only terminal/SSH admission and account provisioning, observer read entry point, and classification/confirmation of time reset and restore/reopen. Key enrolment, rotation and loss of the phone remain open; the proposal is terminal re-enrolment through password-authenticated fallback with `timestamp_timeout=0`. Would need recovery/re-pinning and revocation rules that preserve the no-harness custody boundary; loss of the operator account or root follows §15.4 root replacement/reissue, never key restoration into a session account. Existing signed broker envelopes, shared method names and refusal codes are unchanged; no operator wire fields or algorithm are assigned here.
 
 ## Appendix A. Refusal codes
 

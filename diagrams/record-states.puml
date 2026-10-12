@@ -21,7 +21,11 @@ state "Account record: broker-owned persistent metadata (§5.1)" as Accounts {
 }
 
 note right of Accounts
-  CLI runs as pinned account owner; auth owner runs INSIDE
+  Owner acts through operator command as swarma-operator, no harness.
+  Each enrol/re-enrol: authentication + exact content confirmation;
+  refused in agent sessions. Revoke: authentication only.
+  Phone: signed canonical act + biometric presence; terminal: password sudo,
+  timestamp_timeout=0, no NOPASSWD. Auth owner runs INSIDE
   broker daemon under service UID swarma-credential-broker.
   Records / secret files: atomic replacement in broker-owned dirs (§12.4).
   Exact transaction/ack point across account + secret files:
@@ -106,7 +110,11 @@ state "Grant validity: derived from signed envelope + current revocations (§6)"
 }
 
 note right of Grants
-  v0 software root: local operator Ed25519 key (§4.3).
+  v0 software root: swarma-operator Ed25519 key, mode 0600 (§4.3).
+  Operator revocation through phone-signed or terminal-authenticated command;
+  phone revocation takes one biometric confirmation.
+  Device key / signed operator record separate from broker envelope;
+  command/domain/canonical bytes and phone-key lifecycle open (§18.15).
   Signed envelopes / authoritative revocations owned by broker;
   validity is not an invented persisted grant state field (§6.1).
   Effect: future lease / renew -> lease_grant_revoked or

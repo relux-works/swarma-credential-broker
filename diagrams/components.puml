@@ -2,7 +2,11 @@
 title M-CB1: broker components - v0 software root, design only
 skinparam componentStyle rectangle
 
-actor "Account owner / operator\nCLI: pinned unmanaged OS principal" as Admin
+actor "Person" as Person
+component "Phone app\noperator device key in secure element\nbiometric confirmation" as Phone
+component "Operator command\nswarma-operator: account owner / operator\nno harness sessions or shell" as Admin
+component "Read-only client\nswarma-observer; no harness sessions" as Observer
+database "Protected operator storage\nswarma-operator: v0 Ed25519 private root\noperator records; no agent access" as OperatorStore
 component "Caller: Curator composition\ncaller OS account" as Caller
 component "swarma-dispatcher\nown service OS account" as Dispatcher
 component "curator-run\nactive agent UID + generation\nfirst consumer, slice 0" as Executor
@@ -28,7 +32,12 @@ Caller --> Dispatcher : request execution with caller-composed plan
 Dispatcher --> Helper : create / retire account
 Helper --> Ledger : publish generations
 Dispatcher --> Peer : bind / unbind; effect.observe; revocation.check; no material
-Admin --> Peer : account / grant / revocation / status methods
+Person --> Phone : inspect exact act; biometric confirmation
+Phone --> Admin : SSH over tailnet, pinned key only; forced command; signed act
+Person --> Admin : terminal sudo: password; timestamp_timeout=0; no NOPASSWD
+Admin --> OperatorStore : admitted act uses account-held authority
+Admin --> Peer : admitted owner/operator methods; fresh operator connection
+Observer --> Peer : status / account.list / grant.list / binding.list; no confirmation
 Executor --> Peer : fresh connection; lease methods
 Executor --> Harness : env: exec replaces executor; stdin process model unpublished\nexternal-token: start private app-server; retain live client (§8.5, §9.3)
 Peer --> Identity : authenticate principal
@@ -53,6 +62,14 @@ Leases --> Events : outcomes / reports
 Accounts --> Events : expiry / refresh state metadata
 Events --> Store : append-only audit metadata
 
+note top of Admin
+  Verify phone signature bound to one canonical act; no reuse for another.
+  Widening: authentication + exact content confirmation;
+  refused inside agent sessions. Narrowing: authentication only.
+  Operator device key does not replace the Ed25519 software root.
+  Binary/wire format, signature domain/canonical bytes and phone-key lifecycle
+  unpublished (§18.15); terminal fallback needs no phone.
+end note
 note right of Peer
   Refuse unavailable peer UID, wrong role or server UID.
   Clients check broker UID before sending; close-on-exec,
@@ -62,7 +79,7 @@ end note
 note bottom of Identity
   Missing, ambiguous, retired, malformed or unreadable ledger:
   principal_ledger_mismatch; no home search or fallback.
-  Changed unmanaged identity: refuse until operator re-pins.
+  Changed pinned identity: refuse until operator re-pins.
   [[../spec/broker.md#42-principals Spec §4.2]]
 end note
 note bottom of Leases

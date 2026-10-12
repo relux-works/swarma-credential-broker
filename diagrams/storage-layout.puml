@@ -2,7 +2,15 @@
 title M-CB4: persistent storage / runtime socket - broker v0, design only
 
 component "swarma-credential-broker daemon\nunprivileged service UID\nLaunchDaemon UserName / systemd User" as Broker
-component "Owner / operator CLI\npinned unmanaged OS principal" as Operator
+component "Operator command\nswarma-operator; no harness or shell" as Operator
+component "Read-only client\nswarma-observer; no harness" as Observer
+component "Phone app\noperator device key: secure element\nprivate key never leaves; biometric presence" as Phone
+actor "Person" as Person
+folder "Protected swarma-operator account storage\nnever an agent/session account; locator unpublished" as OperatorHome {
+  artifact "Broker v0 Ed25519 software-root private key\nmode 0600; existing broker envelope signatures" as Root
+  artifact "Operator records / authority\nteam/1, standing retirement, maintenance,\nexplicit home retention, standing re-grants" as OperatorRecords
+  artifact "Pinned phone public key / operator command policy\nprotected from agent accounts; layout unpublished" as PhonePin
+}
 component "swarma-dispatcher\nown service OS account" as Dispatcher
 component "curator-run\nactive agent UID + generation" as Executor
 component "swarma-user-manager\nroot; ledger publisher" as Helper
@@ -32,7 +40,14 @@ folder "Runtime socket directory: /opt/swarma/run/credential-broker/\nbroker UID
 artifact "Outside restored failure domain\noperator restore mark; surviving history/checkpoint evidence\nand durable reconciliation/reopen decision\ntime restore/expiry-reset evidence; location/format unpublished (§18.8, §18.12)" as Restore
 artifact "Helper ledger: /opt/swarma/lib/user-manager/ledger.json\nroot-owned 0644, root-owned directory; no secrets\nconfigured installation root changes this locator (§4.2)" as Ledger
 
-Operator --> Socket : administrative methods
+Person --> Phone : exact act shown; biometric confirmation
+Phone --> Operator : SSH over tailnet; key only; forced command; signed canonical act
+Person --> Operator : terminal sudo: password, timestamp_timeout=0, no NOPASSWD
+Operator --> PhonePin : verify signature bound to this exact act
+Operator --> Root : sign existing broker envelope after operator admission
+Operator --> OperatorRecords : admitted operator acts
+Operator --> Socket : admitted owner/operator methods
+Observer --> Socket : status / account.list / grant.list / binding.list; no confirmation
 Dispatcher --> Socket : bind / unbind; effect.observe; revocation.check
 Executor --> Socket : fresh agent-side lease connection
 Socket --> Broker : broker/1; no network listener
@@ -109,8 +124,13 @@ note left of Home
   [[../spec/broker.md#153-removal Spec §15.3]]
 end note
 note top of Operator
-  Software-root private key: local operator custody (§4.3);
-  persistence locator unspecified in spec §4.3, not placed in broker store.
+  Software-root private key: swarma-operator custody (§4.3), no harness.
+  Phone device key is separate; broker signature algorithm unchanged.
+  Widening requires authentication + exact content confirmation;
+  refused in agent sessions; narrowing requires authentication only.
+  Phone revocation: one biometric confirmation, no extra content prompt.
+  Binary/wire format, domain/canonical bytes and phone-key lifecycle
+  unpublished (§18.15); terminal re-enrolment is the recovery proposal.
   Keychain / Secret Service later, not v0 (§5.3).
   Keeper adapter later; Codex slice 1 still pending qualification (§18.4).
   SH1/SH2 activation unspecified in spec §3.1.
