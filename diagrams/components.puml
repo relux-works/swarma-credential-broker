@@ -28,7 +28,7 @@ Helper --> Ledger : publish generations
 Dispatcher --> Peer : bind / unbind, no material
 Admin --> Peer : account / grant / revocation / status methods
 Executor --> Peer : fresh connection; lease methods
-Executor --> Harness : exec; env / stdin / external-token as qualified
+Executor --> Harness : env: exec replaces executor; stdin process model unpublished\nexternal-token: start private app-server; retain live client (§8.5, §9.3)
 Peer --> Identity : authenticate principal
 Identity --> Ledger : direct read at bind / lease / renew
 Peer --> Bindings : dispatcher administration

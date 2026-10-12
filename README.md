@@ -27,6 +27,8 @@ The repository, standalone binary and service account are named `swarma-credenti
 
 The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at-launch.puml), [enrolment](diagrams/enrol.puml), [Codex renewal](diagrams/codex-renewal.puml) and [revocation](diagrams/revoke-and-unbind.puml) sequences describe the intended flows. The module figures below show their component, recovery, state and storage boundaries. All are design contracts; visible “unspecified in spec” notes preserve gaps rather than supply implementation decisions.
 
+[Launch-time lease lifetimes](spec/broker.md#85-renewal-release-and-reports) distinguish an env launcher replaced by exec from a live external-token client that can renew and release. The [cleanup policy remains open](spec/broker.md#18-open-questions) where the design does not publish a release point or record-reclamation rule.
+
 | Figure | PlantUML source | Defining specification |
 |---|---|---|
 | M-CB1 — v0 components and process identities | [components.puml](diagrams/components.puml) | [§3 Components](spec/broker.md#3-components), [§3.1 First consumer](spec/broker.md#31-first-consumer-and-execution-boundary), [§4 Identities](spec/broker.md#4-identities-and-trust) |

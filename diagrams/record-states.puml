@@ -78,6 +78,9 @@ note right of Leases
   Released/expired/revoked or past authorized_until: no renewal.
   Wrong owner: lease_not_owner. Disconnect is not release;
   same principal may renew through a new connection (§8.5).
+  Env exec replaces executor: no post-exec renew/release/report.
+  Env pre-exec release vs retain, stdin client lifetime, and live
+  external-token holder's teardown ordering: unspecified in spec §18.7.
   Revocation or unbind stops access; copied payloads survive
   until token expiry or vendor revocation (§6.4, §7.2, §12.1).
   [[../spec/broker.md#83-response-and-lease-record Spec §8.3]]

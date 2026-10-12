@@ -1,8 +1,12 @@
 # swarma-credential-broker: specification
 
-- **Status:** draft v0.4 (2026-10-11). Nothing is implemented.
+- **Status:** draft v0.5 (2026-10-12). Nothing is implemented.
 - **Normative language:** MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 - **Companions:** [swarma-user-manager](https://github.com/relux-works/swarma-user-manager) (per-agent OS users, the launcher that starts processes under them, and per-UID firewall rules), [curator-network-profiles](https://github.com/relux-works/curator-network-profiles) (egress profiles), curator-spec CIP-0010 and CIP-0011 (the Curator side: credential sources, the protected credential binding, the executor capability, the launch-plan extension).
+
+### Revision 0.5
+
+- Removes the impossible executor release after `exec`, distinguishes launch-time lease lifetimes by delivery channel (§8.4–§8.5, §9.3), and records the unpublished cleanup policy (§18.7). Launch, recovery, renewal, component and record-state figures use the same process boundary.
 
 ### Revision 0.4
 
@@ -415,6 +419,8 @@ The client library delivers material only into the process the executor starts:
 
 Conflicting sources are refused, never replaced (§12.2). There is no channel that writes a credential file for a launch.
 
+The launch-time lease lifetime and remaining cleanup questions differ by channel (§8.5, §18.7).
+
 ### 8.5 Renewal, release and reports
 
 Figure [M-CB2 — lease recovery](../diagrams/lease-recovery.puml) covers admission refusals, reconnecting, current-authority renewal and Codex failure branches (§9.3–§9.4). The main paths remain in [lease-at-launch](../diagrams/lease-at-launch.puml) and [codex-renewal](../diagrams/codex-renewal.puml).
@@ -424,6 +430,16 @@ Figure [M-CB2 — lease recovery](../diagrams/lease-recovery.puml) covers admiss
 - Release is idempotent and ends renewal.
 - A report affects only the reporting lease's record. A client report never changes an account's state; account states change by the owner's command or by the auth owner's own refresh results (§9.4).
 - Leases are not tied to connections; a disconnected executor can renew from a new connection of the same principal.
+
+Successful `exec` replaces the executor with the harness; it does not return when the harness exits. Broker connections are close-on-exec (§4.1), and closing them is not `lease.release`. The env-channel harness does not talk to the broker. No executor broker client remains to renew, report or release after successful `exec`.
+
+| Launch channel | Lease holder and end of broker authority |
+|---|---|
+| `env` | The executor receives the payload before `exec` and then ceases to exist as a broker client. Renewal is refused after `authorized_until`; revocation stops new leases and renewals (§6.4), and unbind ends the binding's leases (§7.2). No release on harness exit is specified. Whether to release before exec or retain the record until the authorization limit is open (§18.7). |
+| `stdin` | Delivery of a key through stdin alone does not specify whether the executor survives as a client. A surviving holder of the same lease principal can release under this section; a replaced executor cannot. The process model and release point are unpublished (§18.7). The authorization limit, revocation and unbind rules still apply. |
+| `external-token` | The live agent-side executor or later session runner starts a private app-server and remains its client for renewal (§3.1, §9.3); it does not exec-replace itself with that server. This holder can call `lease.release` when ending its execution, as the lease's own principal. Exact teardown timing and failure cleanup are unpublished (§18.7). Without release, renewal is still bounded by `authorized_until`, revocation and unbind. |
+
+These are broker-authority limits, not a promise to erase a delivered credential or stop the harness: a copied token remains usable until token expiry or vendor revocation (§12.1). The precise automatic transition to the persisted `expired` or `revoked` states, scheduling and cleanup are not specified by §8.3–§8.5. Reaching `authorized_until` does not establish a process-exit cleanup mechanism.
 
 ## 9. Codex auth owner
 
@@ -443,7 +459,7 @@ The broker never adopts an existing home, imports another login or exports a key
 
 ### 9.3 External-token mode
 
-- The agent-side executor starts a private `codex app-server` for this execution, initialises it with the experimental capability that external-token login requires, and logs in with `account/login/start { type: "chatgptAuthTokens", accessToken, chatgptAccountId }` from the lease payload. A failed initialisation refuses the launch (`external_token_init_failed`).
+- The agent-side executor starts a private `codex app-server` for this execution, remains alive as its client and lease holder (§8.5), initialises it with the experimental capability that external-token login requires, and logs in with `account/login/start { type: "chatgptAuthTokens", accessToken, chatgptAccountId }` from the lease payload. A failed initialisation refuses the launch (`external_token_init_failed`); lease cleanup after this refusal is open (§18.7).
 - When the app-server receives a 401 it asks its client with `account/chatgptAuthTokens/refresh`. The executor calls `lease.renew { lease_id, rejected_sha256 }`, verifies that the renewed payload names the same `chatgpt_account_id`, and answers with the new token and account id.
 - The app-server waits only a bounded time for that answer (about ten seconds in the vendor's documentation at the time of writing). The broker answers `lease.renew` within a configured deadline below that bound (default 8 seconds) or returns `renew_timeout`; the executor then answers the app-server with an error and the turn fails. No late or uncorrelated answer is sent, and nothing falls back to another login. Proactive refresh (§9.4) makes a 401-triggered refresh rare; it does not guarantee that every turn continues.
 - The launch home contains no `auth.json`; `cli_auth_credentials_store = ephemeral` is pinned. Broker-mode `codex exec`, shared-file logins and stripped copies are not delivery paths.
@@ -470,7 +486,7 @@ The mechanism is measured in relux-works/remote-worker-harness (`internal/authow
 
 ### 10.1 Claude Code
 
-A `claude-oauth-token` has no refresh. When a harness reports an authentication failure, the executor reports it on its lease (`credential_error`, §11). The account moves to `reauth_required` only on the owner's command. Recovery is re-enrolment and a restart; Claude Code resumes its transcript with `--resume`. Vendor-side revocation happens only in the vendor's web interface.
+A `claude-oauth-token` has no refresh. A surviving agent-side client can report a harness authentication failure on its lease (`credential_error`, §11). The env launch's exec-replaced executor cannot report after exec (§8.5); that path has no specified live reporter (§18.7). The account moves to `reauth_required` only on the owner's command. Recovery is re-enrolment and a restart; Claude Code resumes its transcript with `--resume`. Vendor-side revocation happens only in the vendor's web interface.
 
 ### 10.2 Muse
 
@@ -605,6 +621,7 @@ Only the following broker/provider choices remain open here. D-EXECUTOR resolves
 4. **OWNER DECISION NEEDED — Codex personal-plan adoption/qualification (contract C4, CIP-0010 open question 2).** Options: adopt the single auth owner and external-token lane with named supported-release evidence (including the proposed 0.159.0 race-test precondition), or defer that provider lane. The broker slice-1 design and historical 0.155.x reference do not decide the current supported release or satisfy that precondition.
 5. **OWNER DECISION NEEDED — Muse subscription channel and priority (contract C7).** Options: prioritize subscription qualification and choose a supported channel from measured store/refresh evidence, or defer subscription support while retaining the separately qualified API-key lane. No subscription channel, refresh owner or parity claim is invented.
 6. **Open research — provider proxy injection (audit A10.6).** Options: continue separate provider/channel qualification research, or defer traffic-side injection and retain the explicit harness-readable delivery model. No proxy path is an admitted substitute for native or broker authentication.
+7. **OPEN — launch-time lease cleanup by channel (§8.4–§8.5, §9.3).** For `env`, choose between release by the owning executor before exec (and define whether release permits use of the already delivered payload), or retaining the lease until `authorized_until` / revocation / unbind (and define record transitions and reclamation). Successful exec leaves no executor broker client; disconnect and harness exit are not release. For `stdin`, publish whether a client survives delivery and its release point. For runner-held `external-token`, publish teardown/release ordering and cleanup on initialisation failure or runner loss. Also specify post-lease pre-exec refusal cleanup and whether a live client reports env-harness failures. No post-exec callback, inherited broker descriptor, exit watcher or new wire mechanism is specified here.
 
 ## Appendix A. Refusal codes
 

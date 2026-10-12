@@ -50,7 +50,14 @@ else executor checks pass
       alt tuple changed or source conflict
         Executor -> Executor : refuse exec (§12.2)\ncleanup after this refusal unspecified in spec §12.2
       else tuple still valid
-        Executor -> Harness : exec with qualified channel (§8.4)
+        Executor -> Harness : exec with qualified env channel (§8.4)
+        note over Executor,Harness
+          Successful exec replaces executor; env harness is not a broker client.
+          No return, post-exec release, renewal or report (§8.5).
+          authorized_until bounds renewal; revocation stops new leases/renewals;
+          unbind ends leases. Pre-exec release vs retain: unspecified in spec §18.7.
+          stdin client lifetime / release point: unspecified in spec §18.7.
+        end note
       end
     end
   end
@@ -73,7 +80,7 @@ else valid authorised revocation
     Broker --> Operator : acknowledge only after durability
   end
 end
-Executor -> Broker : next lease / renewal after service is available
+Executor -> Broker : fresh launch client: next lease; or live holder: renewal\nafter service is available (not the exec-replaced env executor)
 Broker -> Grants : read current revocation state
 alt cannot read or parse
   Broker --> Executor : revocation_state_unavailable (all leases / renewals refused)
@@ -84,6 +91,10 @@ end
 note over Executor,Harness : Copied tokens are not erased: expiry or vendor revocation only (§12.1).
 
 == Disconnect is not release (v0, §8.5) ==
+note over Executor,Broker
+  Independent live-client scenario, not a continuation of the env exec.
+  Close-on-exec disconnect leaves no executor to reconnect (§4.1, §8.5).
+end note
 Executor -> Executor : broker connection lost
 Executor -> Broker : new connection; verify server UID; renew same lease_id
 Broker -> Broker : require same (uid, generation, binding_id)\nactive lease before authorized_until; repeat checks 1-7
@@ -94,6 +105,11 @@ else checks pass
 end
 
 == Codex renewal (slice 1; adoption / release qualification pending, §18.4) ==
+note over Executor,Harness
+  Independent external-token scenario: live executor / later runner
+  starts private app-server and remains client / lease holder (§9.3).
+  It is not replaced by exec; env executor cannot run this renewal.
+end note
 Harness -> Executor : account/chatgptAuthTokens/refresh after 401
 Executor -> Broker : lease.renew {lease_id, rejected_sha256} (default 8 s deadline)
 Broker -> Broker : ownership + checks 1-7
@@ -151,11 +167,21 @@ else admitted and owner available
     end
   end
 end
+opt live external-token holder releases when ending execution (§8.5)
+  Executor -> Broker : lease.release {lease_id} (idempotent; ends renewal)
+end
+note over Executor,Broker
+  Exact teardown/release ordering and init-failure / runner-loss cleanup:
+  unspecified in spec §18.7. Without release, authorized_until bounds
+  renewal; revocation stops new leases/renewals; unbind ends leases.
+  Automatic lease-state transitions / cleanup scheduling are unpublished (§8.5).
+end note
 note over Executor,Harness
   Refusal/timeout: no late or uncorrelated answer, no fallback login (§9.3-§9.4).
   No launch auth.json; ephemeral storage; private app-server per execution.
   Refresh token stays in broker store. Claude has no auth owner:
-  credential_error report affects only lease; owner marks account;
+  a surviving client's credential_error report affects only lease;
+  env-exec reporter is unspecified in spec §18.7; owner marks account;
   recovery is re-enrol + restart, --resume transcript (§10.1, §8.5).
   [[../spec/broker.md#85-renewal-release-and-reports Spec §8.5]]
   [[../spec/broker.md#93-external-token-mode Spec §9.3]]

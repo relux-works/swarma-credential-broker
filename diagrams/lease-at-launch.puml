@@ -19,8 +19,11 @@ else all checks pass
   B --> E: lease/1 {lease_id, payload, token_expires_at, authorized_until}
   E -> E: re-check the binding tuple and conflicts
   E -> H: exec with CLAUDE_CODE_OAUTH_TOKEN in the process environment only\n(not argv, not files, not logs)
-  H --> E: exit
-  E -> B: lease.release {lease_id} (idempotent)
+  note over E,H
+    Successful exec replaces curator-run; no return on harness exit.
+    Close-on-exec broker connection closes (§4.1); disconnect is not release.
+    Env harness does not talk to broker; no post-exec release/report (§8.5).
+  end note
 end
 note over E,H: Readable-token exception: Claude can read/copy its own token.\ncredential-injection/1 requires effective-source and child-inheritance qualification;\nthis sequence is a design contract, not qualification evidence.
 note over B
@@ -28,6 +31,17 @@ note over B
   helper owns the root ledger. Lease records contain no payload (§8.3).
   [[../spec/broker.md#82-checks-in-order Spec §8.2]]
   [[lease-recovery.puml M-CB2: refusal, disconnect and recovery branches]]
+end note
+note over B,H
+  env: renewal refused after authorized_until; revocation stops new
+  leases/renewals; unbind ends leases (§6.4, §7.2, §8.5).
+  Release before exec vs retain until that limit: unspecified in spec §18.7.
+  stdin: surviving client and release point unspecified in spec §18.7.
+  external-token: live executor / later runner holds lease and can release;
+  teardown timing / failure cleanup unspecified in spec §18.7 (§9.3).
+  Record expiry scheduling is unpublished; copied token ends only with
+  token expiry or vendor revocation, not broker release (§12.1).
+  [[../spec/broker.md#85-renewal-release-and-reports Spec §8.5]]
 end note
 note over E,H
   Claude has no refresh: owner re-enrols, executor restarts; --resume (§10.1).
