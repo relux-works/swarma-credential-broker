@@ -5,10 +5,25 @@ title Slice 1, qualification/adoption pending: Codex personal plan: one auth own
 participant "Codex app-server\n(agent OS account, no auth.json)" as A
 participant "Live agent-side executor / later session runner\nagent OS account; lease holder and app-server client" as E
 participant "swarma-credential-broker: internal auth owner\nbroker service UID; broker-owned home + lock" as O
+participant "Existing service manager\nqualified containment / kill-and-confirm" as M
+participant "Approved Codex executable\nbroker UID; vendor refresh writer" as V
+database "Broker-owned attempt evidence\nand durable vendor home" as S
 
 E -> O: lease.request {harness: codex_cli, channel: external-token, …}
 O -> O: verify lease checks 1–7 (active UID/generation and binding,\nlease + caller chains, current revocations, source/network qualification)
-O -> O: token expires within 48 h? refresh once under the lock
+break restore fenced or prior writer / store / outcome unresolved
+  O --> E: revocation_state_unavailable / lease_owner_unavailable; no material
+end
+O -> O: token expires within 48 h? refresh once under the lifecycle gate
+opt refresh required and safe
+  O -> S: persist account-scoped attempt intent before launch
+  O -> M: launch approved executable in qualified containment
+  M -> V: one writer for the account
+  V -> S: vendor rotates and persists native login
+  M --> O: qualified writer-lifecycle evidence
+  O -> S: reload durable home; resolve/persist attempt outcome
+end
+O -> O: repeat current authorization and restore fence under state lock before release
 O --> E: payload {access_token, chatgpt_account_id, plan_type?}
 E -> A: start private app-server; executor remains its client (§9.3)
 E -> A: initialize (experimental capability required for external tokens)
@@ -17,12 +32,16 @@ E -> A: account/login/start {type: chatgptAuthTokens, accessToken, chatgptAccoun
 A -> A: model call answers 401
 A -> E: account/chatgptAuthTokens/refresh (answer expected within ~10 s)
 E -> O: lease.renew {lease_id, rejected_sha256} (deadline 8 s)
-O -> O: check lease ownership and repeat checks 1–7
+O -> O: check lease ownership and repeat checks 1–7 including restore fence
+break previous writer / store / outcome unresolved
+  O --> E: lease_owner_unavailable; no replacement refresh
+  E --> A: error answer; turn fails
+end
 alt rejected token is still current
-  O -> O: refresh once under the lock (N rejected launches → 1 refresh)
+  O -> O: prior writer/outcome resolved; durable intent before contained refresh;\nresolve attempt and reload durable home (N rejected launches -> 1 writer)
 end
 alt renewed within the deadline and authorisation still valid
-  O -> O: after refresh, repeat authorisation under state lock\nimmediately before releasing material
+  O -> O: after refresh, repeat authorisation and restore fence under state lock\nimmediately before releasing material
   O --> E: payload {access_token, chatgpt_account_id}
   E -> E: verify same chatgpt_account_id as the lease
   alt account ID matches
@@ -53,13 +72,40 @@ note over O
   Broker persists account/secret, grants/revocations, binding and lease metadata;
   helper owns UID/generation ledger. Refresh uses the approved vendor executable
   under broker UID; stable lock covers read / refresh / reload (§9.4).
+  Lock alone cannot cover daemon death: at most one live vendor writer
+  across replacement; durable attempt intent before contained launch.
   [[../spec/broker.md#93-external-token-mode Spec §9.3]]
   [[lease-recovery.puml M-CB2: timeout, transient failure, reauth and disconnect]]
 end note
 note over E,O
   Rejected token -> reauth_required, owner re-enrols; stopped owner ->
-  owner_unavailable; transient failure -> backoff while token valid (§9.4).
+  owner_unavailable; safe transient failure -> backoff only after prior
+  writer/outcome resolved and token valid (§9.4). Timeout may be ambiguous.
   Transient-to-active and owner-restart transitions unspecified in spec §9.4.
   Failed external-token initialisation -> external_token_init_failed (§9.3).
+end note
+== Independent daemon-replacement recovery case (§9.4, §15) ==
+O -> O: daemon dies during refresh; replacement refresh stays closed
+M -> V: contain and kill previous writer and all writer descendants
+alt complete qualified process absence confirmed
+  M --> O: previous writer absent
+  O -> S: recover same attempt; reload durable vendor home
+  alt prior outcome and store conclusively resolved; retry safe
+    O -> O: allow account owner recovery; any next refresh uses new durable intent
+  else external rotation / store / outcome ambiguous
+    O -> O: owner_unavailable or reauth_required; no blind retry
+    note over O,S
+      Child death does not prove rotation failed. Re-enrolment
+      requires confirmed writer absence; no login fallback.
+    end note
+  end
+else surviving writer, interrupted cleanup or unavailable process evidence
+  M --> O: lifecycle unresolved
+  O -> O: owner_unavailable; no replacement refresh or re-enrolment writer
+end
+note over O,M
+  Slice 1 activation requires platform-qualified containment and every
+  daemon-death / rotation / replacement row in §9.6 on macOS and Linux.
+  Concrete unit settings and attempt/process record formats unpublished (§18.10).
 end note
 @enduml

@@ -11,14 +11,28 @@ participant "swarma-credential-broker\nunprivileged broker service UID" as B
 P -> B: revocation.put (signed revocation envelope, §6.4)
 B -> B: verify swarma-credential-broker revocation/1 signature\nunder the state lock: write the new revocation state\n(temp file, flush, rename, flush directory), update memory
 B --> P: acknowledged (only after the state is durable)
-B -> B: next lease/renewal: lease_grant_revoked for the lease chain,\nlease_caller_revoked for the caller chain (method-specific refusals)
+B -> B: dispatcher revocation.check: revoked for affected chains;\nnext lease/renewal: lease_grant_revoked for the lease chain,\nlease_caller_revoked for the caller chain (method-specific refusals)
 
 == the task ends ==
-D -> B: unbind {binding_id}
-B -> B: end the binding's leases; close uid 30412's connections
-D -> H: user.retire {generation: g-0193, home: archive}\n(abbreviated helper request; distinct retire effect ID)
+D -> B: unbind: binding_id; original unbind effect request_id
+B -> B: durable receiver intent, then end leases and close UID connections;\npersist result and removal tombstone before acknowledgement (§7.2)
+B --> D: recorded result and current removal state
+opt reply lost or receiver recovery
+  D -> B: effect.observe: original request_id, unbind, canonical-argument digest
+  B -> B: authenticate original caller / operator; serialize with receiver journal
+  B --> D: recorded (result + current state) | pending | rolled_back |\nnot_recorded | unavailable | contradictory
+  D -> D: only authoritative evidence proves absence; unknown holds claim
+end
+D -> H: user.retire {generation: g-0193}\n(abbreviated helper request; distinct retire effect ID)
 H -> H: state retiring: launcher refuses g-0193;\nstop processes, verify quiescence; (v1: egress stays denied)
-H -> H: quarantine and archive or delete the home;\nremove account and group; state removed
+H -> H: declared-key cleanup; delete home;\nremove account and group; state removed
+note over D,H
+  Ordinary retirement deletes the home; export only service-generated
+  closed-schema metadata without agent-controlled strings/names/links/bodies.
+  Separate explicit operator home retention cannot guarantee confidentiality.
+  Unbind tombstones remain for admissible retry/reconciliation (§7.2);
+  expired/missing evidence is unavailable, never not_recorded.
+end note
 H --> D: removed
 note over D,H: Future keeper integration (D-IDENTITY): after retirement,\ndispatcher separately revokes only identities registered as one-shot.\nStanding identities require a signed operator revocation;\nunbind/retire are not blanket identity revocation.
 note over B: a recycled UID or a repeated label inherits nothing:\nbindings, grants and leases are keyed by generation

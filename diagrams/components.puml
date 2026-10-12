@@ -8,6 +8,7 @@ component "swarma-dispatcher\nown service OS account" as Dispatcher
 component "curator-run\nactive agent UID + generation\nfirst consumer, slice 0" as Executor
 component "Harness\nagent OS account" as Harness
 component "swarma-user-manager\nroot, no-argument sudo entry" as Helper
+component "Existing service manager\nqualified containment / kill-and-confirm\nrestore start check" as Manager
 component "Approved Codex executable\nbroker service UID, pinned digest\nslice 1" as Codex
 database "Helper ledger\nroot-owned, no secrets" as Ledger
 
@@ -25,25 +26,27 @@ package "swarma-credential-broker daemon: one unprivileged service UID" {
 Caller --> Dispatcher : request execution with caller-composed plan
 Dispatcher --> Helper : create / retire account
 Helper --> Ledger : publish generations
-Dispatcher --> Peer : bind / unbind, no material
+Dispatcher --> Peer : bind / unbind; effect.observe; revocation.check; no material
 Admin --> Peer : account / grant / revocation / status methods
 Executor --> Peer : fresh connection; lease methods
 Executor --> Harness : env: exec replaces executor; stdin process model unpublished\nexternal-token: start private app-server; retain live client (§8.5, §9.3)
 Peer --> Identity : authenticate principal
 Identity --> Ledger : direct read at bind / lease / renew
-Peer --> Bindings : dispatcher administration
+Peer --> Bindings : dispatcher administration / authorized effect.observe
 Peer --> Leases : bound agent only
 Peer --> Accounts : owner methods
-Peer --> Grants : grant / revocation publication
+Peer --> Grants : grant / revocation publication; revocation.check
 Bindings --> Grants : leaf chain and caller chain separately
 Leases --> Bindings : active binding, UID + generation
 Leases --> Grants : current authorisation + revocation state
 Leases --> Accounts : active, qualified account / channel
-Accounts --> Codex : enrol / refresh using vendor executable
-Bindings --> Store : binding records
+Accounts --> Codex : enrol / refresh only after prior writer/outcome resolved
+Accounts --> Manager : qualified contained lifecycle; no guardian service
+Manager --> Codex : contain / kill / confirm all writer absence
+Bindings --> Store : receiver intent / result / removal tombstones; binding records
 Grants --> Store : signed grants + durable revocations
 Leases --> Store : lease metadata; no payload
-Accounts --> Store : account records + secret material
+Accounts --> Store : durable refresh attempt intent before launch; accounts + secrets
 Leases --> Events : outcomes / reports
 Accounts --> Events : expiry / refresh state metadata
 Events --> Store : append-only audit metadata
@@ -63,9 +66,11 @@ end note
 note bottom of Leases
   Wrong chain/binding/account/profile, source conflict or
   unqualified injection: refuse; executor does not exec.
-  Unreadable revocations: refuse until operator repairs.
+  Unreadable/stale revocations or fenced restore: refuse;
+  revocation.check unavailable; no empty-state substitute.
   Claude recovery: re-enrol + restart; no refresh (slice 0).
-  Codex: backoff for transient refresh; re-enrol on rejection;
+  Codex: safe backoff only after prior writer/outcome resolved;
+  ambiguous rotation: unavailable or re-enrol after writer absence;
   unavailable owner or missed deadline: refuse (slice 1).
   [[../spec/broker.md#82-checks-in-order Spec §8.2]]
   [[../spec/broker.md#122-protected-binding-and-conflicting-sources Spec §12.2]]
@@ -73,6 +78,8 @@ end note
 note bottom of Store
   Broker owns persistent state; 0700 directories, 0600 secret files.
   State files atomically replaced; revocation ack follows durability.
+  Restore mark and history/start evidence survive outside rollback domain;
+  reconcile complete acknowledged history or replace old roots/reissue (§15.4).
   Harness can read/copy a leased token; already copied tokens
   end only at expiry or vendor revocation.
   [[../spec/broker.md#3-components Spec §3]]
@@ -80,6 +87,8 @@ note bottom of Store
 end note
 note top of Caller
   Caller process UID is unspecified in spec §3.1.
+  Dispatcher socket service from slice 0; no dispatcher sudo entry.
+  Only dispatcher invokes privileged launcher; host uses host_start.
   Board runner / session host call dispatcher, not broker.
   Later session runner: agent-side transport / renewal;
   session host: durable session metadata (§3.1).

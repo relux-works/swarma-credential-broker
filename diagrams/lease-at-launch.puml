@@ -11,7 +11,7 @@ E -> E: refuse if another credential source is present\n(credential_source_confl
 E -> E: verify destination-local network binding from composed plan\nrecord {profile_ref, profile_digest, assurance: cooperative}
 E -> B: connect; check the server's peer UID is the broker's
 E -> B: lease.request {harness, profile, account, channel: env,\ncredential_binding, network, launch_id}
-B -> B: under the state lock:\n1 peer = agent principal of an active binding (ledger g-0193 active)\n2 lease chain and caller chain verify against the current revocation state\n3 leaf covers account, harness, profile; profile in binding\n4 account active, harness matches\n5 channel valid; harness release qualified\n6 binding fields match; endpoint and executable approved\n7 network: cooperative match recorded as declared
+B -> B: under the state lock: refuse fenced restore;\n1 peer = agent principal of an active binding (ledger g-0193 active)\n2 lease chain and caller chain verify against the current revocation state\n3 leaf covers account, harness, profile; profile in binding\n4 account active, harness matches\n5 channel valid; harness release qualified\n6 binding fields match; endpoint and executable approved\n7 network: cooperative match recorded as declared
 alt any check fails
   B --> E: refusal {code: lease_not_authorised | lease_binding_mismatch | …}
   E -> E: do not exec; report
@@ -45,7 +45,8 @@ note over B,H
 end note
 note over E,H
   Claude has no refresh: owner re-enrols, executor restarts; --resume (§10.1).
-  Unreadable revocations refuse until operator repair (§6.4).
+  Unreadable revocations or fenced restore refuse (§6.4, §15.4).
+  Prior dispatcher revocation.check cannot waive final broker checks.
   Cleanup after a post-lease tuple/conflict refusal is unspecified in spec §12.2.
 end note
 @enduml

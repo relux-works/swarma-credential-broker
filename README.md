@@ -10,7 +10,7 @@ A credential broker for agent systems. It runs under its own OS user, holds subs
 - Agents run as separate OS users; a launch asks the broker for a lease for its profile and harness, and receives the credential only in the launched process.
 - Authority is a signed grant (`credential.lease` on an account, for a profile, until a time), verifiable down to a root key; delegation can only narrow.
 - An account may require a network profile, so its traffic leaves only through a named egress.
-- Codex personal plans: a single auth owner refreshes the account; launches receive external access tokens and never hold a refresh token.
+- Codex personal plans: a single auth owner refreshes the account with a required writer-lifecycle gate across daemon replacement; launches receive external access tokens and never hold a refresh token.
 
 The broker's v0 trusted-process exception is explicit: the harness can read and copy its leased token. Revocation stops new leases and renewals; a copied token remains usable until expiry or vendor revocation. See [the exposure limits](spec/broker.md#121-what-a-compromised-agent-can-do) and [the required injection qualification](spec/broker.md#122-protected-binding-and-conflicting-sources).
 
@@ -20,6 +20,8 @@ The broker's v0 trusted-process exception is explicit: the harness can read and 
 - swarma-user-manager creates the per-agent OS users the broker identifies.
 - curator-network-profiles names the egress an account may require.
 - curator-trust and waggle define the long-term grant and signature forms. Broker v0 verifies its closed local envelope; a versioned adapter reconciles the forms before 1.0.
+
+The dispatcher is a Unix-socket service from the first slice, with no caller sudo entry. Configured dispatchers use `revocation.check` for current admission evidence; bind/unbind reconciliation uses receiver-owned `effect.observe`. [Fenced local restoration](spec/broker.md#154-fenced-local-restore-and-reopen) keeps authorization and auto-start closed until acknowledged revocations are recovered against evidence outside the restored failure domain, or old authorization roots are replaced and rights explicitly reissued. [Publication and qualification gates](spec/broker.md#18-open-questions) remain open; these are design requirements.
 
 The first protected provider launch is Claude with an explicitly enrolled `setup-token`; Codex personal-plan external tokens follow in slice 1. The [provider × source × channel × phase table](spec/broker.md#52-kinds) distinguishes those targets from retained per-home authentication and later or unresolved lanes. Source-policy v1 keeps `per-home` when no entry is configured; v2 requires an explicit entry and migrates existing logins to explicit `per-home`. The first node and broker stores use protected 0600 files on macOS and Linux; Keychain and Secret Service backends are later work.
 
@@ -32,8 +34,8 @@ The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at
 | Figure | PlantUML source | Defining specification |
 |---|---|---|
 | M-CB1 — v0 components and process identities | [components.puml](diagrams/components.puml) | [§3 Components](spec/broker.md#3-components), [§3.1 First consumer](spec/broker.md#31-first-consumer-and-execution-boundary), [§4 Identities](spec/broker.md#4-identities-and-trust) |
-| M-CB2 — lease refusal and recovery | [lease-recovery.puml](diagrams/lease-recovery.puml) | [§6.4 Revocation](spec/broker.md#64-revocation), [§8 Leases](spec/broker.md#8-leases), [§9 Codex auth owner](spec/broker.md#9-codex-auth-owner) |
-| M-CB3 — account, binding, lease and grant states | [record-states.puml](diagrams/record-states.puml) | [§5.1 Account record](spec/broker.md#51-record), [§6.4 Revocation](spec/broker.md#64-revocation), [§7 Bindings](spec/broker.md#7-bindings), [§8.3 Lease record](spec/broker.md#83-response-and-lease-record) |
+| M-CB2 — lease refusal and recovery | [lease-recovery.puml](diagrams/lease-recovery.puml) | [§6.4 Revocation](spec/broker.md#64-revocation), [§8 Leases](spec/broker.md#8-leases), [§9 Codex auth owner](spec/broker.md#9-codex-auth-owner), [§15.4 Fenced restore](spec/broker.md#154-fenced-local-restore-and-reopen) |
+| M-CB3 — account, binding, lease and grant states | [record-states.puml](diagrams/record-states.puml) | [§5.1 Account record](spec/broker.md#51-record), [§6.4 Revocation](spec/broker.md#64-revocation), [§7 Bindings](spec/broker.md#7-bindings), [§13.2 Observations and verdicts](spec/broker.md#132-methods), [§8.3 Lease record](spec/broker.md#83-response-and-lease-record) |
 | M-CB4 — owned storage, socket and removal | [storage-layout.puml](diagrams/storage-layout.puml) | [§5.3 Secret store](spec/broker.md#53-secret-store), [§12.4 Files](spec/broker.md#124-files), [§15 Installation and lifecycle](spec/broker.md#15-installation-and-lifecycle) |
 
 ## License

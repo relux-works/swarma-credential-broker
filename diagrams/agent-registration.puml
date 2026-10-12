@@ -12,21 +12,53 @@ participant "curator-run\n(agent OS account, narrow one-shot mode)" as E
 O -> O: compose and resolve profiles; protected credential metadata only\n(no token in plan); record resolved launch PATH in plan digest
 O -> D: start a worker: immutable plan, accounts, until end of task
 D -> D: check O may start it; retain root request_id; derive distinct create/bind/launch effect IDs
+D -> B: revocation.check: exact caller/lease chains; context prepare
+B --> D: not_revoked | revoked | unavailable, with check-point revocation sequence
+break revoked or unavailable
+  D --> O: refuse before account creation; no downstream effect
+end
 D -> H: sudo swarma-user-manager (no arguments)\nstdin: user.create {kind: agent, label: dev-7f3}, create effect ID
 H -> H: under the helper lock: allocate UID, ledger entry g-0193 (creating → active)
 H --> D: {username: worker-dev-7f3, uid: 30412, generation: g-0193}
 D -> D: sign leaf grant: subject agent:g-0193, depth 0,\nnarrowed from its own grant (chain to the root)
 D -> B: bind {uid 30412, generation g-0193, label, profiles [dev],\nchain [leaf, dispatcher grant, root],\ncaller {chain [caller grant, …, root], intersection}, request_id: bind effect ID, expires_at}
-B -> B: peer is a dispatcher principal;\nroot-owned ledger.json (helper §4.5):\ng-0193 active, kind agent, created by this dispatcher;\nverify both chains, every edge incl. the leaf;\nleaf within the caller intersection; revocation state readable
+B -> B: peer is a dispatcher principal;\nroot-owned ledger.json (helper §4.5):\ng-0193 active, kind agent, created by this dispatcher;\nverify both chains, every edge incl. the leaf;\nleaf within the caller intersection; current revocations; restore fence closed? refuse
+B -> B: serialize receiver journal; persist bind intent before mutation;\npersist result/current target state before acknowledgement
 B --> D: binding/1 {binding_id}
+opt bind acknowledgement lost
+  D -> B: effect.observe: original bind request_id, bind, canonical-argument digest
+  B --> D: recorded (result + current target state) | pending | rolled_back |\nnot_recorded | unavailable | contradictory
+  break binding not conclusively present and active
+    D -> D: hold/reconcile allocation; no launch or automatic replacement create
+  end
+end
 D -> D: close the broker connection
+D -> B: revocation.check: exact chains; context start
+B --> D: not_revoked | revoked | unavailable, with check-point revocation sequence
+break revoked or unavailable
+  D --> O: refuse before privileged start; reconcile existing effects
+end
+D -> D: owning claim and cancellation gate still required
 D -> L: sudo swarma-user-launcher (no arguments)\nstdin: launch.start {generation: g-0193, execution_id, epoch,\nexecutor: curator-run, plan: base64, request_id: launch effect ID}
-L -> L: ledger: g-0193 active; executor digest approved;\nclose inherited descriptors; plan on FD3; sanitise environment;\nwrite atomic start receipt before clearing groups and dropping to uid 30412
+L -> L: ledger: g-0193 active; executor digest approved;\napply user-manager helper §7 descriptor lifecycle (R-FD3);\nprotected immutable plan on FD3; root receipt and UID/GID transition
 L -> E: exec approved curator-run as uid 30412 (plan on FD3)
 E -> E: verify and execute caller-composed plan;\nno composition or profile resolution; no network except broker
 E -> B: fresh connection (lease flow: lease-at-launch)
 D --> O: execution handle (run_id, execution_id, generation, binding_id)
-note over D,L: Privileged payloads are abbreviated, not copyable schemas.\nHelper §7 owns execution_id/epoch/FD3/start-receipt rules.
+note over D,L
+  Privileged payloads are abbreviated, not copyable schemas.
+  Helper §7 owns execution_id/epoch/FD3/start-receipt and descriptor lifecycle.
+  Only dispatcher invokes privileged starts; host uses host_start (R-START).
+  Dispatcher is a socket service from slice 0; no dispatcher sudo entry.
+  Point-in-time verdict never waives final bind/lease/renew checks.
+end note
+note over O,B
+  If O was provisioned by C, C signs O's narrowed caller delegation
+  after generation-bound key registration; D only verifies/records (R-DELEG).
+  W's caller chain retains C, separately from D's lease chain (§16.1).
+  Registration alone grants no spawn authority; recursive provisioning
+  remains refused until bootstrap publication and qualification.
+end note
 note over O: D-PATH: protected launch tools → admitted base PATH → protected manager dispatcher.\nNo repository .agents/bin executes in a managed launch.
 note over E: Narrow executor intake is an approved versioned target (D-EXECUTOR);\nR-LR1 publishes its command/plan contract. Board runner and host call dispatcher.
 @enduml

@@ -10,12 +10,13 @@ state "Account record: broker-owned persistent metadata (§5.1)" as Accounts {
   state "revoked" as AccountRevoked
 
   [*] --> AccountActive : owner enrols; broker writes account + secret (§5.4, §9.2)
-  AccountActive --> AccountTransient : internal auth owner: transient refresh failure (§9.4)
-  AccountTransient --> AccountTransient : internal auth owner: retry with backoff\nwhile current token valid (§9.4)
+  AccountActive --> AccountTransient : internal auth owner: conclusively transient refresh failure (§9.4)
+  AccountTransient --> AccountTransient : retry only after prior writer/outcome resolved\nand token valid; no ambiguous-rotation retry (§9.4)
   AccountActive --> AccountReauth : owner account.mark; or auth owner rejects refresh (§9.4, §10.1)
   AccountTransient --> AccountReauth : auth owner: refresh token rejected (§9.4)
-  AccountActive --> AccountUnavailable : internal auth owner stops (§9.4)
-  AccountReauth --> AccountActive : owner re-enrols via vendor ceremony (§9.2, §9.4, §10.1)
+  AccountActive --> AccountUnavailable : owner stops or writer/store/outcome unresolved (§9.4)
+  AccountTransient --> AccountUnavailable : unresolved lifecycle / ambiguous rotation (§9.4)
+  AccountReauth --> AccountActive : owner re-enrols after writer absence (§9.2, §9.4, §10.1)
   AccountActive --> AccountRevoked : owner account.revoke (§13.2); broker state (§5.1)
 }
 
@@ -29,6 +30,10 @@ note right of Accounts
   Transition after successful transient retry, owner restart,
   revoked-account re-enrol and terminal retry exhaustion:
   unspecified in spec §9.4 / §5; no arrows invented.
+  Durable attempt intent precedes refresh; service manager contains,
+  kills and confirms absence before replacement writer (§9.4).
+  Child absence alone cannot resolve external rotation; no blind retry.
+  Unknown keeps account unavailable or requires re-enrolment after absence.
   event.report affects lease ONLY, not account state (§8.5).
   Claude: no refresh; owner marks reauth, re-enrols and restarts
   harness under agent UID; --resume preserves transcript (§10.1).
@@ -44,15 +49,22 @@ state "Binding record: broker-owned persistent state (§7.1)" as Bindings {
 }
 
 note right of Bindings
-  Atomic record replacement (§12.4); exact acknowledgement
-  and lease/connection update commit point unspecified in spec §7.2.
+  Durable receiver intent before mutation; result/removal tombstone
+  recoverable before acknowledgement (§7.2); exact layout/transaction
+  ordering unpublished (§18.9). Removal retains effect evidence.
   Unbind ends leases and closes UID connections (§7.2).
   No active binding -> lease_unbound; retired/removed helper
   generation -> principal_ledger_mismatch (§4.2, §7.4).
   Helper process runs as root and owns generation ledger;
   dispatcher unbinds BEFORE helper account retirement (§7.3).
-  Same bind effect ID + equal args returns existing binding;
+  effect.observe: recorded (result + current state), pending, rolled_back,
+  not_recorded, unavailable or contradictory; read only (§13.2).
+  Retain removal tombstone for admissible retry/reconciliation; evidence
+  expiry/missing/read failure -> unavailable, never absence.
+  Same bind effect ID + equal args returns recorded result/current state;
   changed args -> bind_request_conflict (§7.2).
+  Removed bind replay never reactivates; same unbind effect returns
+  retained result/tombstone. Observation does not grant mutation authority.
   No implicit extension, generation reuse or blanket keeper revoke.
   [[../spec/broker.md#72-creating-and-removing Spec §7.2]]
 end note
@@ -100,10 +112,15 @@ note right of Grants
   Effect: future lease / renew -> lease_grant_revoked or
   lease_caller_revoked; copied tokens cannot be erased (§8.2, §12.1).
   Unreadable / malformed revocations -> revocation_state_unavailable
-  until operator repairs; never substitute empty state (§6.4).
+  until reconciled; never substitute empty state (§6.4).
+  Valid old snapshot is not current history: restore fence blocks
+  bind/lease/renew, auto-start and revocation.check (§15.4).
+  Reopen only after complete external surviving history is reconciled,
+  or old roots replaced and rights explicitly reissued.
+  Restore fence is an operator procedure, not a new grant enum.
   Expired/not-yet-valid, invalid chains and unsupported predicates
   refuse under §6.2; they are not extra record enum values.
-  Un-revocation or automatic grant replacement unspecified in spec §6.4.
+  No automatic grant replacement from a stale restored snapshot (§6.4).
   Keeper migration / adapter is later (§4.3, §6.6).
   [[../spec/broker.md#64-revocation Spec §6.4]]
 end note

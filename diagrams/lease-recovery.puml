@@ -7,12 +7,15 @@ participant "swarma-credential-broker\nunprivileged broker service UID" as Broke
 database "Grant / revocation store\nbroker-owned durable state" as Grants
 database "Helper ledger\nroot-owned; helper publishes generations" as Ledger
 participant "Auth owner / provider adapter\ninside broker daemon, same UID\nCodex slice 1 only" as Adapter
+participant "Existing service manager\nqualified writer containment / restore start check" as Manager
 participant "Approved Codex executable\nbroker service UID; pinned digest" as Vendor
 participant "Harness / private Codex app-server\nagent OS account" as Harness
 
 note over Broker,Grants
   Broker also persists accounts/secrets, bindings, lease metadata
   and typed audit events; lease payload is never persisted (§8.3).
+  Restore fence refuses bind, leases and renewals (§15.4);
+  revocation.check is unavailable; prior verdict never waives final checks.
   Ledger is read directly, never inferred from an agent home (§4.2).
   [[../spec/broker.md#82-checks-in-order Spec §8.2]]
   [[../spec/broker.md#64-revocation Spec §6.4]]
@@ -44,7 +47,7 @@ else executor checks pass
         Enforced network requirement in v0: lease_network_enforcement_unavailable.
         Recovery must satisfy current checks; no alternative login (§8.2, §12.2).
       end note
-    else all checks 1-7 pass
+    else all checks 1-7 pass and restore fence open
       Broker --> Executor : lease/1 + payload
       Executor -> Executor : re-check tuple / sources immediately before exec
       alt tuple changed or source conflict
@@ -84,11 +87,37 @@ Executor -> Broker : fresh launch client: next lease; or live holder: renewal\na
 Broker -> Grants : read current revocation state
 alt cannot read or parse
   Broker --> Executor : revocation_state_unavailable (all leases / renewals refused)
-  Operator -> Grants : repair state (§6.4; repair procedure unspecified)
+  Operator -> Grants : repair against current acknowledged history; restore follows §15.4
 else affected lease or caller chain revoked
   Broker --> Executor : lease_grant_revoked / lease_caller_revoked
 end
 note over Executor,Harness : Copied tokens are not erased: expiry or vendor revocation only (§12.1).
+
+== Independent fenced local restoration case (§15.4) ==
+Operator -> Broker : close bind, leases and renewals; disable auto-start
+Operator -> Operator : publish durable restore mark outside restored failure domain
+Operator -> Manager : stop broker; contain / kill / confirm any vendor writers
+Operator -> Grants : install protected snapshot while authorization remains closed
+Manager -> Manager : every service-start path checks surviving restore mark/evidence
+Broker -> Broker : fenced diagnostic operation only; revocation.check = unavailable
+Operator -> Operator : reconcile complete acknowledged revocations against surviving\nexternal journal/checkpoint; resolve effects and writer/store evidence
+alt complete acknowledged history survives
+  Operator -> Grants : reconstruct and durably publish current revocations
+else history missing / incomplete / unreadable
+  Operator -> Operator : stay unavailable OR invalidate old roots and explicitly reissue rights
+end
+opt authority reconciled or explicitly replaced; reopen authorized
+  Operator -> Operator : persist external reconciliation/reopen evidence, then clear mark
+  Manager -> Manager : verify start check; recover service; publish readiness
+  Broker -> Broker : only then open bind, leasing/renewal and current verdicts
+  Operator -> Manager : re-enable auto-start last
+end
+note over Operator,Grants
+  In-snapshot seq/audit/checkpoint cannot prove its own freshness.
+  Interrupted restore/reopen remains closed. No stale snapshot repopulation.
+  Revocation recovery does not resolve ambiguous vendor rotation.
+  Concrete mark/start-evidence format unpublished (§18.8).
+end note
 
 == Disconnect is not release (v0, §8.5) ==
 note over Executor,Broker
@@ -124,31 +153,44 @@ else admitted and owner available
     Executor --> Harness : error answer; turn fails
   else queued within deadline
     Adapter -> Adapter : lock beside broker-owned home for read / refresh / reload
+    break prior account writer / store / outcome unresolved
+      Broker --> Executor : lease_owner_unavailable; no replacement refresh (§9.4)
+      Executor --> Harness : error answer; turn fails
+    end
     alt rejected token no longer current
       Adapter -> Adapter : use reloaded current token; no second refresh (§9.4)
     else rejected token still current
-      Adapter -> Vendor : run approved executable once (vendor token exchange)
-      alt transient network / vendor / timeout failure
+      Adapter -> Adapter : persist durable attempt intent before launch
+      Adapter -> Manager : qualified contained launch of approved vendor executable
+      Manager -> Vendor : at most one live account writer across replacement
+      alt conclusively transient failure; writer/outcome resolved and retry safe
         Vendor --> Adapter : transient failure
-        Adapter -> Adapter : account -> refresh_failed_transient\nretry with backoff while current token remains valid
+        Adapter -> Adapter : account -> refresh_failed_transient\nbackoff only after writer/outcome resolution and while token valid
         note over Adapter,Broker
           Leases require active account (§8.2).
           Transient-to-active transition and exact failure-to-error mapping:
           unspecified in spec §9.4; no stale-token success invented.
         end note
+      else timeout / daemon death / ambiguous rotation or unreadable evidence
+        Manager -> Vendor : contain, kill and confirm writer absence before replacement
+        Adapter -> Adapter : recover attempt; reload durable vendor home; no blind retry
+        Adapter -> Adapter : owner_unavailable or reauth_required if outcome unresolved
+        Broker --> Executor : refuse renewal; no fallback material
+        Executor --> Harness : error answer; turn fails
       else refresh token rejected
         Vendor --> Adapter : rejection
         Adapter -> Adapter : account -> reauth_required
         Broker --> Executor : lease_reauth_required
         Executor --> Harness : error answer; turn fails
-        Operator -> Broker : re-enrol through fresh vendor ceremony (§9.2)
+        Operator -> Broker : re-enrol after writer absence through fresh vendor ceremony (§9.2, §9.4)
       else refreshed
         Vendor --> Adapter : refreshed broker-owned login
+        Adapter -> Adapter : confirm writer lifecycle; reload durable home; persist outcome
       end
     end
     opt current token available and account active
       Adapter --> Broker : reloaded access token + account ID
-      Broker -> Broker : repeat authorisation under state lock immediately before release
+      Broker -> Broker : repeat authorisation and restore fence under state lock immediately before release
       alt still authorised and within deadline
         Broker --> Executor : renewed access token + account ID
         alt account ID matches lease

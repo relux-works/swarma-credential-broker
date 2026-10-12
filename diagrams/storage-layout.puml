@@ -6,6 +6,7 @@ component "Owner / operator CLI\npinned unmanaged OS principal" as Operator
 component "swarma-dispatcher\nown service OS account" as Dispatcher
 component "curator-run\nactive agent UID + generation" as Executor
 component "swarma-user-manager\nroot; ledger publisher" as Helper
+component "Existing service manager\nrestore start check; qualified writer containment" as Manager
 component "Approved Codex executable\nbroker UID; pinned digest; slice 1" as Codex
 
 folder "Broker service home: /opt/swarma/services/swarma-credential-broker\nbroker UID owns all files; directories 0700 (§15.1-§15.2)" as Home {
@@ -18,7 +19,8 @@ folder "Broker service home: /opt/swarma/services/swarma-credential-broker\nbrok
   artifact "Stable lock beside Codex home\nread / refresh / reload serialisation" as Lock
   artifact "Grant envelopes\nsigned public authorisation metadata" as Grants
   artifact "Revocation state {seq, records}\nauthoritative local state" as Revocations
-  artifact "Binding records\nUID + generation; lease/caller chains + intersection" as Bindings
+  artifact "Binding records and receiver journal/tombstones\nUID + generation; chains; bind/unbind effect evidence" as Bindings
+  artifact "Durable refresh attempt evidence\nintent before launch; prior outcome / process identity" as Attempts
   artifact "Lease records\nowner tuple + launch/policy metadata; NEVER payload" as Leases
   artifact "Append-only audit log\ntyped principal/account/launch/outcome metadata\nno material, raw frames, secret errors or token hashes" as Audit
 }
@@ -26,10 +28,11 @@ folder "Broker service home: /opt/swarma/services/swarma-credential-broker\nbrok
 folder "Runtime socket directory: /opt/swarma/run/credential-broker/\nbroker UID; 0755; ancestors root-owned, not writable by others" as Runtime {
   artifact "Unix-domain socket\n0666; authorisation by kernel peer principal\nsocket basename unspecified in spec §15.2" as Socket
 }
+artifact "Outside restored failure domain\noperator restore mark; surviving history/checkpoint evidence\nand durable reconciliation/reopen decision\nlocation/format unpublished (§18.8)" as Restore
 artifact "Helper ledger: /opt/swarma/lib/user-manager/ledger.json\nroot-owned 0644, root-owned directory; no secrets\nconfigured installation root changes this locator (§4.2)" as Ledger
 
 Operator --> Socket : administrative methods
-Dispatcher --> Socket : bind / unbind
+Dispatcher --> Socket : bind / unbind; effect.observe; revocation.check
 Executor --> Socket : fresh agent-side lease connection
 Socket --> Broker : broker/1; no network listener
 Broker --> Config : read configuration
@@ -41,7 +44,12 @@ Broker --> Bindings : bind / unbind records
 Broker --> Leases : persist without payload (§8.3)
 Broker --> Audit : append (§12.3)
 Broker --> Lock : internal per-account auth owner locks
-Broker --> Codex : approved enrolment / refresh only
+Broker --> Attempts : persist intent before launch; resolve prior attempt
+Broker --> Manager : contained writer lifecycle; stop / confirm absence
+Manager --> Codex : qualified containment / kill-and-confirm
+Manager --> Restore : start check before opening authorization
+Operator --> Restore : fence before snapshot restore; reconcile/reopen last
+Broker --> Codex : approved enrol / refresh after lifecycle and outcome gate
 Codex --> Login : vendor writes broker-owned login
 Helper --> Ledger : atomic replacement + flush / rename / directory flush
 Broker --> Ledger : direct read at bind / lease / renew; never home fallback
@@ -64,8 +72,12 @@ note right of Broker
   Revocation read/parse failure: all leases/renewals refuse until
   operator repairs; never restart from empty state (§6.4).
   Ledger mismatch/read failure: principal_ledger_mismatch (§4.2).
-  Repair command, crash replay and audit write-failure response:
-  unspecified in spec §6.4 / §12.3-§12.4.
+  Fenced restore blocks authorization and auto-start (§15.4);
+  revocation.check unavailable, even with a readable old snapshot.
+  Complete surviving history or explicit old-root replacement/reissue
+  is required before durable reopen/readiness, then auto-start last.
+  Concrete start integration and audit write-failure response:
+  unpublished (§18.8 / §12.3).
 end note
 note bottom of Runtime
   Socket lives outside the data tree; clients verify broker peer UID
@@ -76,14 +88,19 @@ end note
 note right of CodexHome
   Only auth owner uses this home; refresh token never leaves broker (§9).
   No imported home/login or exported keyring item (§9.2).
-  Transient failure: backoff while token valid; rejected refresh:
-  owner re-enrols; stopped owner: refuse (§9.4).
-  Restart-to-active procedure unspecified in spec §9.4.
+  At most one live writer across daemon replacement (§9.4).
+  Prior writer must be contained, killed and confirmed absent;
+  recover attempt and durable home before deciding retry safety.
+  Ambiguous external rotation: no blind retry even after child absence;
+  stay unavailable or re-enrol after absence. Safe transient failures
+  alone permit backoff; platform mechanisms unpublished (§18.10).
   Launch app-server runs under agent UID with ephemeral credentials,
   no launch auth.json; account storage above is a separate boundary (§9.3).
 end note
 note left of Home
-  Uninstall: stop service, end leases/bindings, keep store unless
+  Uninstall: close admission/auto-start; stop service and kill-confirm
+  vendor writers; unknown cleanup defers removal. End leases/bindings,
+  retain effect/removal evidence; keep store unless
   operator requests destruction (§15.3). Removal/secure-erasure
   algorithm, audit retention and garbage collection unspecified
   in spec §15.3 / §12.3. Copied tokens need expiry/vendor revoke (§12.1).

@@ -22,7 +22,7 @@ B --> C: account/1 {state: active, expires_at: computed | null}
 == Codex personal plan: enrolment ceremony ==
 P -> C: curator broker enrol codex_cli --account owner/codex/personal
 C -> B: account.enrol {kind: codex-chatgpt}
-B -> B: create a fresh Codex home in the broker store\n(file credential storage, sanitised environment)
+B -> B: confirm previous writer absence; unresolved rotation requires explicit re-enrolment (§9.4);\ncreate a fresh Codex home in the broker store\n(file credential storage, sanitised environment)
 B -> X: start the vendor's device login in that home
 X --> B: verification address + code
 B --> C: verification address + code
@@ -31,5 +31,5 @@ P -> P: completes the login in a browser
 X --> B: login stored in the broker-owned home
 B -> B: read the vendor account id;\nrefuse if another broker account maps to it (account_duplicate)
 B --> C: account/1 {state: active}; auth owner started
-note over B: no existing login is imported,\nno other home adopted, no keyring item exported
+note over B: no existing login is imported,\nno other home adopted, no keyring item exported;\nre-enrolment cannot bypass unresolved previous writer (§9.4)
 @enduml
