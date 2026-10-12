@@ -35,7 +35,7 @@ else executor checks pass
     Executor -> Broker : lease.request (protected binding, network, launch_id)
     Broker -> Ledger : active UID + generation at bind / lease / renew
     Ledger --> Broker : record or read/parse/identity failure
-    Broker -> Grants : verify lease chain AND caller chain\nagainst current revocations under state lock
+    Broker -> Grants : verify lease chain AND caller chain\nagainst current revocations and R-TIME max/min windows under state lock
     Grants --> Broker : verified state or unavailable / revoked / invalid
     alt wrong role, inactive generation, chain, binding or account/profile/channel/network
       Broker --> Executor : role_not_permitted / principal_ledger_mismatch /\nlease_unbound / lease_not_authorised / lease_binding_mismatch / ...
@@ -100,7 +100,7 @@ Operator -> Manager : stop broker; contain / kill / confirm any vendor writers
 Operator -> Grants : install protected snapshot while authorization remains closed
 Manager -> Manager : every service-start path checks surviving restore mark/evidence
 Broker -> Broker : fenced diagnostic operation only; revocation.check = unavailable
-Operator -> Operator : reconcile complete acknowledged revocations against surviving\nexternal journal/checkpoint; resolve effects and writer/store evidence
+Operator -> Operator : reconcile complete acknowledged revocations against surviving\nexternal journal/checkpoint; resolve effects, time and companion restore obligations\nand writer/store evidence
 alt complete acknowledged history survives
   Operator -> Grants : reconstruct and durably publish current revocations
 else history missing / incomplete / unreadable
@@ -126,7 +126,7 @@ note over Executor,Broker
 end note
 Executor -> Executor : broker connection lost
 Executor -> Broker : new connection; verify server UID; renew same lease_id
-Broker -> Broker : require same (uid, generation, binding_id)\nactive lease before authorized_until; repeat checks 1-7
+Broker -> Broker : require same (uid, generation, binding_id)\nactive lease before max(now, watermark) reaches authorized_until; repeat checks 1-7
 alt ownership / lifetime / authorisation fails
   Broker --> Executor : lease_not_owner / lease_not_active / current check refusal
 else checks pass
@@ -190,7 +190,7 @@ else admitted and owner available
     end
     opt current token available and account active
       Adapter --> Broker : reloaded access token + account ID
-      Broker -> Broker : repeat authorisation and restore fence under state lock immediately before release
+      Broker -> Broker : repeat authorisation, R-TIME and restore fence under state lock immediately before release
       alt still authorised and within deadline
         Broker --> Executor : renewed access token + account ID
         alt account ID matches lease
@@ -228,5 +228,28 @@ note over Executor,Harness
   [[../spec/broker.md#85-renewal-release-and-reports Spec §8.5]]
   [[../spec/broker.md#93-external-token-mode Spec §9.3]]
   [[../spec/broker.md#94-refresh-and-states Spec §9.4]]
+end note
+note over Broker,Grants
+  R-TIME: durable watermark, trusted advances only; expiry at max,
+  not_before at min; untrusted time refuses new leases/renewals (§15.1).
+  Expiry binding removal also needs boot-inclusive monotonic lifetime;
+  missing elapsed evidence delays removal, never permits credentials.
+  Reset/restore cannot revive genuinely expired authority.
+  R-GEN companion restore: user manager ledger and dispatcher effects
+  reconcile independently; stale active ledger is not freshness (§15.4).
+end note
+note over Broker,Vendor
+  R-SVC-EGRESS v1: vendor network only through dedicated proxy;
+  no direct fallback; login/refresh/policy-fetch and resolver rows qualified.
+  Safe proxy failure is transient only after writer/outcome resolution.
+  R-FATE fate table is owned by user manager §7 (§9.4, §15.2).
+  R-LOCK: no state lock across synchronous platform calls;
+  per-record marker and late-result fences preserve final checks (§13.1).
+end note
+note over Executor,Broker
+  R-REBIND removes old binding and ends its leases, retains tombstone,
+  then admits fresh binding for same UID/generation with current authority.
+  Old lease cannot renew under new binding. Fresh-lease handoff OPEN;
+  explicit park/restart keeps account until handoff is qualified (§18.11).
 end note
 @enduml

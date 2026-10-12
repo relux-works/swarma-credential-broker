@@ -9,6 +9,7 @@ component "curator-run\nactive agent UID + generation\nfirst consumer, slice 0" 
 component "Harness\nagent OS account" as Harness
 component "swarma-user-manager\nroot, no-argument sudo entry" as Helper
 component "Existing service manager\nqualified containment / kill-and-confirm\nrestore start check" as Manager
+component "Dedicated broker proxy listener\nv1 service profile; qualified vendor allowlist" as Proxy
 component "Approved Codex executable\nbroker service UID, pinned digest\nslice 1" as Codex
 database "Helper ledger\nroot-owned, no secrets" as Ledger
 
@@ -16,11 +17,11 @@ package "swarma-credential-broker daemon: one unprivileged service UID" {
   component "Peer authenticator\nkernel effective UID; fixed role\nbroker/1 Unix socket only" as Peer
   component "Principal / UID-generation reader\nactive helper generation or pinned identity" as Identity
   component "Grant verifier + revocations\ntwo separate chains; v0 software root" as Grants
-  component "Binding index\ndispatcher bind / unbind" as Bindings
-  component "Lease service\nchecks 1-7; checks 2-7 under state lock\nownership on renew/release/report" as Leases
+  component "Binding index\ndispatcher bind / replacement / unbind" as Bindings
+  component "Lease service\nchecks 1-7; binding/time + 2-7 under state lock\nownership on renew/release/report" as Leases
   component "Account management + auth owner\none internal refresher per rotating account\nslice 1 Codex adapter" as Accounts
   component "Events / audit writer\ntyped metadata only" as Events
-  database "Durable store: broker UID\naccounts + secrets, config, grants,\nrevocations, bindings, leases, audit" as Store
+  database "Durable store: broker UID\naccounts + secrets, config, grants,\nrevocations, bindings, leases, time evidence, audit" as Store
 }
 
 Caller --> Dispatcher : request execution with caller-composed plan
@@ -43,6 +44,7 @@ Leases --> Accounts : active, qualified account / channel
 Accounts --> Codex : enrol / refresh only after prior writer/outcome resolved
 Accounts --> Manager : qualified contained lifecycle; no guardian service
 Manager --> Codex : contain / kill / confirm all writer absence
+Codex --> Proxy : v1 login / refresh; explicit proxy variables; no direct fallback
 Bindings --> Store : receiver intent / result / removal tombstones; binding records
 Grants --> Store : signed grants + durable revocations
 Leases --> Store : lease metadata; no payload
@@ -97,8 +99,34 @@ end note
 note top of Grants
   Keeper identity keys / versioned adapter: later, not v0.
   Source-policy v1/v2 are distinct from broker release phases.
-  Enforced networking: slice 2, helper v1; v0 refuses it.
+  Enforced networking and service egress: slice 2, helper v1; v0 refuses enforced assurance.
   [[../spec/broker.md#43-trust-root-and-key-classes Spec §4.3]]
   [[../spec/broker.md#16-delivery-order Spec §16]]
+end note
+note right of Proxy
+  Broker network only through proxy (R-SVC-EGRESS).
+  Own listener is the sole kernel destination; proxy resolves vendor names.
+  Login/refresh/policy-fetch and resolver-bypass rows require qualification.
+  Proxy outage: safe transient failure only after writer/outcome resolution.
+  User manager §8 owns service rows and scheduled/start re-verification.
+  This v1 gate does not disable software-root slice 0 (§15.2).
+end note
+note bottom of Bindings
+  E-rebind: same UID/generation, fresh binding ID; never widens.
+  Remove old binding with tombstone, end old leases, then publish new.
+  No helper principal; unbind remains dispatcher/operator (§7.3).
+end note
+note bottom of Accounts
+  R-FATE fate table: user manager §7, next to R-FD3;
+  stop/crash/replacement and previous-writer fence need platform qualification.
+  R-LOCK: state lock never spans synchronous platform-service calls;
+  per-record in-flight marker and bounded I/O; stale result cannot deliver (§13.1).
+end note
+note bottom of Grants
+  R-TIME: durable watermark advances only on trusted time;
+  expiry checked at max(now, watermark); not_before at min(now, watermark).
+  Untrusted time refuses new authority; restore reconciles time evidence.
+  Expiry-driven binding removal also needs monotonic lifetime (§15.1).
+  R-NETBIND: machine-owned policy, pinned admission and served digest (§5.5).
 end note
 @enduml

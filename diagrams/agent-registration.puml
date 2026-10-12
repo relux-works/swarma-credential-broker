@@ -18,12 +18,12 @@ break revoked or unavailable
   D --> O: refuse before account creation; no downstream effect
 end
 D -> H: sudo swarma-user-manager (no arguments)\nstdin: user.create {kind: agent, label: dev-7f3}, create effect ID
-H -> H: under the helper lock: allocate UID, ledger entry g-0193 (creating → active)
-H --> D: {username: worker-dev-7f3, uid: 30412, generation: g-0193}
-D -> D: sign leaf grant: subject agent:g-0193, depth 0,\nnarrowed from its own grant (chain to the root)
-D -> B: bind {uid 30412, generation g-0193, label, profiles [dev],\nchain [leaf, dispatcher grant, root],\ncaller {chain [caller grant, …, root], intersection}, request_id: bind effect ID, expires_at}
-B -> B: peer is a dispatcher principal;\nroot-owned ledger.json (helper §4.5):\ng-0193 active, kind agent, created by this dispatcher;\nverify both chains, every edge incl. the leaf;\nleaf within the caller intersection; current revocations; restore fence closed? refuse
-B -> B: serialize receiver journal; persist bind intent before mutation;\npersist result/current target state before acknowledgement
+H -> H: under the helper lock: allocate UID, fresh random 128-bit generation; ledger (creating → active)
+H --> D: {username: worker-dev-7f3, uid: 30412, generation: 4a91c5e03b2d4788a649d70fc62e15bd}
+D -> D: sign leaf grant: subject agent:4a91c5e03b2d4788a649d70fc62e15bd, depth 0,\nnarrowed from its own grant (chain to the root)
+D -> B: bind {uid 30412, generation 4a91c5e03b2d4788a649d70fc62e15bd, label, profiles [dev],\nchain [leaf, dispatcher grant, root],\ncaller {chain [caller grant, …, root], intersection}, request_id: bind effect ID, expires_at}
+B -> B: peer is a dispatcher principal;\nroot-owned ledger.json (helper §4.5):\n4a91c5e03b2d4788a649d70fc62e15bd active, kind agent, created by this dispatcher;\nverify both chains, every edge incl. the leaf;\nleaf within the caller intersection; current revocations and R-TIME max/min checks; untrusted time or restore fence? refuse
+B -> B: pre-admission refusal: no intent; fresh retry checks (R-OUTCOME);\nserialize receiver journal; persist admitted bind intent before mutation;\npersist result/current target state before acknowledgement
 B --> D: binding/1 {binding_id}
 opt bind acknowledgement lost
   D -> B: effect.observe: original bind request_id, bind, canonical-argument digest
@@ -39,8 +39,8 @@ break revoked or unavailable
   D --> O: refuse before privileged start; reconcile existing effects
 end
 D -> D: owning claim and cancellation gate still required
-D -> L: sudo swarma-user-launcher (no arguments)\nstdin: launch.start {generation: g-0193, execution_id, epoch,\nexecutor: curator-run, plan: base64, request_id: launch effect ID}
-L -> L: ledger: g-0193 active; executor digest approved;\napply user-manager helper §7 descriptor lifecycle (R-FD3);\nprotected immutable plan on FD3; root receipt and UID/GID transition
+D -> L: sudo swarma-user-launcher (no arguments)\nstdin: launch.start {generation: 4a91c5e03b2d4788a649d70fc62e15bd, execution_id, epoch,\nexecutor: curator-run, plan: base64, request_id: launch effect ID}
+L -> L: ledger: 4a91c5e03b2d4788a649d70fc62e15bd active; executor digest approved;\napply user-manager helper §7 descriptor lifecycle (R-FD3);\nprotected immutable plan on FD3; root receipt and UID/GID transition
 L -> E: exec approved curator-run as uid 30412 (plan on FD3)
 E -> E: verify and execute caller-composed plan;\nno composition or profile resolution; no network except broker
 E -> B: fresh connection (lease flow: lease-at-launch)
@@ -61,4 +61,13 @@ note over O,B
 end note
 note over O: D-PATH: protected launch tools → admitted base PATH → protected manager dispatcher.\nNo repository .agents/bin executes in a managed launch.
 note over E: Narrow executor intake is an approved versioned target (D-EXECUTOR);\nR-LR1 publishes its command/plan contract. Board runner and host call dispatcher.
+note over D,B
+  E-rebind uses binding replacement for this same UID/generation;
+  no account recreation, no widening, fresh prepare verdict and final checks.
+  Old-binding tombstone survives; old leases end; replay never reactivates.
+  Exact replacement intake unpublished (§18.11); see binding-replacement.puml.
+  No helper broker principal. All platform-service calls release state locks
+  with per-record in-flight ownership and late-result fencing (R-LOCK, §13.1).
+  R-SESSION permit is session-scoped; every physical start keeps its own claim.
+end note
 @enduml

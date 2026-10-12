@@ -1,8 +1,14 @@
 # swarma-credential-broker: specification
 
-- **Status:** draft v0.6 (2026-10-12). Nothing is implemented.
+- **Status:** draft v0.7 (2026-10-12). Nothing is implemented.
 - **Normative language:** MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 - **Companions:** [swarma-user-manager](https://github.com/relux-works/swarma-user-manager) (per-agent OS users, the launcher that starts processes under them, and per-UID firewall rules), [curator-network-profiles](https://github.com/relux-works/curator-network-profiles) (egress profiles), curator-spec CIP-0010 and CIP-0011 (the Curator side: credential sources, the protected credential binding, the executor capability, the launch-plan extension).
+
+### Revision 0.7
+
+- Applies accepted cycle-2 findings: R-REBIND binding replacement with old-binding removal evidence and no lease carry-over (§7–§8); R-TIME durable watermark and elapsed-time destruction gate (§6.2, §7.2, §8.3, §9.4, §15–§16).
+- Adds R-OUTCOME bind/unbind tables, keeps unbind with dispatcher/operator and admits no helper principal (§7, §13); states R-SVC-EGRESS proxy-only broker egress and its v1 qualification/dependency boundary (§3, §9, §12.3, §15.2).
+- References R-GEN component restore procedures, R-FATE process fate, R-NETBIND machine-owned network policy and R-LOCK wait/lock discipline; aligns figures and records unpublished activation gates (§18). R-SESSION retains dispatcher-only physical starts; cross-account repositories follow the standalone-repository decision.
 
 ### Revision 0.6
 
@@ -72,7 +78,7 @@ The broker is a small service that:
 | account | One credential of one person for one harness family, for example a Claude subscription token or a Codex ChatGPT login. Identified by an account id such as `owner/claude/personal`. |
 | owner | The person an account belongs to, identified by the OS account that enrolled it (§4.2). |
 | principal | A participant the broker authorises: an operator, a dispatcher, an account owner, or an agent. |
-| generation | The never-reused identifier that swarma-user-manager assigns when it creates an OS account (its ledger, helper §4.5). |
+| generation | The fresh random 128-bit, never-reused identifier that swarma-user-manager assigns when it creates an OS account (its ledger, helper §4.5). |
 | grant | A signed statement that a key or an agent generation may lease named accounts for named harnesses and profiles in a time window (§6). |
 | binding | The broker's record that an agent OS account (UID and generation) currently acts as one agent, with the grant chain it uses (§7). |
 | dispatcher | relux-works/swarma-dispatcher, running under its own service account: it asks swarma-user-manager for an OS account, binds it in the broker, and starts processes under it through the helper's launcher. Curator's `agent-user` commands are its clients (CIP-0011). |
@@ -93,7 +99,7 @@ Figure [M-CB1 — broker components](../diagrams/components.puml) shows the proc
 | client library (`pkg/client`) | inside executors, dispatchers and the CLI | the socket protocol, delivery of material to a harness, renewal |
 | CLI | the calling person or component | `curator broker …` in Curator, or the standalone `swarma-credential-broker` binary (§14) |
 
-The broker opens no network listener. Its only interface is a Unix-domain socket. Daemon-local ownership and an account lock alone do not establish single vendor-refresh ownership after a daemon crash: vendor children do not honour that lock. Slice 1 MUST preserve at most one live vendor refresh writer per account across replacement, using durable attempt intent and qualified service-manager containment, kill-and-confirm and recovery (§9.4, §15).
+The broker opens no network listener. Its only interface is a Unix-domain socket. **R-SVC-EGRESS:** the broker reaches the network only through the proxy, including approved vendor children under its UID. The user manager's §8 owns the v1 service-profile matrix: the broker has its own profile and proxy listener; kernel egress permits only that destination, and the proxy allowlist carries qualified vendor names. The dispatcher and session host have deny-all egress. Service-profile enforcement and resolver isolation are v1/slice-2 capabilities, not claims about cooperative v0 or a new slice-0 prerequisite (§15.2). Daemon-local ownership and an account lock alone do not establish single vendor-refresh ownership after a daemon crash: vendor children do not honour that lock. Slice 1 MUST preserve at most one live vendor refresh writer per account across replacement, using durable attempt intent and qualified service-manager containment, kill-and-confirm and recovery (§9.4, §15).
 
 ### 3.1 First consumer and execution boundary
 
@@ -103,7 +109,7 @@ The dedicated entry (such as `curator-run exec --plan-fd N`) is an intended inta
 
 D-PATH fixes the launch-scoped PATH order: (1) the protected tool directory of this launch (CIP-0007), (2) the admitted base PATH of this user in its existing order, (3) one protected manager dispatcher directory that runs project commands only after checks. A repository `.agents/bin` is never executed in a managed launch. The resolved PATH is recorded in the launch plan and covered by its digest; the executor verifies that plan rather than recomposing PATH.
 
-Only the dispatcher invokes the privileged launcher for agent execution starts; the session host requests an admitted start through the dispatcher (`host_start`, R-START). There is no launch ticket, host sudo authority or helper host role. The dispatcher owns the durable host admission permit and its claim/effect/root-receipt reconciliation; the dispatcher and session-host specs own their joint publication and qualification. This reference does not claim those integrations are activated.
+Only the dispatcher invokes the privileged launcher for agent execution starts; the session host requests an admitted start through the dispatcher (`host_start`, R-START). There is no launch ticket, host sudo authority or helper host role. R-SESSION makes the **host admission permit** session-scoped for one `logical_session_id`; the owner's admitted start may explicitly authorise successors through its **session lifecycle authorisation**, with its member format unpublished. Each physical start retains its own `(execution_id, controller_epoch, op_id)` claim, fence and receipt interlock. A successor `host_start` is admissible only under that authorisation, is idempotent per `(logical_session_id, op_id)` and requires confirmed absence of the previous claim. Only the configured session-host principal may request `host_stop` in `dispatch-op/1` for an execution under its permit; this uses the journaled E-stop path (`exec.stop`, confirmed absence), is host-requested and distinct from owner `cancel`, and confers no start authority. The dispatcher owns the permit and claim/effect/root-receipt reconciliation; the dispatcher and session-host specs own their joint publication and qualification. This reference does not claim those integrations are activated.
 
 The **board runner and session host do not embed broker clients**. They request execution from `swarma-dispatcher`, which launches through `curator-run`. The board is an optional caller, not a broker or session-host dependency. Later session-runner integration owns the agent-side PTY or per-session app-server transport and lease renewal; the session-host service owns durable session metadata. This does not assert SH2 activation or change the first consumer.
 
@@ -130,6 +136,8 @@ The broker's configuration (owned by the broker user, §15) names operators and 
 - **Managed principals** (accounts created by swarma-user-manager: agents, and dispatchers or services that run under helper-created service accounts) are keyed by `(uid, generation)` and are valid only while the helper ledger shows that generation as `active` for that UID. The broker reads the ledger file directly (helper §4.5); a missing, ambiguous, retired, malformed or unreadable entry refuses (`principal_ledger_mismatch`). The check is repeated on bind, lease and renew.
 - **Unmanaged principals** (people's own OS accounts acting as operators or owners) are pinned at configuration by UID plus the account's directory identity (on macOS the account's `GeneratedUID`; on Linux the user name and home path). A change refuses until an operator re-pins the principal (`principal_identity_changed`).
 - Every principal that enrols an account becomes that account's **owner**.
+
+The root helper is a ledger publisher, not a broker principal: root privilege grants no broker bind, unbind or observation role. Cross-account child workspaces use standalone repositories with their own `.git`, configuration and hooks (F-16); Worktrees within one account and the current board workflow stay unchanged; linked worktrees across isolated accounts are forbidden. Workspace materialisation belongs to the launcher/workspace contract, not the broker.
 
 The helper ledger's default locator is **`/opt/swarma/lib/user-manager/ledger.json`** (helper §4.0, §4.5). It is root-owned, mode 0644, in a root-owned directory; the helper publishes it by atomic replacement with file flush, rename and directory flush. It contains one record per generation and no secrets; `user.list` returns those same records. Its readability is not authority. The locator follows the helper's configured installation root when it differs from `/opt/swarma`; the broker MUST use that configured locator, never search an agent home or fall back after a read failure.
 
@@ -238,6 +246,8 @@ An account MAY require a network profile: `{ profile_ref, profile_digest, assura
 - **Cooperative (v0).** The caller composes the launch's network profile with curator-network-profiles. The executor verifies its destination-local network binding from that plan without resolving profiles (§3.1) and passes the resulting record in the lease request. The broker checks `profile_ref` and `profile_digest` against the account's requirement and records the result as **declared**. The record proves only what the requesting process asserted; network profiles in this version set proxy settings that a process can ignore.
 - **Enforced (later).** An account that requires `assurance: "enforced"` is refused (`lease_network_enforcement_unavailable`) until swarma-user-manager v1 publishes trusted applied state for the agent's `(uid, generation)`: the profile digest, the proxy listener identity and the firewall generation. The broker then matches leases and renewals against that state, not against the request, and refuses drift.
 
+R-NETBIND: the machine owns the policy binding a child's network profile to its granted Curator profile; the user manager's §8 publishes its protected location and operator lifecycle. The dispatcher pins that policy/digest at admission. `fw.apply` checks that the listener actually serves the policy whose digest was applied, including listener/service-generation binding; broker enforced checks reference that trusted applied state. Policy reload or listener reuse cannot silently broaden existing allocations. The network-profiles/proxy contracts own digest relations and re-apply/session invalidation publication. This adds no grant dimension; v0 remains declared/cooperative only.
+
 ### 5.6 One person, one subscription
 
 An account belongs to the person who enrolled it. The broker MUST NOT issue a lease for an account unless the grant chain's root authorises that account (§6). Bounds on concurrent use are not part of v0; grants that state them are refused rather than ignored (§6.2).
@@ -283,13 +293,13 @@ A request carries the full chain as envelopes, leaf first. The broker accepts it
 5. Narrowing means: actions, accounts, harnesses and profiles are subsets of the parent's; `[not_before, expires_at]` lies within the parent's window; `child.depth < parent.depth`.
 6. Only the leaf may have an `agent:` subject, and a leaf with an `agent:` subject has `depth: 0` and the single action `credential.lease` (`grant_subject_invalid`). The v0 action vocabulary is `credential.lease` and `agent.spawn`; role subjects, wildcards, other actions and other conditions are not part of v0 and refuse (`grant_unsupported`).
 7. A dispatcher's own chain ends at the dispatcher key with depth ≥ 1 and is at most 3 envelopes long, so that an agent leaf fits within the 4-envelope bound; the broker refuses to configure a dispatcher whose chain cannot construct a leaf (`grant_unconstructible`).
-8. No envelope, issuer key or subject key is revoked (§6.4), and the current time is inside every window (`grant_revoked`, `grant_expired`, `grant_not_yet_valid`).
+8. No envelope, issuer key or subject key is revoked (§6.4), and every window passes R-TIME: expiry is evaluated at `max(now, watermark)`, and `not_before` at `min(now, watermark)` (§15.1) (`grant_revoked`, `grant_expired`, `grant_not_yet_valid`).
 
 The verifier's test suite includes a valid chain and mutants that skip each rule, including one that skips only the leaf edge.
 
 ### 6.3 Agent leaves
 
-An agent is named in a grant by its helper account generation, `agent:<generation>`. Generations are never reused, so a grant cannot be reused by a later agent that happens to get the same label, user name or UID. Display labels are kept in the binding for people to read and play no part in authorisation.
+An agent is named in a grant by its helper account generation, `agent:<generation>`. R-GEN generations are fresh random 128-bit values and never reused, so a grant cannot be reused by a later agent that happens to get the same label, user name or UID. Generation values in examples are illustrative random 128-bit identifiers; their wire encoding remains owned by the user manager, not defined here. Display labels are kept in the binding for people to read and play no part in authorisation.
 
 ### 6.4 Revocation
 
@@ -340,10 +350,10 @@ Figure [M-CB3 — record states](../diagrams/record-states.puml) shows binding a
 binding/1
 { binding_id:   random 128-bit identifier, never reused,
   uid:          30412,
-  generation:   "g-0193",                 // helper ledger, §4.2
+  generation:   "4a91c5e03b2d4788a649d70fc62e15bd", // illustrative helper generation, §4.2
   label:        "dev-7f3",                // for people; not used for authorisation
   profiles:     ["dev"],
-  chain:        [leaf id, …, root id],    // leaf subject = "agent:g-0193"
+  chain:        [leaf id, …, root id],    // leaf subject = "agent:4a91c5e03b2d4788a649d70fc62e15bd"
   caller:       { chain: [caller leaf id, …, root id],   // the authorization of whoever asked for the agent
                   intersection: { accounts, harnesses, profiles, not_before, expires_at } },
   created_by:   principal reference of the dispatcher,
@@ -352,16 +362,18 @@ binding/1
   state:        "active" | "removed" }
 ```
 
-The receiver retains the original caller principal, effect `request_id`, operation, canonical-argument digest, intent, outcome and target identity/state as journal evidence for bind and unbind (§7.2). These are semantic journal requirements, not added `binding/1` wire members. Removal retains a tombstone linked to the removed binding's UID/generation and its bind and unbind effects; deleting the active index does not delete that evidence.
+The receiver retains the original caller principal, effect `request_id`, operation, canonical-argument digest, intent, outcome and target identity/state as journal evidence for bind and unbind (§7.2). These are semantic journal requirements, not added `binding/1` wire members. Removal retains a tombstone linked to the removed binding's UID/generation and its bind and removal effects, including binding replacement; deleting the active index does not delete that evidence.
 
 ### 7.2 Creating and removing
 
 - `bind` MUST come from a dispatcher principal (§4.2) and MUST name a UID whose ledger entry is an active **agent** account of that generation, created by the same dispatcher (or by an operator). The chain MUST verify (§6.2) with leaf subject `agent:<generation>`.
 - The `caller.chain` MUST verify separately (§6.2): its leaf subject is the caller's key, it allows `agent.spawn` and `credential.lease`, and the binding's leaf MUST lie within `caller.intersection`, which MUST lie within the caller chain. The two chains are never concatenated.
-- Bind and unbind effects are serialized with the broker's receiver journal. Intent and the caller/effect/argument binding MUST be durable before mutation; outcome and current target state MUST be durably recoverable before acknowledgement. Interrupted work remains pending until receiver reconciliation resolves it; no new mutation is authorized by an uncertain outcome.
+- **R-REBIND binding replacement.** Dispatcher **E-rebind** re-signs the leaf under the current dispatcher and caller chains and replaces the binding for the same `(uid, generation)` without re-creating the account. Each E-rebind has a distinct effect ID and fresh `revocation.check` with context `prepare`; the broker independently repeats current authority, ledger, time and restore checks before committing. The renewing principal MUST already sit in the chain being renewed; a dispatcher signature alone is not renewal authority. The new leaf is the intersection of the current chains with the originally admitted request: no added accounts, harnesses or profiles. Widening needs a new dispatcher `provision`, not E-rebind. The receiver durably removes the old binding, ends its leases, closes its connections and retains its removal tombstone before publishing a fresh, never-reused `binding_id`. Replacement never has two active bindings for the tuple. A crash between removal and publication leaves no authority until fresh checks and receiver reconciliation resolve the same replacement effect; an uncertain outcome never authorises another replacement. Exact replacement intake, argument binding and transaction ordering would need publication (§18.11); no new broker method or wire member is assigned.
+- Renew-ahead requires current authorised chains; an expired chain needs explicit renewal by its authorised principal. A revoked envelope or key is never reissued by a sweep: it needs a new explicit operator decision. A renewed requester delegation identifies the existing allocations it reauthorises, and each replacement retains ancestor authority in its caller chain. Old bind/unbind replays never affect the replacement.
+- R-OUTCOME bind/unbind outcome tables in §13.2 govern rejection, unfinished work, terminal replay and transport uncertainty. Bind and unbind effects are serialized with the broker's receiver journal. Pre-admission rejection records no receiver intent; a retry must pass fresh admission. Intent and the caller/effect/argument binding MUST be durable before mutation; outcome and current target state MUST be durably recoverable before acknowledgement. Interrupted admitted work remains `pending` until receiver reconciliation resolves it. A bind or replacement that would create authority must repeat fresh checks before any authority-creating step; pending intent is no permission cache. Unbind continuation only narrows authority (§13.2, R-OUTCOME). No new mutation is authorized by an uncertain outcome.
 - A bind with a `request_id` already used by the same dispatcher returns the recorded result and the existing binding's current state if the arguments are equal and refuses otherwise (`bind_request_conflict`). A removed binding is not reactivated by replay.
 - An unbind retry retains its original effect ID and canonical arguments. The broker returns its recorded result and current removal state; it never interprets replay as a new effect on a replacement binding. Argument/operation conflicts refuse; their exact unbind error mapping is unpublished (§18.9).
-- `unbind` comes from the dispatcher that created the binding or from an operator. It ends the binding's leases and closes the UID's connections. Expired bindings are removed by the broker. Removal retains authoritative tombstone evidence and the recorded result; it does not erase the bind or unbind journal.
+- `unbind` comes from the dispatcher that created the binding or from an operator. It ends the binding's leases and closes the UID's connections. Expired bindings are immediately unusable at `max(now, watermark)`, even if their records are retained. Expiry-driven removal additionally requires trusted time and durable boot-inclusive monotonic elapsed time of at least the binding lifetime from activation (§15.1); a wall-clock jump alone cannot remove a binding. Explicit authorised unbind and replacement do not wait for expiry. Removal retains authoritative tombstone evidence and the recorded result; it does not erase the bind or unbind journal.
 - A UID with no active binding receives `lease_unbound` for every lease request.
 - `effect.observe` is a read, not a mutation replay or authority renewal (§13.2). Only the original caller principal or an operator may observe the matching effect. Grant expiry does not prevent this read by an otherwise authenticated original principal; an operator resolves evidence when that principal can no longer authenticate (§4.2).
 - Journal and tombstone retention MUST cover all admissible retries and reconciliation for those effects. Evidence may be reclaimed only once its identities are permanently inadmissible for mutation; time-based result-cache expiry alone is insufficient. The bounded retention/admission mechanism is unpublished (§18.9) and is required before activation. Missing, expired, partial or unreadable evidence yields `unavailable`, never `not_recorded`; a list miss or removed active record cannot prove absence.
@@ -370,7 +382,9 @@ The root caller's `request_id` is correlation for one caller-scoped dispatch req
 
 ### 7.3 Ephemeral agents
 
-A binding's `expires_at` is the end of the agent's task. The dispatcher removes it when the task ends and before the OS account is retired. The broker never extends a binding on its own.
+For an ephemeral agent, binding `expires_at` bounds task authority; finite credential authority also bounds standing and kept allocations without changing their account lifetime. The dispatcher removes a task's binding when the task ends and before ordinary OS retirement. The broker never implicitly extends an existing binding; R-REBIND supplies a fresh binding under explicit current authority (§7.2). Replacement ends old leases: seamless running continuation is not promised (§8.5).
+
+Unbind stays with the creating dispatcher or a configured operator; the broker admits no helper principal. Direct operator retirement may establish local quiescence while the broker is unavailable or restore-fenced. It leaves unconfirmed binding cleanup as an explicit durable dispatcher/operator obligation; ledger retirement or process death is not a broker unbind receipt. Later reconciliation uses the original unbind effect and retained evidence. Retiring generations cannot lease or renew (§7.4), and recycled UIDs inherit no authority.
 
 ### 7.4 Account reuse
 
@@ -396,15 +410,15 @@ lease.request/1
 
 ### 8.2 Checks, in order
 
-1. The peer is the agent principal of an active binding (`lease_unbound`, `principal_ledger_mismatch`).
+1. The peer is the agent principal of an active binding whose `expires_at` has not been reached at `max(now, watermark)` (§7.2, §15.1) (`lease_unbound`, `principal_ledger_mismatch`).
 2. The binding's chain **and** its caller chain verify now against the current revocation state (§6.2, §6.4); a revoked envelope or key in either refuses (`lease_grant_revoked`, `lease_caller_revoked`).
 3. The leaf covers `credential.lease` on the account, the harness and the profile, and the profile is one of the binding's profiles (`lease_not_authorised`).
-4. The account exists, its harness equals the requested harness, and it is `active` (`lease_account_unknown`, `lease_harness_mismatch`, `lease_account_revoked`, `lease_reauth_required`, `lease_owner_unavailable`).
+4. The account exists, its harness equals the requested harness, it is `active`, and any known account expiry has not been reached at `max(now, watermark)` (`lease_account_unknown`, `lease_harness_mismatch`, `lease_account_revoked`, `lease_reauth_required`, `lease_owner_unavailable`).
 5. The channel is valid for the kind (`lease_channel_unsupported`), and the harness release is qualified for this kind and channel (`lease_harness_unqualified`).
 6. The credential binding's fields equal the request's, its endpoint is one the broker's configuration approves for the kind, and its executable digest is on the broker's approved list for the harness (`lease_binding_mismatch`).
 7. The account's network requirement is met as described in §5.5 (`lease_network_mismatch`, `lease_network_enforcement_unavailable`).
 
-Checks 2 to 7 run under the state lock immediately before the material is released. The restore fence is checked under that lock before any material release, including after an asynchronous refresh. Bind independently checks current revocations and the restore fence under the same lock (§6.4, §7.2); a dispatcher verdict cannot waive these checks.
+Binding/time validity and checks 2 to 7 run under the state lock immediately before the material is released. The restore fence is checked under that lock before any material release, including after an asynchronous refresh. Bind independently checks current revocations and the restore fence under the same lock (§6.4, §7.2); a dispatcher verdict cannot waive these checks.
 
 ### 8.3 Response and lease record
 
@@ -426,6 +440,8 @@ The payload appears only in this response and in renewal responses, never in log
 
 `(lease_id, uid, generation, binding_id, account, harness, profile, channel, credential_binding digest, launch_id, policy generation, authorized_until, state: active | released | expired | revoked)`.
 
+R-TIME checks `authorized_until`, binding expiry, known account expiry and every chain expiry at `max(now, watermark)`; `not_before` uses `min(now, watermark)` (§6.2, §15.1). Untrusted time refuses issuance and renewal; watermark durability precedes release. R-REBIND does not rewrite a lease's `binding_id` or `authorized_until`: all leases of the old binding end, and a fresh lease needs current admission.
+
 ### 8.4 Delivery channels
 
 The client library delivers material only into the process the executor starts:
@@ -443,16 +459,17 @@ The launch-time lease lifetime and remaining cleanup questions differ by channel
 Figure [M-CB2 — lease recovery](../diagrams/lease-recovery.puml) covers admission refusals, reconnecting, current-authority renewal and Codex failure branches (§9.3–§9.4). The main paths remain in [lease-at-launch](../diagrams/lease-at-launch.puml) and [codex-renewal](../diagrams/codex-renewal.puml).
 
 - `lease.renew`, `lease.release` and `event.report` name a `lease_id` and are accepted only from the lease's own `(uid, generation, binding_id)` (`lease_not_owner`).
-- Renewal is refused after `authorized_until` or once the lease is released, expired or revoked. It repeats checks 1 to 7, including the caller chain, before releasing new material, including after an asynchronous refresh (§9).
+- Renewal is refused when `max(now, watermark)` reaches `authorized_until` or once the lease is released, expired or revoked. It repeats checks 1 to 7, including the caller chain, before releasing new material, including after an asynchronous refresh (§9).
 - Release is idempotent and ends renewal.
 - A report affects only the reporting lease's record. A client report never changes an account's state; account states change by the owner's command or by the auth owner's own refresh results (§9.4).
+- Binding replacement ends every old-binding lease; reconnecting under the new binding cannot renew an old lease. A fenced fresh-lease handoff for a qualified live holder would need publication and qualification (§18.11). Until then continuity requires explicit park and restart that keeps the account; neither env executions nor app-server renewal have a seamless continuation promise. Already copied env tokens keep only their vendor lifetime (§12.1).
 - Leases are not tied to connections; a disconnected executor can renew from a new connection of the same principal.
 
 Successful `exec` replaces the executor with the harness; it does not return when the harness exits. Broker connections are close-on-exec (§4.1), and closing them is not `lease.release`. The env-channel harness does not talk to the broker. No executor broker client remains to renew, report or release after successful `exec`.
 
 | Launch channel | Lease holder and end of broker authority |
 |---|---|
-| `env` | The executor receives the payload before `exec` and then ceases to exist as a broker client. Renewal is refused after `authorized_until`; revocation stops new leases and renewals (§6.4), and unbind ends the binding's leases (§7.2). No release on harness exit is specified. Whether to release before exec or retain the record until the authorization limit is open (§18.7). |
+| `env` | The executor receives the payload before `exec` and then ceases to exist as a broker client. Renewal is refused when `max(now, watermark)` reaches `authorized_until`; revocation stops new leases and renewals (§6.4), and unbind ends the binding's leases (§7.2). No release on harness exit is specified. Whether to release before exec or retain the record until the authorization limit is open (§18.7). |
 | `stdin` | Delivery of a key through stdin alone does not specify whether the executor survives as a client. A surviving holder of the same lease principal can release under this section; a replaced executor cannot. The process model and release point are unpublished (§18.7). The authorization limit, revocation and unbind rules still apply. |
 | `external-token` | The live agent-side executor or later session runner starts a private app-server and remains its client for renewal (§3.1, §9.3); it does not exec-replace itself with that server. This holder can call `lease.release` when ending its execution, as the lease's own principal. Exact teardown timing and failure cleanup are unpublished (§18.7). Without release, renewal is still bounded by `authorized_until`, revocation and unbind. |
 
@@ -467,7 +484,7 @@ A Codex ChatGPT login rotates its refresh token on every refresh. Several proces
 ### 9.2 Enrolment ceremony
 
 1. A person runs `curator broker enrol codex_cli --account <id>`.
-2. The broker creates a fresh Codex home for the account inside its own store, configured for file credential storage, and runs the approved Codex executable (pinned path and digest) with a sanitised environment to start the vendor's device login.
+2. The broker creates a fresh Codex home for the account inside its own store, configured for file credential storage, and runs the approved Codex executable (pinned path and digest) with a sanitised environment to start the vendor's device login. Under the v1 service profile, the broker explicitly supplies proxy variables to the vendor executable and its network-using children; inheritance is not assumed. Login, policy-fetch and refresh routes need separate approved endpoint-set, proxy-use and no-direct-fallback qualification (§15.2). The `credential_binding` endpoint list does not establish authentication endpoints.
 3. The broker relays the verification address and code to the person's CLI. The person completes the login in a browser.
 4. The broker reads the vendor account identifier from the new login and refuses if another broker account already maps to it (`account_duplicate`).
 5. The auth owner starts and the account becomes `active`.
@@ -488,6 +505,8 @@ Figures [M-CB2 — lease recovery](../diagrams/lease-recovery.puml) and [M-CB3 �
 - **Single writer across replacement.** At most one live vendor refresh writer may exist for an account, including after daemon death. The auth owner holds a stable lock beside the Codex home through read, refresh and reload; the vendor does not honour it. Before launch, the broker MUST durably persist account-scoped attempt intent; it MUST retain qualified attempt/process identity evidence across launch and recovery. Intent proves an attempt was planned, not that an external rotation committed or failed. Record layout and platform process identity remain unpublished (§18.10).
 - **Contained lifecycle.** The approved executable runs inside qualified service-manager containment on both platforms (§15.2–§15.3). Daemon death or replacement MUST close refresh admission, contain and stop the previous writer, and confirm its complete process absence through the service manager. Reacquiring the daemon's released lock, a reusable PID, a timeout or a missing process read is not proof of absence. No replacement refresh may start until the previous writer's lifecycle is resolved; no extra guardian service is introduced.
 - **Resolve before retry.** Recover the previous attempt and reload the durable vendor home before deciding whether another refresh is safe. Confirmed child absence alone does not prove an external rotation failed. A crash after vendor rotation but before local store/result persistence is ambiguous: no blind retry. Unknown writer, store or prior-outcome evidence keeps the account unavailable (`owner_unavailable`), or requires re-enrolment (`reauth_required`) after writer absence is confirmed. Re-enrolment MUST NOT run concurrently with an unresolved previous writer.
+- **Time and proxy dependencies.** Refresh scheduling uses the R-TIME confidence policy and watermarked expiry (§15.1); scheduling never extends grant, binding, lease or vendor-token authority. An untrusted clock holds new leases/renewals; refresh scheduling cannot certify token validity; final material release repeats the time checks after refresh. In v1 the proxy is a refresh dependency: conclusively safe proxy/network failure sets `refresh_failed_transient` with backoff only under the prior-writer/outcome rules. Proxy outage never permits direct fallback; an ambiguous rotation remains unresolved, not a safe transient retry.
+- **R-FATE.** The user manager's §7 owns the per-process-class **fate table**, next to R-FD3: broker daemon and vendor enrolment/refresh writers reference its stop, crash and replacement containment and old-writer fence. Those rows must be qualified per platform; a process tree or service default is not evidence (§15.2).
 - When the current access token expires within the refresh window (48 hours in the reference implementation), the owner refreshes by running the approved Codex executable once; it never reimplements the vendor's token exchange. Requests queue for the owner with a bound; a full queue returns `renew_timeout`. The lifecycle gate above applies to proactive and request-triggered refresh alike.
 - `lease.renew { rejected_sha256 }` refreshes only if the rejected token is still the current one; N launches rejected with the same token cause one refresh. Durable attempt recovery also prevents replacement contention from producing another writer.
 - States: a conclusively transient failure (network, vendor error) sets `refresh_failed_transient` and permits backoff retry while the token is valid only after the previous writer is resolved and evidence establishes retry safety. A timeout alone cannot establish that no rotation occurred. A rejected refresh token sets `reauth_required`; a stopped or unresolved owner sets `owner_unavailable`; leases are refused. Re-enrolment follows the writer-absence gate. The refresh token never leaves the broker store; there is no fallback to a harness login.
@@ -555,7 +574,7 @@ The broker's binding check (§8.2 step 6) keeps configuration consistent; it is 
 
 ### 12.3 The broker itself
 
-The broker holds every enrolled credential, so it stays minimal: one service user, no network listener, no plugins, no shell-outs except the approved Codex executable for enrolment and refresh, an append-only audit log, and rate limits per principal. The audit log records who, which account, which launch and which outcome as typed metadata; it never records material, raw protocol frames, secret-bearing errors or token hashes.
+The broker holds every enrolled credential, so it stays minimal: one service user, no network listener, no plugins, no shell-outs except the approved Codex executable for enrolment and refresh, an append-only audit log, and rate limits per principal. R-SVC-EGRESS permits network only through the dedicated proxy listener (§3, §15.2); allowed vendor destinations may still carry data, so the allowlist reduces uncontrolled egress without proving store non-exfiltration. Resolver-mediated paths require their own qualification, since per-UID packet rules alone do not constrain a privileged resolver. The audit log records who, which account, which launch and which outcome as typed metadata; it never records material, raw protocol frames, secret-bearing errors or token hashes.
 
 ### 12.4 Files
 
@@ -569,6 +588,19 @@ All broker files are owned by the broker user; directories are 0700. Every state
 
 A Unix-domain stream socket. Frames are a 4-byte big-endian length followed by a CCJ-1 canonical JSON object; the broker rejects frames over 64 KiB before reading them. The first exchange is `hello { versions: [1] }`; an unknown version closes the connection. Each request carries a client-chosen `request_id`; every response echoes it. Requests have deadlines: 2 seconds for administrative reads, 8 seconds for `lease.renew` (§9.3), 30 seconds for lease requests that wait for the auth owner.
 
+**R-LOCK:** never hold its state lock across a synchronous call to another platform service. Ownership is tracked by a per-record in-flight marker: fix intent/arguments and record ownership under the lock, release it for bounded I/O, then revalidate record versions, restore/time fences and daemon-instance ownership under the lock before recording the result or releasing material. Late stale results may resolve history but never reopen admission or delivery. Per-record ownership serializes work; unrelated records and diagnostic reads remain available. Singleton and account writer-ownership locks retain their separate lifecycle; this rule does not weaken §9.4.
+
+The broker's wait/lock graph is:
+
+| Held lock / marker | Wait or call | Rule |
+|---|---|---|
+| Broker state-transition lock | Local journal, revocation, binding and lease transitions; final material-release checks | No synchronous platform-service call |
+| Per-record in-flight marker, state lock released | Service-manager containment, stop/absence or qualified vendor launch; proxy-dependent vendor I/O | Bounded I/O; reacquire state lock and revalidate before delivery |
+| Account refresh ownership lock, state lock released | Vendor read/refresh/reload and lifecycle resolution | Preserves one writer; No state-lock holder waits for this ownership lock; no cross-account ownership wait |
+| Broker state-transition lock | Direct root-owned ledger file read | Local file access, not a user-manager RPC; failure refuses |
+
+No wait edge carries the broker state-transition lock into the user manager, dispatcher, session host, service manager or proxy. The dispatcher → broker administrative call does not trigger a callback into a waiting dispatcher. This graph and the shared R-LOCK graphs must remain acyclic; concrete concurrency bounds, marker/fence encoding and platform mechanisms would need publication (§18.13).
+
 ### 13.2 Methods
 
 | Method | Accepted from | Purpose |
@@ -577,7 +609,8 @@ A Unix-domain stream socket. Frames are a 4-byte big-endian length followed by a
 | `account.enrol`, `account.describe`, `account.revoke`, `account.mark` | the account's owner | §5, §9.2 |
 | `account.list` | owners (their own), operators | §5 |
 | `grant.put`, `grant.list`, `revocation.put` | operators, and key holders for records they signed | §6 |
-| `bind`, `unbind` | dispatchers (their own bindings), operators | §7 |
+| `bind` | configured dispatchers | §7, including authorised binding replacement |
+| `unbind` | creating dispatcher, operators | §7; no helper principal |
 | `binding.list` | dispatchers (their own), operators | §7 |
 | `effect.observe` | original effect caller principal, operators | read bind/unbind effect evidence and current target state (§7, below) |
 | `revocation.check` | configured dispatchers | point-in-time revocation verdict for exact chains and context (§6.4, below) |
@@ -597,6 +630,30 @@ A Unix-domain stream socket. Frames are a 4-byte big-endian length followed by a
 | `not_recorded` | Complete authoritative evidence proves the effect was never recorded | known absent for this effect only |
 | `unavailable` | Evidence missing, expired, partial or unreadable; never absence | unknown |
 | `contradictory` | Receiver evidence conflicts | contradictory |
+
+**R-OUTCOME: bind outcomes** (including R-REBIND binding replacement). These are semantic outcome classes mapped to R-OBS, not new wire states or refusal codes.
+
+| Receiver outcome | R-OBS state | Replay / admission rule |
+|---|---|---|
+| Pre-admission rejection; no durable intent | `not_recorded` only if complete authoritative evidence proves it; otherwise `unavailable` | Retry is fresh admission with current principal, chain, expiry, revocation and restore checks; a refusal is not admitted work |
+| Durable admitted intent; result unresolved | `pending` | Reconcile same effect and immutable arguments; repeat fresh checks before creating authority; never promote uncertainty into another bind |
+| Terminal bind result, including later removal/replacement | `recorded` | Replay result plus current target state; removed binding never reactivates |
+| Proven rollback of this attempt | `rolled_back` | No automatic replacement; fresh authority needed for new bind |
+| Transport timeout/lost reply; evidence missing, partial, expired or unreadable | `unavailable` when observation cannot resolve it | Caller uncertainty is unknown, never inferred `pending`; observe authoritative receiver evidence first |
+| Conflicting receiver evidence | `contradictory` | Hold and reconcile; no new authority |
+
+**R-OUTCOME: unbind outcomes.**
+
+| Receiver outcome | R-OBS state | Replay / continuation rule |
+|---|---|---|
+| Pre-admission rejection; no durable intent | `not_recorded` only with complete authoritative proof; otherwise `unavailable` | Fresh authenticated admission; no helper role or implied removal |
+| Durable admitted intent; forward removal unfinished | `pending` | Continue original effect with identical canonical arguments; only narrows authority, never targets a replacement binding |
+| Terminal removal and retained tombstone/result | `recorded` | Replay result and current removal state; no further effect on a new binding |
+| Proven rollback of this attempt | `rolled_back` | Proves only this attempt's rollback, not present binding absence |
+| Transport uncertainty or missing/expired/partial/unreadable evidence | `unavailable` when observation cannot resolve it | Unknown, not inferred pending or absence; reconcile original effect |
+| Conflicting receiver evidence | `contradictory` | Hold and reconcile; do not claim cleanup |
+
+An authenticated original principal whose grant lapsed may continue its own admitted unbind, never use that lapse exception for bind or replacement. Every continuation keeps its original operation and full canonical arguments; changed arguments remain a conflict. The receiver owns classification; the dispatcher handles unfinished admitted work as pending, not terminal refusal. Pre-admission failures and terminal replay never become fresh pending mutations merely because a caller retries (§7.2). No additional response fields are specified.
 
 `rolled_back` and `not_recorded` never authorize automatic new creation. Unbind observes its own recorded result and retained removal tombstone; bind observation reports the target's current removed state even if bind succeeded earlier. A partial list, refused read, timeout or cache miss cannot establish `not_recorded`. Retention and loss rules are in §7.2. These method descriptions freeze names and semantics, not additional wire members, signature domains or error values (§18.8–§18.9).
 
@@ -624,9 +681,15 @@ Agent leaves (`agent:<generation>`) are issued by the dispatcher when it binds a
 
 ## 15. Installation and lifecycle
 
-### 15.1 Service user
+### 15.1 Service user and time
 
 The broker runs as the dedicated unprivileged service user `swarma-credential-broker`, created by swarma-user-manager (`user.create { kind: "service" }` from the installer principal); its home is `/opt/swarma/services/swarma-credential-broker`. The platform installer installs the binary, the service user and the service unit together.
+
+**R-TIME installation and confidence.** The installer MUST require an authenticated or operator-controlled time source (for example NTS). One platform time-confidence policy is reused by every service; tolerances and concrete source/start integration would need publication (§18.12). Detect-and-hold and time-confidence validation precede authority evaluation and watermark advancement. Compare wall and monotonic deltas only within one boot epoch; this cannot validate the initial RTC or slow drift. Backward steps or forward steps beyond tolerance raise an incident and hold time-based evidence reclamation. After boot, destructive time effects and watermark advances beyond tolerance hold until authenticated sync or operator confirmation establishes confidence. While time is untrusted, bind/replacement, leases and renewals refuse; explicit stops and authenticated unbind/operator retirement remain available.
+
+The broker keeps its own durable time **watermark**, independent of the dispatcher's. Expiry is evaluated at `max(now, watermark)` and `not_before` at `min(now, watermark)`. The watermark advances only on trusted time and is persisted before authority is released; it never advances on untrusted time. Clock steps can only narrow authority. A forward watermark remains sticky after clock correction until real time catches up or the operator explicitly resets it. Reset is an explicit operator act after confirming the clock; it preserves evidence of genuinely expired authority, which MUST NOT revive. Restore must reconcile this evidence against surviving state outside the rollback domain before reopening (§15.4).
+
+Expiry-driven binding removal also requires boot-inclusive monotonic elapsed time of at least the lifetime, counted from activation (`CLOCK_BOOTTIME` on Linux, continuous time on macOS). Accumulate elapsed time durably at each sweep across boot epochs; downtime is not counted, and missing or untrusted elapsed evidence defers destruction. A wall-clock expiry alone makes the binding unusable but cannot delete it. This is the same dual gate the dispatcher applies to expiry-driven home deletion; explicit authorised cleanup is unaffected. Storage, lifetime accounting and reset evidence would need publication (§18.12), without new `binding/1` fields.
 
 ### 15.2 Paths
 
@@ -634,13 +697,15 @@ Figure [M-CB4 — storage layout](../diagrams/storage-layout.puml) shows these p
 
 | What | macOS | Linux |
 |---|---|---|
-| data (store, grants, revocations, bindings/effect tombstones, leases, refresh attempts, config, audit) | the service user's home, 0700 | the service user's home, 0700 |
+| data (store, grants, revocations, bindings/effect tombstones, leases, refresh attempts, time watermark/elapsed evidence, config, audit) | the service user's home, 0700 | the service user's home, 0700 |
 | socket | `/opt/swarma/run/credential-broker/`, owned by the broker user, mode 0755, every ancestor root-owned and not writable by others; socket mode 0666 (authorisation is by peer principal, §4) | same |
 | service | a LaunchDaemon with `UserName` set to the broker user | a systemd system unit with `User=` |
 
 Startup MUST check the operator-controlled restore mark and reconciliation evidence before auto-start can open authorization. A set mark, unavailable check, or interrupted reopen keeps leasing/renewal closed and `revocation.check` unavailable; parseable state alone cannot clear it. The restore procedure below controls service-manager auto-start separately from optional fenced diagnostic operation.
 
-For slice 1, LaunchDaemon/systemd configuration MUST qualify containment of the approved vendor process and all refresh-writer descendants, teardown on daemon death, and kill-and-confirm before replacement refresh. Platform-specific unit settings and process/attempt evidence are unpublished (§18.10); generic service-manager defaults are not qualification.
+R-SVC-EGRESS v1 service rows are owned by the user manager's §8. The broker's dedicated profile/listener is a proxy dependency for vendor login and refresh. Before writing its allowlist, qualify those routes (including policy fetch) with the approved executable: observed authentication endpoints, explicitly supplied proxy variables for children, proxy honoured and no direct fallback. The listener resolves names; qualify denial of local resolver bypass (macOS resolver Mach/XPC paths and Linux resolver sockets), rather than treating per-UID rules as DNS evidence. The user manager owns start-time and scheduled service-row/parent-anchor re-verification, its schedule and incident response. Missing/drifted rows drop affected service readiness; periodic checking has a detection window and does not promise continuous enforcement. Proxy outage follows §9.4; no alternate direct route is admitted. Service-row API, profile/listener policy and per-OS resolver mechanisms would need publication (§18.14); this v1 dependency does not disable the software-root slice 0.
+
+R-FATE references the user manager §7 **fate table**, next to R-FD3, for the broker daemon and each vendor writer class on stop, crash and replacement, including the fence against writers left over from a replaced daemon. Unresolved lifecycle evidence keeps replacement closed. For slice 1, LaunchDaemon/systemd configuration MUST qualify containment of the approved vendor process and all refresh-writer descendants, teardown on daemon death, and kill-and-confirm before replacement refresh. Platform-specific unit settings and process/attempt evidence are unpublished (§18.10); generic service-manager defaults are not qualification.
 
 ### 15.3 Removal
 
@@ -648,12 +713,14 @@ Uninstall closes new lease/refresh admission, disables auto-start, stops the ser
 
 ### 15.4 Fenced local restore and reopen
 
+R-GEN companion procedures are owned by the [user manager's state-loss/restore contract](https://github.com/relux-works/swarma-user-manager/blob/main/spec/helper.md) and the [dispatcher's state-loss/restore contract](https://github.com/relux-works/swarma-dispatcher/blob/main/spec/dispatcher.md) (user manager §§4.5–4.6, dispatcher §7.1 and installation/recovery sections). Their ledger and allocation/effect records must reconcile with the broker's current bindings, tombstones and process receipts. A restored active ledger entry is not proof of generation freshness; missing history is unavailable, never absence. Keep affected authorization closed until all owning components reconcile, or explicitly retire/recreate under fresh random 128-bit generations and reissue authority. The broker does not reconstruct or reopen another component's state on its behalf.
+
 This is the supported manual operator procedure, not automatic stale-snapshot repair. The **restore mark** is durable operator-controlled evidence that authorization is closed. Its location, encoding and start-check integration would need publication before activation (§18.8); it MUST survive outside the state/failure domain being restored, persist across interruption and be checked by every supported service-start path. No broker namespace field or additional service is prescribed.
 
 1. **Fence before restore.** Close bind, lease issuance and renewal under the broker state lock; disable service-manager auto-start and publish the durable restore mark before replacing any state. Stop the broker; for Codex, contain, kill and confirm previous vendor-writer absence (§9.4, §15.3). An interrupted or unknown stop leaves restoration/replacement closed.
 2. **Restore while closed.** Install the snapshot with protected ownership and atomic-file rules, retaining the restore mark outside its rollback domain. Starting a fenced diagnostic broker MUST NOT open authorization: `revocation.check` answers `unavailable`; bind, lease and renewal refuse. No command fallback or parse-only readiness is allowed.
 3. **Reconcile authority.** Establish the complete acknowledged revocation history against trustworthy surviving journal/checkpoint evidence outside the restored failure domain, including the latest acknowledgement; reconstruct and durably publish current state under the sole broker revocation owner. If completeness cannot be established, stay unavailable, or invalidate all old configured broker roots, replace them and explicitly reissue grants and bindings from new operator decisions. Do not retain a transition root that would admit stale authority. D-IDENTITY is unchanged: broker authorization-root replacement does not revoke standing identity keys.
-4. **Reconcile other state.** Resolve bindings/effects and their removal evidence; missing evidence remains `unavailable`, never absence (§7). Resolve refresh attempt/process/store evidence independently (§9.4); revocation recovery does not establish safe vendor retry. Any account with unresolved rotation remains unavailable or requires re-enrolment after writer absence.
+4. **Reconcile other state.** Reconcile the time watermark, trusted expiry/reset evidence and elapsed accounting (§15.1), and the companion ledger/dispatcher restore obligations above; never reset time from a stale snapshot. Resolve bindings/effects and their removal evidence; missing evidence remains `unavailable`, never absence (§7). Resolve refresh attempt/process/store evidence independently (§9.4); revocation recovery does not establish safe vendor retry. Any account with unresolved rotation remains unavailable or requires re-enrolment after writer absence.
 5. **Reopen last.** Durably record the reconciliation result and operator reopen decision outside the restored failure domain, then clear the restore mark only after that result is committed. Run the service-start check against this evidence and the reconciled state, start/recover the service, publish readiness, and only then open bind, leasing/renewal and dispatcher verdicts. Re-enable automatic service start last. Interruption before this order is satisfied leaves authorization closed; every subsequent start repeats the check. If all surviving history was lost, only explicit root replacement/reissue can permit this reopen.
 
 A same-home sequence, audit file or checkpoint cannot certify its own rollback. The optional external witness requires durability before each revocation acknowledgement (§6.4); selecting one is separate from the fenced manual procedure. Already delivered provider tokens keep their documented vendor lifetime (§12.1).
@@ -661,9 +728,9 @@ A same-home sequence, audit file or checkpoint cannot certify its own rollback. 
 ## 16. Delivery order
 
 1. **Formats.** `grant/1`, `revocation/1` and the `broker/1` frames are frozen with canonical and negative vectors; the verifier ships with its mutant suite (§6.2).
-2. **Slice 0: one protected Claude launch.** swarma-user-manager v0 and its launcher; the broker daemon with the file store, local grants and revocation state, the fenced restore/start check, bind and unbind with retained observation evidence, `effect.observe`, `revocation.check`, lease request and release, the `env` channel, protected binding and conflict refusal, audit; the broker client in `curator-run` under the agent account (§3.1, D-EXECUTOR). **The dispatcher is an unprivileged Unix-socket service from this first slice**, using the broker connection and framing rules (§4.1, §13.1); `curator agent-user` is its client. There is no dispatcher sudo entry, command mode, `SUDO_UID` dispatcher branch, detached-command bootstrap, external sweep timer or command-to-daemon conversion. Dispatcher-to-root user-manager/launcher rules remain. Recovery and readiness precede admission; an absent/unready dispatcher refuses with no command fallback. Initial capacity closure refuses; queueing, events, long waits and advanced integrations come later behind capability gates on this same transport. The board runner and session host call the dispatcher rather than embedding broker clients. Direct worker launches and operator-enrolled orchestrators form the first slice; recursive orchestrator provisioning stays refused until the requester-signed bootstrap is published and qualified (R-DELEG). Hosted-runner acceptance exercises the deployed socket service, caller signatures, fresh principal/generation checks, server-UID verification, descriptor restrictions, durable effects/receipts and process-absence reconciliation. The dispatcher creates the account, binds with caller authorization and invokes the launcher; the executor leases and runs Claude. It MUST refuse another UID, retired generation, account/profile mismatch, expired/revoked grant, unavailable revocation evidence, fenced restore, conflicting source and unqualified harness. The token appears in no file, argv, log or child process the qualification covers. Required negative/recovery rows are below; publication gaps in §18 remain gates, not qualification claims.
+2. **Slice 0: one protected Claude launch.** swarma-user-manager v0 and its launcher; the broker daemon with the file store, local grants and revocation state, the fenced restore/start check, bind and unbind with retained observation evidence, R-OUTCOME tables, R-REBIND binding replacement, durable R-TIME watermark and elapsed-removal gate, `effect.observe`, `revocation.check`, lease request and release, the `env` channel, protected binding and conflict refusal, audit; the broker client in `curator-run` under the agent account (§3.1, D-EXECUTOR). **The dispatcher is an unprivileged Unix-socket service from this first slice**, using the broker connection and framing rules (§4.1, §13.1); `curator agent-user` is its client. There is no dispatcher sudo entry, command mode, `SUDO_UID` dispatcher branch, detached-command bootstrap, external sweep timer or command-to-daemon conversion. Dispatcher-to-root user-manager/launcher rules remain. Recovery and readiness precede admission; an absent/unready dispatcher refuses with no command fallback. Initial capacity closure refuses; queueing, events, long waits and advanced integrations come later behind capability gates on this same transport. The board runner and session host call the dispatcher rather than embedding broker clients. Direct worker launches and operator-enrolled orchestrators form the first slice; recursive orchestrator provisioning stays refused until the requester-signed bootstrap is published and qualified (R-DELEG). Hosted-runner acceptance exercises the deployed socket service, caller signatures, fresh principal/generation checks, server-UID verification, descriptor restrictions, durable effects/receipts and process-absence reconciliation. The dispatcher creates the account, binds with caller authorization and invokes the launcher; the executor leases and runs Claude. It MUST refuse another UID, retired generation, account/profile mismatch, expired/revoked grant, unavailable revocation evidence, fenced restore, conflicting source and unqualified harness. The token appears in no file, argv, log or child process the qualification covers. Required negative/recovery rows are below; publication gaps in §18 remain gates, not qualification claims.
 3. **Slice 1: Codex.** The enrolment ceremony, auth owner, external tokens with renewal and deadlines, supported-release qualification and **single-writer ownership across daemon replacement** (§9.4–§9.6, §15). Activation requires every replacement/rotation row in §9.6 on both platforms; a daemon-local lock or historical renewal evidence alone is insufficient.
-4. **Slice 2: enforced networking.** Helper v1 firewall rules and trusted applied state; accounts that require enforced profiles become serviceable (§5.5).
+4. **Slice 2: enforced networking.** Helper v1 firewall rules, R-SVC-EGRESS service rows/proxy and resolver qualification, and R-NETBIND machine-owned binding with served-policy verification; trusted applied state; accounts that require enforced profiles become serviceable (§5.5).
 
 ### 16.1 Required negative and recovery qualification
 
@@ -688,6 +755,14 @@ These required vectors must drive dispatcher admission/activation and the broker
 | Bind/unbind crash before intent, during mutation, after result persistence or before acknowledgement | `effect.observe` reports authoritative journal state; complete evidence alone permits `not_recorded`; pending/missing evidence stays unknown |
 | Bind rolled back; completed bind later removed; unbind reply lost | `rolled_back` never creates replacement; recorded bind reports current removal; same unbind effect returns retained result/tombstone without targeting a new binding |
 | Observation after caller grant expiry; evidence/tombstone retention expiry; wrong observer or mismatching arguments | Authenticated original principal/operator can read without mutation authority; expired evidence is `unavailable`; unauthorized/conflicting observation refuses |
+| R-REBIND races revocation, lapses or crashes after old removal before new publication | No widening or account recreation; fresh prepare verdict and final broker checks; old leases end; old tombstone survives; replay cannot reactivate or affect replacement |
+| Bind pre-admission refusal then authority revoked before retry; pending bind with lapsed authority | No intent on rejection; fresh retry/recovery checks refuse new authority; uncertainty is not automatically pending |
+| Unbind interrupted after intent; caller grant lapses; replacement now exists | Same-effect same-argument continuation removes only original target; terminal replay cannot remove replacement |
+| Forward step beyond lifetime, backward step across expiry, VM resume or wrong RTC at boot | No revived lease/not_before window; hold untrusted time; no expiry removal before monotonic lifetime; watermark never advances untrusted |
+| Reboot, stale time restore or operator watermark reset | Durable accounting and genuinely expired authority survive; downtime only delays destruction; missing evidence keeps admission/destruction closed |
+| Proxy outage/bypass, vendor child ignores proxy, local resolver path or service-row drift (v1) | No direct fallback; safe refresh failure backoff only after writer/outcome resolution; missing row drops readiness; qualification measures detection window |
+| Slow lifecycle call or late result after broker replacement/restore fence (R-LOCK) | State lock is released during cross-service I/O; unrelated reads remain available; stale completion cannot deliver material |
+| Direct operator retirement while broker refuses/is unavailable/restore-fenced | Local quiescence does not claim unbind; durable cleanup obligation remains; retired generation and reused UID get no old authority |
 | Socket dispatcher absent/unready, invalid server UID, inherited/passed authenticated descriptor or attempted caller sudo/command fallback | Refuse; recovery/readiness and fresh connections remain mandatory; no dispatcher sudo route exists |
 
 ## 17. Later
@@ -713,6 +788,10 @@ The following broker/provider choices and publication gates remain open here. D-
 8. **OPEN — restore/start and verdict publication (§6.4, §13.2, §15.4).** Would need the operator restore-mark location/encoding, trusted start-check and durable reconciliation/reopen evidence integration outside the restored failure domain; completeness rules for surviving journal/checkpoint evidence; any optional witness's pre-ack durability; and `revocation.check` exact request/response encoding, including how an unavailable sequence is represented. The three verdicts, contexts and access rule are fixed by R-VERDICT. No new refusal code or namespace field is assigned.
 9. **OPEN — receiver observation and retention publication (§7, §13.2).** Would need exact `effect.observe` wire encoding (including original effect ID versus the read's transport correlation), canonical-argument digest construction, protected journal/tombstone layout and recovery transaction ordering, unbind/conflict refusal mappings, and a bounded retry/admission rule that makes discarded identities permanently inadmissible before evidence reclamation. The six states and original-caller/operator access are fixed by R-OBS. Missing evidence must remain `unavailable`; these gaps gate activation.
 10. **OPEN — refresh lifecycle publication (§9.4–§9.6, §15).** Would need platform-qualified LaunchDaemon/systemd containment, full writer/descendant kill-and-confirm, durable attempt/process identity and recovery records, vendor-home/outcome reconciliation and bounded teardown ordering. Unit defaults, PID checks and child absence alone cannot prove safe retry after ambiguous external rotation. This publication and the §9.6 qualification rows gate slice 1.
+11. **OPEN — R-REBIND publication and fresh-lease handoff (§7–§8).** Would need exact replacement intake through existing bind semantics, immutable argument/provenance binding, original-request narrowing evidence, removal/publication recovery ordering and observation correlation. A fenced fresh-lease handoff would need a qualified surviving holder, old/new binding fence, teardown and failure semantics. Until published, use explicit park/restart; no seamless env or app-server continuation is claimed. No new wire fields, method or refusal code is assigned.
+12. **OPEN — R-TIME publication (§6.2, §7.2, §8.3, §15).** Would need the shared confidence policy/tolerances, authenticated/operator-controlled source integration, durable watermark and trusted-expiry/reset evidence outside restore rollback, boot-inclusive elapsed accumulation and lifetime anchoring. Reset must preserve genuinely expired authority; missing elapsed evidence delays destruction. The max/min checks and dual destructive gate are fixed, not open choices.
+13. **OPEN — R-LOCK publication (§13.1).** Would need concrete per-record in-flight marker/version/daemon fencing, bounded I/O/concurrency and late-result recovery mechanisms that implement the acyclic wait/lock graph without holding state locks across platform-service calls.
+14. **OPEN — R-SVC-EGRESS/R-NETBIND v1 integration (§3, §5.5, §9, §15.2).** Would need the user manager's service-profile API/matrix, start and scheduled re-verification owner/response, broker profile/listener authentication allowlist based on qualified login/refresh/policy-fetch endpoints, explicit vendor-child proxy configuration, resolver isolation and served-digest relations/re-apply fencing. These gates accompany v1 enforcement; no new grant dimension or authentication endpoint guess is introduced.
 
 ## Appendix A. Refusal codes
 
@@ -729,4 +808,4 @@ PlantUML sources describe draft contracts, not runtime qualification. Each modul
 | M-CB3 — record states | [record-states.puml](../diagrams/record-states.puml) | §5.1, §6.4, §7.1–§7.4, §8.3–§8.5, §9.4, §13.2, §15.4 |
 | M-CB4 — storage layout | [storage-layout.puml](../diagrams/storage-layout.puml) | §5.3, §12.3–§12.4, §15 |
 
-Main sequences: [enrolment](../diagrams/enrol.puml), [agent registration](../diagrams/agent-registration.puml), [lease at launch](../diagrams/lease-at-launch.puml), [Codex renewal](../diagrams/codex-renewal.puml), and [revocation/unbind](../diagrams/revoke-and-unbind.puml). Launch, renewal and revocation link to M-CB2 for refusal/recovery detail.
+Main sequences: [enrolment](../diagrams/enrol.puml), [agent registration](../diagrams/agent-registration.puml), [lease at launch](../diagrams/lease-at-launch.puml), [Codex renewal](../diagrams/codex-renewal.puml), [binding replacement](../diagrams/binding-replacement.puml), and [revocation/unbind](../diagrams/revoke-and-unbind.puml). Launch, renewal and revocation link to M-CB2 for refusal/recovery detail.

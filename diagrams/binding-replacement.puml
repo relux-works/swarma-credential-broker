@@ -1,0 +1,49 @@
+@startuml binding-replacement
+!theme plain
+title R-REBIND: binding replacement for an existing allocation - design only
+actor "Authorised renewing principal\nalready in the retained chain" as P
+participant "swarma-dispatcher" as D
+participant "swarma-credential-broker" as B
+database "Receiver journal / bindings / tombstones" as S
+participant "Qualified live lease holder\nagent UID / generation" as E
+P -> D: explicit current renewal authority for named existing allocation
+D -> D: E-rebind: retain original admitted request; re-sign narrowed leaf\ncurrent dispatcher and caller chains; no account recreation
+D -> B: fresh revocation.check for exact chains, context prepare
+B --> D: not_revoked | revoked | unavailable
+break revoked or unavailable
+  D -> D: hold existing allocation; no replacement authority
+end
+D -> B: binding replacement for same UID/generation\nE-rebind effect identity and immutable arguments (intake unpublished)
+B -> B: authenticate dispatcher; current ledger, both chains and narrowing;\ncurrent revocations, R-TIME, restore fence; no helper principal
+break pre-admission rejection
+  B --> D: existing typed refusal; no durable receiver intent
+  D -> D: retry requires fresh admission; rejection is not pending
+end
+B -> S: persist admitted intent before mutation
+B -> S: remove old binding, retain removal tombstone
+B -> B: end every old-binding lease; close old connections
+B -> B: before authority creation, repeat fresh checks under state lock
+alt current checks pass
+  B -> S: publish fresh binding ID; never two active bindings for tuple
+  B -> S: retain result and recoverable current target state before acknowledgement
+  B --> D: recorded result and current state
+else lapse, revocation or unresolved evidence
+  B -> B: no new authority; retain old removal evidence; reconcile same effect
+end
+opt crash or lost acknowledgement
+  D -> B: effect.observe original effect, bind, canonical-argument digest
+  B --> D: recorded | pending | rolled_back | not_recorded | unavailable | contradictory
+  D -> D: classify by R-OUTCOME; unknown is never automatic replacement
+end
+E -> B: fresh connection; verify broker UID; renew old lease
+B --> E: refuse: old binding's lease ended
+note over D,E
+  No seamless env or app-server continuation. Explicit park/restart keeps
+  the account until a fenced fresh-lease handoff is published/qualified (§18.11).
+  Already copied token keeps only vendor lifetime; it is not erased.
+  Exact intake/transaction layout unpublished; labels are semantic, no new fields.
+  R-LOCK: per-record ownership; no state lock across platform-service calls.
+  [[../spec/broker.md#72-creating-and-removing Spec §7.2]]
+  [[../spec/broker.md#132-methods R-OUTCOME tables]]
+end note
+@enduml

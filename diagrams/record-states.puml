@@ -45,18 +45,18 @@ state "Binding record: broker-owned persistent state (§7.1)" as Bindings {
   state "active" as BindingActive
   state "removed" as BindingRemoved
   [*] --> BindingActive : dispatcher service principal: bind\nbroker verifies ledger + separate lease/caller chains (§7.2)
-  BindingActive --> BindingRemoved : creating dispatcher / operator: unbind; or broker: expiry (§7.2)
+  BindingActive --> BindingRemoved : creating dispatcher / operator: unbind; or E-rebind old removal;\nbroker: trusted expiry AND monotonic lifetime (§7.2)
 }
 
 note right of Bindings
   Durable receiver intent before mutation; result/removal tombstone
   recoverable before acknowledgement (§7.2); exact layout/transaction
   ordering unpublished (§18.9). Removal retains effect evidence.
-  Unbind ends leases and closes UID connections (§7.2).
+  Unbind or binding replacement ends old leases and closes connections (§7.2).
   No active binding -> lease_unbound; retired/removed helper
   generation -> principal_ledger_mismatch (§4.2, §7.4).
   Helper process runs as root and owns generation ledger;
-  dispatcher unbinds BEFORE helper account retirement (§7.3).
+  no helper broker principal; dispatcher unbinds BEFORE ordinary retirement (§7.3).
   effect.observe: recorded (result + current state), pending, rolled_back,
   not_recorded, unavailable or contradictory; read only (§13.2).
   Retain removal tombstone for admissible retry/reconciliation; evidence
@@ -87,7 +87,7 @@ note right of Leases
   expired / revoked are declared record states (§8.3);
   precise transition triggers, scheduling and commit sequence
   unspecified in spec §8.3-§8.5, so no arrows are invented.
-  Released/expired/revoked or past authorized_until: no renewal.
+  Released/expired/revoked or max(now, watermark) at authorized_until: no renewal.
   Wrong owner: lease_not_owner. Disconnect is not release;
   same principal may renew through a new connection (§8.5).
   Env exec replaces executor: no post-exec renew/release/report.
@@ -132,4 +132,20 @@ legend bottom
   SH1/SH2 activation unspecified in spec §3.1; source-policy v1/v2
   are separate policy versions (§5.2), not these record states.
 endlegend
+note bottom of Bindings
+  R-REBIND: new binding is a separate record/ID for same UID/generation,
+  never a removed -> active transition; no widening or account recreation.
+  Old tombstone retained before new publication; final fresh checks mandatory.
+  R-OUTCOME bind/unbind tables (§13.2): rejection has no intent;
+  pending means durable admitted work, never inferred from timeout.
+  Bind recovery repeats fresh checks; unbind continuation only narrows.
+  Direct operator retirement leaves explicit unconfirmed cleanup obligation;
+  ledger retirement is not unbind evidence (§7.3).
+end note
+note bottom of Grants
+  R-TIME: expiry at max(now, watermark), not_before at min(now, watermark).
+  Only trusted time advances durable watermark; untrusted time holds authority.
+  Expired binding is unusable while monotonic removal gate retains record;
+  reset/restore preserves genuinely expired authority (§15.1).
+end note
 @enduml

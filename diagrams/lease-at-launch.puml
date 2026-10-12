@@ -11,7 +11,7 @@ E -> E: refuse if another credential source is present\n(credential_source_confl
 E -> E: verify destination-local network binding from composed plan\nrecord {profile_ref, profile_digest, assurance: cooperative}
 E -> B: connect; check the server's peer UID is the broker's
 E -> B: lease.request {harness, profile, account, channel: env,\ncredential_binding, network, launch_id}
-B -> B: under the state lock: refuse fenced restore;\n1 peer = agent principal of an active binding (ledger g-0193 active)\n2 lease chain and caller chain verify against the current revocation state\n3 leaf covers account, harness, profile; profile in binding\n4 account active, harness matches\n5 channel valid; harness release qualified\n6 binding fields match; endpoint and executable approved\n7 network: cooperative match recorded as declared
+B -> B: under the state lock: refuse fenced restore;\n1 peer = agent principal of an active, unexpired binding (ledger 4a91c5e03b2d4788a649d70fc62e15bd active)\n2 lease chain and caller chain verify current revocations and R-TIME max/min windows\n3 leaf covers account, harness, profile; profile in binding\n4 account active, known expiry checked, harness matches\n5 channel valid; harness release qualified\n6 binding fields match; endpoint and executable approved\n7 network: cooperative match recorded as declared
 alt any check fails
   B --> E: refusal {code: lease_not_authorised | lease_binding_mismatch | …}
   E -> E: do not exec; report
@@ -48,5 +48,13 @@ note over E,H
   Unreadable revocations or fenced restore refuse (§6.4, §15.4).
   Prior dispatcher revocation.check cannot waive final broker checks.
   Cleanup after a post-lease tuple/conflict refusal is unspecified in spec §12.2.
+end note
+note over B
+  R-TIME: expiry/authorized_until checked at max(now, watermark);
+  not_before = min(now, watermark); untrusted time refuses delivery (§15.1).
+  Expired binding unusable even while elapsed-removal gate retains its record.
+  R-REBIND ends old leases; copied env token keeps only vendor lifetime.
+  R-NETBIND v1: machine-owned network policy pinned at admission;
+  fw.apply verifies listener serves the applied digest (§5.5).
 end note
 @enduml

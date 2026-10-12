@@ -23,7 +23,7 @@ B --> C: account/1 {state: active, expires_at: computed | null}
 P -> C: curator broker enrol codex_cli --account owner/codex/personal
 C -> B: account.enrol {kind: codex-chatgpt}
 B -> B: confirm previous writer absence; unresolved rotation requires explicit re-enrolment (§9.4);\ncreate a fresh Codex home in the broker store\n(file credential storage, sanitised environment)
-B -> X: start the vendor's device login in that home
+B -> X: start the vendor's device login in that home;\nv1: explicit proxy configuration for executable and network-using children
 X --> B: verification address + code
 B --> C: verification address + code
 C --> P: open the address, enter the code
@@ -32,4 +32,13 @@ X --> B: login stored in the broker-owned home
 B -> B: read the vendor account id;\nrefuse if another broker account maps to it (account_duplicate)
 B --> C: account/1 {state: active}; auth owner started
 note over B: no existing login is imported,\nno other home adopted, no keyring item exported;\nre-enrolment cannot bypass unresolved previous writer (§9.4)
+note over B,X
+  R-SVC-EGRESS v1: login/refresh/policy-fetch network only through
+  dedicated broker proxy; observed endpoints and no direct fallback
+  require qualification; local resolver bypass must be denied (§15.2).
+  Person's browser runs under the person's account, outside broker egress.
+  Proxy outage cannot permit direct login fallback.
+  R-FATE fate table: user manager §7; previous-writer fence unchanged.
+  R-LOCK releases state lock for cross-service I/O (§13.1).
+end note
 @enduml

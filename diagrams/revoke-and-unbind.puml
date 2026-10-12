@@ -23,8 +23,8 @@ opt reply lost or receiver recovery
   B --> D: recorded (result + current state) | pending | rolled_back |\nnot_recorded | unavailable | contradictory
   D -> D: only authoritative evidence proves absence; unknown holds claim
 end
-D -> H: user.retire {generation: g-0193}\n(abbreviated helper request; distinct retire effect ID)
-H -> H: state retiring: launcher refuses g-0193;\nstop processes, verify quiescence; (v1: egress stays denied)
+D -> H: user.retire {generation: 4a91c5e03b2d4788a649d70fc62e15bd}\n(abbreviated helper request; distinct retire effect ID)
+H -> H: state retiring: launcher refuses 4a91c5e03b2d4788a649d70fc62e15bd;\nstop processes, verify quiescence; (v1: egress stays denied)
 H -> H: declared-key cleanup; delete home;\nremove account and group; state removed
 note over D,H
   Ordinary retirement deletes the home; export only service-generated
@@ -36,6 +36,21 @@ end note
 H --> D: removed
 note over D,H: Future keeper integration (D-IDENTITY): after retirement,\ndispatcher separately revokes only identities registered as one-shot.\nStanding identities require a signed operator revocation;\nunbind/retire are not blanket identity revocation.
 note over B: a recycled UID or a repeated label inherits nothing:\nbindings, grants and leases are keyed by generation
+
+== Independent direct operator retirement while broker is unavailable ==
+P -> H: operator retirement through helper's local contract
+H -> H: irreversible retiring ledger fence; local quiescence and deletion
+H --> P: local retirement result; NOT a broker unbind receipt
+P -> P: retain explicit durable unconfirmed binding-cleanup obligation
+note over P,B
+  Helper has no broker principal and makes no unbind RPC.
+  Later dispatcher/operator reconciliation uses original unbind effect,
+  effect.observe and tombstone. Retired generation refuses lease/renew;
+  recycled UID inherits no authority (§7.3-§7.4).
+  R-OUTCOME: pre-admission rejection has no intent; unfinished admitted
+  unbind is pending and continues identical arguments, only narrowing.
+  Terminal replay never removes a replacement binding (§13.2).
+end note
 
 == the account is withdrawn ==
 P -> B: account.revoke {account: owner/claude/personal}
@@ -49,5 +64,11 @@ note over B
   [[../spec/broker.md#64-revocation Spec §6.4]]
   [[lease-recovery.puml M-CB2: crash after durable revoke and fail-closed repair]]
   [[record-states.puml M-CB3: independent record states and transition gaps]]
+end note
+note over D,B
+  R-LOCK: no state lock across synchronous platform-service calls (§13.1).
+  Explicit authorised unbind is unaffected by elapsed expiry-removal gate.
+  R-REBIND also ends old leases and retains old-binding tombstone;
+  fresh-lease handoff remains open (§18.11).
 end note
 @enduml

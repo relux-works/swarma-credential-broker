@@ -21,6 +21,7 @@ folder "Broker service home: /opt/swarma/services/swarma-credential-broker\nbrok
   artifact "Revocation state {seq, records}\nauthoritative local state" as Revocations
   artifact "Binding records and receiver journal/tombstones\nUID + generation; chains; bind/unbind effect evidence" as Bindings
   artifact "Durable refresh attempt evidence\nintent before launch; prior outcome / process identity" as Attempts
+  artifact "Durable time watermark / elapsed evidence\ntrusted advances, expiry/reset history; layout unpublished" as Time
   artifact "Lease records\nowner tuple + launch/policy metadata; NEVER payload" as Leases
   artifact "Append-only audit log\ntyped principal/account/launch/outcome metadata\nno material, raw frames, secret errors or token hashes" as Audit
 }
@@ -28,7 +29,7 @@ folder "Broker service home: /opt/swarma/services/swarma-credential-broker\nbrok
 folder "Runtime socket directory: /opt/swarma/run/credential-broker/\nbroker UID; 0755; ancestors root-owned, not writable by others" as Runtime {
   artifact "Unix-domain socket\n0666; authorisation by kernel peer principal\nsocket basename unspecified in spec §15.2" as Socket
 }
-artifact "Outside restored failure domain\noperator restore mark; surviving history/checkpoint evidence\nand durable reconciliation/reopen decision\nlocation/format unpublished (§18.8)" as Restore
+artifact "Outside restored failure domain\noperator restore mark; surviving history/checkpoint evidence\nand durable reconciliation/reopen decision\ntime restore/expiry-reset evidence; location/format unpublished (§18.8, §18.12)" as Restore
 artifact "Helper ledger: /opt/swarma/lib/user-manager/ledger.json\nroot-owned 0644, root-owned directory; no secrets\nconfigured installation root changes this locator (§4.2)" as Ledger
 
 Operator --> Socket : administrative methods
@@ -45,6 +46,7 @@ Broker --> Leases : persist without payload (§8.3)
 Broker --> Audit : append (§12.3)
 Broker --> Lock : internal per-account auth owner locks
 Broker --> Attempts : persist intent before launch; resolve prior attempt
+Broker --> Time : persist before authority release; boot-inclusive elapsed accounting
 Broker --> Manager : contained writer lifecycle; stop / confirm absence
 Manager --> Codex : qualified containment / kill-and-confirm
 Manager --> Restore : start check before opening authorization
@@ -112,5 +114,25 @@ note top of Operator
   Keychain / Secret Service later, not v0 (§5.3).
   Keeper adapter later; Codex slice 1 still pending qualification (§18.4).
   SH1/SH2 activation unspecified in spec §3.1.
+end note
+note bottom of Time
+  R-TIME: expiry checked at max(now, watermark), not_before at min(now, watermark).
+  Untrusted time cannot advance watermark or release material.
+  Expiry removal needs monotonic lifetime; missing evidence delays deletion.
+  Reset is explicit operator act; genuinely expired rights stay expired (§15.1).
+end note
+note bottom of Broker
+  R-SVC-EGRESS v1: only network destination is dedicated proxy listener;
+  explicit vendor-child proxy config, login/refresh and resolver qualification.
+  User manager §8 owns start/scheduled service-row re-verification.
+  R-FATE user manager §7 owns fate table and previous-writer fence.
+  R-LOCK state lock released for platform calls; per-record marker
+  and late-result fences; account writer ownership remains (§13.1).
+  R-GEN companion restore procedures reconcile ledger/effects (§15.4).
+end note
+note bottom of Bindings
+  R-REBIND same UID/generation: old-binding tombstone and ended leases,
+  then fresh binding ID; replay cannot reactivate or target replacement.
+  R-OUTCOME bind/unbind tables retain the six R-OBS states (§13.2).
 end note
 @enduml

@@ -10,11 +10,11 @@ participant "Approved Codex executable\nbroker UID; vendor refresh writer" as V
 database "Broker-owned attempt evidence\nand durable vendor home" as S
 
 E -> O: lease.request {harness: codex_cli, channel: external-token, …}
-O -> O: verify lease checks 1–7 (active UID/generation and binding,\nlease + caller chains, current revocations, source/network qualification)
+O -> O: verify lease checks 1–7 (active UID/generation and binding,\nlease + caller chains, current revocations, source/network qualification, R-TIME max/min checks)
 break restore fenced or prior writer / store / outcome unresolved
   O --> E: revocation_state_unavailable / lease_owner_unavailable; no material
 end
-O -> O: token expires within 48 h? refresh once under the lifecycle gate
+O -> O: trusted-time watermarked token expiry within 48 h? refresh once under the lifecycle gate
 opt refresh required and safe
   O -> S: persist account-scoped attempt intent before launch
   O -> M: launch approved executable in qualified containment
@@ -23,7 +23,7 @@ opt refresh required and safe
   M --> O: qualified writer-lifecycle evidence
   O -> S: reload durable home; resolve/persist attempt outcome
 end
-O -> O: repeat current authorization and restore fence under state lock before release
+O -> O: repeat current authorization, R-TIME and restore fence under state lock before release
 O --> E: payload {access_token, chatgpt_account_id, plan_type?}
 E -> A: start private app-server; executor remains its client (§9.3)
 E -> A: initialize (experimental capability required for external tokens)
@@ -41,7 +41,7 @@ alt rejected token is still current
   O -> O: prior writer/outcome resolved; durable intent before contained refresh;\nresolve attempt and reload durable home (N rejected launches -> 1 writer)
 end
 alt renewed within the deadline and authorisation still valid
-  O -> O: after refresh, repeat authorisation and restore fence under state lock\nimmediately before releasing material
+  O -> O: after refresh, repeat authorisation, R-TIME and restore fence under state lock\nimmediately before releasing material
   O --> E: payload {access_token, chatgpt_account_id}
   E -> E: verify same chatgpt_account_id as the lease
   alt account ID matches
@@ -107,5 +107,21 @@ note over O,M
   Slice 1 activation requires platform-qualified containment and every
   daemon-death / rotation / replacement row in §9.6 on macOS and Linux.
   Concrete unit settings and attempt/process record formats unpublished (§18.10).
+end note
+note over O,V
+  R-SVC-EGRESS v1: broker/vendor network only through its dedicated proxy.
+  Explicit proxy variables for network-using children; no direct fallback.
+  Qualified login/refresh/policy-fetch and resolver isolation gate v1 (§15.2).
+  Safe proxy failure -> refresh_failed_transient/backoff only after
+  writer/outcome resolution; ambiguous rotation stays unavailable (§9.4).
+  R-FATE: user manager §7 fate table owns stop/crash/replacement rows.
+  R-LOCK: state lock released for platform calls; retain account writer ownership;
+  per-record in-flight marker and late-result revalidation (§13.1).
+end note
+note over E,O
+  R-TIME: authorized_until and expiry at max(now, watermark),
+  not_before at min(now, watermark); untrusted time refuses renewal.
+  R-REBIND ends old leases; new binding cannot renew this lease.
+  Fenced fresh-lease handoff is OPEN (§18.11); explicit park/restart until then.
 end note
 @enduml
