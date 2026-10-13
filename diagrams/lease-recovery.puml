@@ -118,16 +118,19 @@ Broker --> Executor : refuse; no material (code unpublished)
 Broker -> Broker : revocation.check unavailable; startup preserves freeze
 note over Operator,Broker
   One phone authentication/confirmation or fresh password terminal fallback;
-  refused from agent sessions. Dispatcher hold closes admission;
-  user manager range deny and journaled account-wide stops with absence;
-  session host closes delivery and snapshots bound boards. Each journals its part.
+  refused from agent sessions. Same signed act goes directly to each intake.
+  Broker freeze progresses without dispatcher; all parts verify/journal independently.
+  Prompt broker freeze, user-manager range deny and host delivery closure;
+  stops follow issue without waiting for containment acknowledgements.
+  Receiver launch/create/activation fence precedes final absence inventory.
+  Dispatcher hold/journal remains unknown until reconciled if unavailable.
   Delivered tokens keep vendor lifetime; broker cannot recall them.
 end note
 alt any service result partial/unknown or recovery evidence unavailable
   Broker -> Broker : keep admission and delivery closed; no automatic restart
-else all service parts reconciled and operator explicitly authorizes recovery
+else every durable service part, including dispatcher, reconciled; content-confirmed recovery
   Operator -> Broker : explicit recovery (act and record formats unpublished)
-  Broker -> Grants : journal broker recovery evidence; retain other admission gates
+  Broker -> Grants : journal broker recovery evidence; retain every independent gate\nrecovery names stopped set / per-session restart scope; no restart authority from broker
 end
 
 == Independent fenced local restoration case (§15.4) ==

@@ -10,6 +10,7 @@ participant "swarma-workspace-export\napproved executor; child UID; fixed enviro
 participant "swarma-dispatcher\nown service OS account" as D
 participant "swarma-user-manager\nroot, no-argument sudo entry" as H
 participant "swarma-credential-broker\nunprivileged broker service UID" as B
+participant "swarma-session-host\nown service OS account; later" as SH
 
 == Authenticate each narrowing operator act ==
 alt Phone-first path
@@ -102,17 +103,53 @@ note over O,B
 end note
 
 == Node-wide emergency stop (R-ALLSTOP) ==
-O -> D: one operator narrowing act; phone authentication + one confirmation\nor password terminal fallback; refused inside agent sessions
-D -> D: journal hold; close admission
-D -> H: journal range deny-all (R-RANGE-DENY) and account-wide stops\nfor every agent/workplace generation, with confirmed absence
-O -> B: broker part of admitted node-wide operator act, directly (intake unpublished)
-B -> B: under state lock: durably journal freeze of all leases/renewals\nbefore acknowledgement; includes queued and post-refresh delivery
-B --> O: broker freeze recorded; no assertion about other services
-note over D,B
-  Session host closes delivery and snapshots bound boards; each service journals its part.
-  Revocation.check unavailable; admission remains closed on partial/unknown results.
-  Explicit operator recovery only; restart/restore never automatically clears freeze.
-  Already delivered tokens keep vendor lifetime, not recalled by this act.
+note over O,SH
+  One narrowing act: phone authentication + one confirmation or password terminal;
+  refused inside agent sessions. Same signed act identity/canonical content
+  goes directly to each applicable operator intake; each verifies and journals.
+  Prompt independent issue; no relay or wait behind per-generation stops.
+  Intake/correlation/retry bounds unpublished (§18.17); design only.
+end note
+par Dispatcher part
+  O -> D: direct admitted act
+  alt dispatcher available
+    D -> D: journal hold at act admission; close admission
+  else absent / unready / mid-swap
+    O -> O: dispatcher part unknown; retry and reconcile when available
+  end
+else Broker containment part
+  O -> B: direct admitted act; does not depend on dispatcher
+  B -> B: under state lock: durably journal freeze of all leases/renewals\nbefore acknowledgement; includes queued and post-refresh delivery
+else User-manager containment part
+  O -> H: direct admitted act (terminal path; phone transition unpublished)
+  H -> H: persist receiver launch/create/activation fence before inventory;\nrange deny-all (R-RANGE-DENY); exclude already-issued starts
+else Session-host part (later)
+  O -> SH: direct admitted act
+  SH -> SH: close delivery and snapshot bound boards; journal own part
+end
+O -> H: operator generation-scoped journaled stops when dispatcher unavailable\nissued after containment calls; do not wait for their replies
+opt individual service evidence arrives independently of stop progress
+  D --> O: own hold/journal result if available; otherwise unknown
+  B --> O: own freeze evidence or unknown; no assertion about other services
+  H --> O: own containment/stop evidence or unknown
+  SH --> O: own evidence or unknown (later)
+end
+note over D,H
+  Dispatcher initiates stops when available; helper journals termination.
+  Stops follow containment issue, never wait for containment acknowledgements.
+  Final account-wide absence requires receiver fence and closed inventory frontier.
+  Dispatcher later reconciles operator-stopped outcomes; unknown retains claims.
+end note
+note over O,SH
+  Per-service results; undeliverable parts unknown and retried independently.
+  Broker reply unavailable with valid helper stop evidence: stops progress;
+  broker part remains unknown, admission stays closed.
+  Every durable part, including dispatcher hold/journal, required for whole-act
+  completion/recovery; no success from process absence alone.
+  Content-confirmed explicit recovery names stopped set / per-session restart scope;
+  retain every independent gate; no automatic recovery or restart authority from broker.
+  Revocation.check unavailable while frozen/unresolved; delivered tokens keep vendor lifetime.
+  [[../spec/broker.md#155-node-wide-emergency-stop-r-allstop Spec §15.5]]
   Act/record/recovery formats and refusal codes unpublished (§18.17).
 end note
 

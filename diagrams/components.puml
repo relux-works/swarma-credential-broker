@@ -62,6 +62,13 @@ Leases --> Events : outcomes / reports
 Accounts --> Events : expiry / refresh state metadata
 Events --> Store : append-only audit metadata
 
+note bottom of Events
+  V0 status-only: operator detection through swarma-observer reads (§11).
+  No automatic phone notification; containment/stop never waits for delivery.
+  Later owned bounded alert route is unpublished/unqualified (§18.22);
+  notification carries no operator act authority and adds no egress route.
+end note
+
 note top of Admin
   Verify phone signature bound to one canonical act; no reuse for another.
   Widening: authentication + exact content confirmation;
@@ -158,7 +165,9 @@ note bottom of Peer
   R-UNTRUSTED refuses bind/replacement, lease and renewal;
   unavailable class evidence refuses, never inferred from account name.
   R-ALLSTOP journals broker-wide freeze before acknowledgement;
-  final delivery after refresh checks it. Explicit recovery only;
+  final delivery after refresh checks it. Direct operator fan-out;
+  broker part progresses without dispatcher; containment/stops independent.
+  Explicit recovery only after every durable part, including dispatcher, reconciles;
   partial/unknown results keep closed. Delivered tokens keep vendor lifetime.
   Class encoding and node-wide act/records/codes unpublished (§18.16-§18.17).
 end note

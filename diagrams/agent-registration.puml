@@ -65,7 +65,7 @@ note over O,B
   remains refused until bootstrap publication and qualification.
 end note
 note over O: D-PATH: protected launch tools → admitted base PATH → protected manager dispatcher.\nNo repository .agents/bin executes in a managed launch.
-note over E: Narrow executor intake is an approved versioned target (D-EXECUTOR);\nR-LR1 publishes its command/plan contract. Board runner and host call dispatcher.
+note over E: Narrow executor intake is an approved versioned target (D-EXECUTOR);\nLauncher SPEC §10 / Decision 0021 amendment publish its command/plan contract. Board runner and host call dispatcher.
 note over D,B
   E-rebind uses binding replacement for this same UID/generation;
   no account recreation, no widening, fresh prepare verdict and final checks.
