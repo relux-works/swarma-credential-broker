@@ -116,6 +116,15 @@ note right of CodexHome
   Launch app-server runs under agent UID with ephemeral credentials,
   no launch auth.json; account storage above is a separate boundary (§9.3).
 end note
+note bottom of Secrets
+  Muse native login store is separate from this v0 broker file backend (§10.2).
+  PROPOSED (b): one minting owner retains OAuth tokens and leases only
+  the minted provider API key via META_API_KEY / exec --api-key-stdin.
+  Native macOS store: Keychain-first, file fallback; file writes replace
+  the inode, so children never share a linked store. No new location assigned.
+  Fallback (c): key not subscription-billed or revoked by re-mint.
+  Qualification remains open (§18.5); explicit API-key lane stays separate.
+end note
 note left of Home
   Uninstall: close admission/auto-start; stop service and kill-confirm
   vendor writers; unknown cleanup defers removal. End leases/bindings,

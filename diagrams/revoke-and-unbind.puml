@@ -105,9 +105,9 @@ end note
 O -> D: one operator narrowing act; phone authentication + one confirmation\nor password terminal fallback; refused inside agent sessions
 D -> D: journal hold; close admission
 D -> H: journal range deny-all (R-RANGE-DENY) and account-wide stops\nfor every agent/workplace generation, with confirmed absence
-D -> B: broker part of admitted node-wide act (intake unpublished)
+O -> B: broker part of admitted node-wide operator act, directly (intake unpublished)
 B -> B: under state lock: durably journal freeze of all leases/renewals\nbefore acknowledgement; includes queued and post-refresh delivery
-B --> D: broker freeze recorded; no assertion about other services
+B --> O: broker freeze recorded; no assertion about other services
 note over D,B
   Session host closes delivery and snapshots bound boards; each service journals its part.
   Revocation.check unavailable; admission remains closed on partial/unknown results.

@@ -8,10 +8,10 @@ participant "Harness\nClaude Code, agent OS account" as H
 
 E -> E: verify caller-composed plan; no profile resolution\nresolve protected credential_binding/1 (CIP-0010 C3.4):\nprofile, harness, account, channel, endpoint,\nexecutable digest, policy generation
 E -> E: refuse if another credential source is present\n(credential_source_conflict)
-E -> E: verify destination-local network binding from composed plan\nrecord {profile_ref, profile_digest, assurance: cooperative}
+E -> E: verify destination-local network binding from composed plan\nrecord {profile_ref, profile_digest, assurance: cooperative}\ndeclared evidence only, not enforcement or platform admission
 E -> B: connect; check the server's peer UID is the broker's
 E -> B: lease.request {harness, profile, account, channel: env,\ncredential_binding, network, launch_id}
-B -> B: under the state lock: require verifiable admission class; refuse untrusted class;\nrefuse R-ALLSTOP freeze or fenced restore;\n1 peer = agent principal of an active, unexpired binding (ledger 4a91c5e03b2d4788a649d70fc62e15bd active)\n2 lease chain and caller chain verify current revocations and R-TIME max/min windows\n3 leaf covers account, harness, profile; profile in binding\n4 account active, known expiry checked, harness matches\n5 channel valid; harness release qualified\n6 binding fields match; endpoint and executable approved\n7 network: cooperative match recorded as declared
+B -> B: under the state lock: require verifiable admission class; refuse untrusted class;\nrefuse R-ALLSTOP freeze or fenced restore;\n1 peer = agent principal of an active, unexpired binding (ledger 4a91c5e03b2d4788a649d70fc62e15bd active)\n2 lease chain and caller chain verify current revocations and R-TIME max/min windows\n3 leaf covers account, harness, profile; profile in binding\n4 account active, known expiry checked, harness matches\n5 channel valid; harness release qualified\n6 binding fields match; endpoint and executable approved\n7 network: cooperative assurance match recorded as declared evidence only
 alt any check fails
   B --> E: typed refusal; class/freeze codes unpublished;\nother check codes include lease_not_authorised / lease_binding_mismatch
   E -> E: do not exec; report
@@ -57,6 +57,8 @@ note over B
   not_before = min(now, watermark); untrusted time refuses delivery (§15.1).
   Expired binding unusable even while elapsed-removal gate retains its record.
   R-REBIND ends old leases; copied env token keeps only vendor lifetime.
+  Platform admission: static R-RANGE-DENY fence + provider-only binding;
+  cooperative assurance is declared evidence only, never that admission proof.
   R-NETBIND v1: machine-owned network policy pinned at admission;
   fw.apply verifies listener serves the applied digest (§5.5).
 end note

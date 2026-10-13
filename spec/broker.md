@@ -1,8 +1,14 @@
 # swarma-credential-broker: specification
 
-- **Status:** draft v0.9 (2026-10-13). Nothing is implemented.
+- **Status:** draft v0.10 (2026-10-13). Nothing is implemented.
 - **Normative language:** MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 - **Companions:** [swarma-user-manager](https://github.com/relux-works/swarma-user-manager) (per-agent OS users, the launcher that starts processes under them, and per-UID firewall rules), [curator-network-profiles](https://github.com/relux-works/curator-network-profiles) (egress profiles), curator-spec CIP-0010 and CIP-0011 (the Curator side: credential sources, the protected credential binding, the executor capability, the launch-plan extension).
+
+### Revision 0.10
+
+- Closes C7's priority decision: prioritize Muse subscription qualification (owner, 2026-10-13). Records device-code OAuth that mints a provider API key, proposed channel (b) with one minting owner and fallback (c); qualification remains open and the API-key lane stays separate (§5.2, §10.2, §17, §18.5).
+- Applies CB6 N1–N2: the node-wide broker freeze is an operator act straight to the broker, and cooperative `assurance` is declared evidence only; platform admission rests on the static R-RANGE-DENY fence plus the provider-only binding (§5.5, launch and revocation figures).
+- Retains R-NET-TOOL 4/4b: web tools are default-off and explicitly opted in per identity for the trusted circle only (§5.5, §18.18). Aligns the affected component figure with the proposed Muse boundary.
 
 ### Revision 0.9
 
@@ -211,7 +217,7 @@ The record never contains secret material.
 | `codex-chatgpt` | a Codex ChatGPT login held by the auth owner | the auth owner only (§9) | Codex app-server external tokens only |
 | `codex-access-token` | a Business or Enterprise access token | none in the broker (admin-issued) | environment `CODEX_ACCESS_TOKEN`; later, outside the first release |
 | `api-key` | a vendor API key (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`, `META_API_KEY`, `GEMINI_API_KEY`, …) | none | environment, or stdin where the harness supports it |
-| `muse-account` | reserved: Muse subscription login | to be researched (§10.2) | reserved |
+| `muse-account` | subscription login that mints a provider API key | single minting owner proposed; refresh trigger and rotation unknown (§10.2) | proposed channel (b): minted key via `META_API_KEY` or `exec --api-key-stdin`; fallback (c) subject to qualification |
 
 The following table separates **provider, source, channel and phase**. Source-policy v1/v2 are CIP-0010 policy versions, not broker release numbers. A specified channel remains subject to per-harness executor qualification; no row proves implementation or current vendor support.
 
@@ -225,7 +231,7 @@ The following table separates **provider, source, channel and phase**. Source-po
 | Codex API | Explicit API-key node/helper/broker source | Provider API-key env (`CODEX_API_KEY`); stdin only where the harness supports it | Explicit API-key lane; qualified delivery only, never fallback from a personal-plan lease |
 | Muse API | Explicit API-key node/helper/broker source | `META_API_KEY` env or `exec --api-key-stdin`; no account login in the launch home | Specified API-key lane; actual pass-through/executor admission remains a prerequisite |
 | Gemini / agy / qwen API | Explicit API-key node/helper/broker source | Provider API-key env; stdin only where supported; exact channel admitted per harness | Specified API-key lanes; qualification required, no automatic channel substitution |
-| Muse subscription | Future owned `muse-account` source | Store, refresh and channel reserved for research | Open: prioritize subscription qualification and choose a channel from evidence, or defer (§18.5). API-key support stays separate |
+| Muse subscription | Proposed single minting owner for `muse-account`; OAuth tokens stay with that owner | Proposed channel (b): minted provider API key through `META_API_KEY` or `exec --api-key-stdin`; no OAuth access-token injection or linked child store | C7 priority decided (2026-10-13): prioritize subscription qualification. Channel (b) with fallback (c) is proposed, not qualified (§10.2, §18.5). API-key support stays separate |
 | Provider proxy injection | Research source / traffic-side injection | No qualified alternate authentication channel defined | Research only; no authentication-equivalence or shipped-route claim (§18.6) |
 
 Source selection is **user-owned**. Node, helper and broker sources require an explicit entry; `isolation` remains the separate native-store sharing axis. An absent entry under source-policy v1 means `per-home`; an unreadable or malformed entry is a failure, not absence and not permission to fall back. Existing homes adopt a new source only through `inspect → plan → apply` with a coordinated marker revision. Explicit token enrolment never authorises native-login copying or export.
@@ -262,13 +268,13 @@ Material travels over the socket once and is written to the secret store. Enroll
 
 ### 5.5 Network requirement
 
-**R-NET-TOOL.** No agent or workplace account has general internet access. Workplaces have zero egress, no proxy destination and denied loopback; their agent loop runs at the donor. Trusted local agents reach only model-provider endpoints through the bound profile proxy with vendor names in its allowlist. No `direct` or `external-http-proxy` profile may bind to any account on a platform host; those profiles and cooperative profiles remain for operator machines without the platform. Platform enforcement requires qualified per-account-generation listeners, served-policy evidence, host/port allowlists with no mail ports, private/metadata dial guards, per-identity caps and logs from the network-profiles owner. The cooperative evidence below does not establish these platform boundaries or admit an untrusted account.
+**R-NET-TOOL.** No agent or workplace account has general internet access. Workplaces have zero egress, no proxy destination and denied loopback; their agent loop runs at the donor. Trusted local agents reach only model-provider endpoints through the bound profile proxy with vendor names in its allowlist. No `direct` or `external-http-proxy` profile may bind to any account on a platform host; those profiles and cooperative profiles remain for operator machines without the platform. Platform admission rests on the static R-RANGE-DENY fence plus the provider-only binding, never on the cooperative `assurance` record. Platform enforcement requires qualified per-account-generation listeners, served-policy evidence, host/port allowlists with no mail ports, private/metadata dial guards, per-identity caps and logs from the network-profiles owner. The cooperative evidence below does not establish these platform boundaries or admit an untrusted account.
 
-No web tool is the default for any agent. Tasks carry the resources they need, materialized read-only with their digests in the plan; those resources are data, never instructions. The trusted side fetches and checks additional resources requested by ordinary letters or outcomes. By default the donor loop reaches only model-provider endpoints and our host, with provider-side search disabled under CIP-0008; our environment has no internet. Web search is an explicit per-identity opt-in for the trusted circle only, never the untrusted class. R-NET-TOOL option (c) is a platform web-tool service reached over a Unix socket, with an allowlist, rate limits and logs; its search key lives in a service account, never an agent account, and is never leased as an agent credential. Custody and unpublished formats remain open (§18.18). Dependency downloads occur only in R-VERIFY runners under controlled egress.
+**R-NET-TOOL 4 and 4b: web tools are default-off for every agent and opt-in for the trusted circle only.** Tasks carry the resources they need, materialized read-only with their digests in the plan; those resources are data, never instructions. The trusted side fetches and checks additional resources requested by ordinary letters or outcomes. By default the donor loop reaches only model-provider endpoints and our host, with provider-side search disabled under CIP-0008; our environment has no internet. Web search is an explicit per-identity opt-in for the trusted circle only, never the untrusted class. R-NET-TOOL option (c) is a platform web-tool service reached over a Unix socket, with an allowlist, rate limits and logs; its search key lives in a service account, never an agent account, and is never leased as an agent credential. Custody and unpublished formats remain open (§18.18). Dependency downloads occur only in R-VERIFY runners under controlled egress.
 
 An account MAY require a network profile: `{ profile_ref, profile_digest, assurance }`, using the identifiers of curator-network-profiles.
 
-- **Cooperative (v0).** The caller composes the launch's network profile with curator-network-profiles. The executor verifies its destination-local network binding from that plan without resolving profiles (§3.1) and passes the resulting record in the lease request. The broker checks `profile_ref` and `profile_digest` against the account's requirement and records the result as **declared**. The record proves only what the requesting process asserted; network profiles in this version set proxy settings that a process can ignore.
+- **Cooperative (v0).** The caller composes the launch's network profile with curator-network-profiles. The executor verifies its destination-local network binding from that plan without resolving profiles (§3.1) and passes the resulting record in the lease request. The broker checks `profile_ref` and `profile_digest` against the account's requirement and records the result as **declared**. The cooperative `assurance` record is **declared evidence only**, not enforcement or platform-admission evidence. Platform admission rests on the static R-RANGE-DENY fence plus the provider-only binding; network profiles in this version set proxy settings that a process can ignore.
 - **Enforced (later).** An account that requires `assurance: "enforced"` is refused (`lease_network_enforcement_unavailable`) until swarma-user-manager v1 publishes trusted applied state for the agent's `(uid, generation)`: the profile digest, the proxy listener identity and the firewall generation. The broker then matches leases and renewals against that state, not against the request, and refuses drift.
 
 R-NETBIND: the machine owns the policy binding a child's network profile to its granted Curator profile; the user manager's §8 publishes its protected location and operator lifecycle. The dispatcher pins that policy/digest at admission. `fw.apply` checks that the listener actually serves the policy whose digest was applied, including listener/service-generation binding; broker enforced checks reference that trusted applied state. Policy reload or listener reuse cannot silently broaden existing allocations. The network-profiles/proxy contracts own digest relations and re-apply/session invalidation publication. This adds no grant dimension; v0 remains declared/cooperative only.
@@ -570,7 +576,22 @@ A `claude-oauth-token` has no refresh. A surviving agent-side client can report 
 
 ### 10.2 Muse
 
-A Muse subscription login is required, not only API keys. Its store, refresh behaviour and concurrency are researched in parallel with the first slices; if it rotates like Codex, it gets an auth owner of its own. Until then only the `api-key` lane with `META_API_KEY` or `exec --api-key-stdin` is specified for Muse, subject to executor qualification. Subscription channel and priority remain open (§18.5).
+**C7 decided (owner, 2026-10-13): prioritize Muse subscription qualification.** The research of 2026-10-13 finds that Muse login is device-code OAuth that **mints a Meta Model API key**, rather than supplying an OAuth access token to a child. The login store is `OAuthTokens{access_token, refresh_token, expires_at, obtained_via, api_key, api_base_url, user_*, subs_active}`. On macOS this vendor-native store is Keychain-first with a file fallback; it is distinct from the broker secret-store backend (§5.3). A file write replaces the inode, so a linked `auth.json` store breaks; children MUST NOT share a linked store.
+
+**PROPOSED design — channel (b), with fallback (c).** A single minting owner, an auth owner analogous to Codex's, retains the login store and leases the minted provider API key, never the OAuth tokens. Children use `META_API_KEY` or `muse exec --api-key-stdin`; an env key masks the login lane. There is **no OAuth access-token injection channel**. Fallback (c) applies if the env/stdin key is not subscription-billed or a re-mint revokes it. This does not establish refresh, rotation, lifetime or billing semantics, and it publishes no new broker fields or fallback protocol.
+
+The research reports twelve qualification rows; they remain **OPEN** (§18.5). In particular:
+
+| Qualification row | Status |
+|---|---|
+| Refresh trigger | OPEN — UNKNOWN |
+| Rotation | OPEN — UNKNOWN |
+| Lifetimes | OPEN — UNKNOWN |
+| Billing | OPEN — UNKNOWN; would need subscription-billing evidence for env/stdin delivery |
+
+Seven probes need a dedicated test account in its own OS user; the operator must provision it before probing. The priority decision does not make channel (b) qualified or admitted. The supplied research summary does not enumerate the other qualification rows or the seven probes; their exact definitions remain with the research, with no additional names, lifetime values or probe procedures assigned here.
+
+The explicit `api-key` lane through `META_API_KEY` or `exec --api-key-stdin` remains separate and subject to executor qualification. Sharing a delivery mechanism does not establish subscription billing or permit automatic substitution of an API key for a subscription source.
 
 ## 11. Events
 
@@ -850,7 +871,7 @@ These required vectors must drive dispatcher admission/activation and the broker
 - grants and revocations from a shared registry (§6.5);
 - roles, wildcards and further grant conditions, including bounds on concurrent use per account;
 - events delivered to the session host and a person's phone (approve a lease, re-enrol);
-- a Muse auth owner, if Muse rotates;
+- the proposed Muse single minting owner and subscription channel (b), with fallback (c), after qualification (§10.2, §18.5);
 - Windows.
 
 ## 18. Open questions
@@ -861,7 +882,7 @@ The following broker/provider choices and publication gates remain open here. D-
 2. Whether Claude tokens should also be issued per launch by an owner once vendors offer short-lived subscription tokens.
 3. Ownership of one Codex vendor account across several machines (§9.5).
 4. **OWNER DECISION NEEDED — Codex personal-plan adoption/qualification (contract C4, CIP-0010 open question 2).** Options: adopt the single auth owner and external-token lane with named supported-release evidence (including the proposed 0.159.0 race-test precondition), or defer that provider lane. The broker slice-1 design and historical 0.155.x reference do not decide the current supported release or satisfy that precondition.
-5. **OWNER DECISION NEEDED — Muse subscription channel and priority (contract C7).** Options: prioritize subscription qualification and choose a supported channel from measured store/refresh evidence, or defer subscription support while retaining the separately qualified API-key lane. No subscription channel, refresh owner or parity claim is invented.
+5. **C7 DECIDED — prioritize Muse subscription qualification (owner, 2026-10-13); qualification OPEN.** The research outcome is the **PROPOSED** channel (b): a single minting owner leases the provider API key minted by device-code OAuth, never the OAuth tokens; children use `META_API_KEY` or `exec --api-key-stdin`, with no OAuth access-token injection or linked store. Fallback (c) applies if the env/stdin key is not subscription-billed or a re-mint revokes it (§10.2). Refresh trigger, rotation, lifetimes and billing remain UNKNOWN. The research has twelve qualification rows, still open; seven probes require a dedicated test account in its own OS user, provisioned by the operator. The API-key lane remains separate; no parity or supported-release claim is made.
 6. **Open research — provider proxy injection (audit A10.6).** Options: continue separate provider/channel qualification research, or defer traffic-side injection and retain the explicit harness-readable delivery model. No proxy path is an admitted substitute for native or broker authentication.
 7. **OPEN — launch-time lease cleanup by channel (§8.4–§8.5, §9.3).** For `env`, choose between release by the owning executor before exec (and define whether release permits use of the already delivered payload), or retaining the lease until `authorized_until` / revocation / unbind (and define record transitions and reclamation). Successful exec leaves no executor broker client; disconnect and harness exit are not release. For `stdin`, publish whether a client survives delivery and its release point. For runner-held `external-token`, publish teardown/release ordering and cleanup on initialisation failure or runner loss. Also specify post-lease pre-exec refusal cleanup and whether a live client reports env-harness failures. No post-exec callback, inherited broker descriptor, exit watcher or new wire mechanism is specified here.
 8. **OPEN — restore/start and verdict publication (§6.4, §13.2, §15.4).** Would need the operator restore-mark location/encoding, trusted start-check and durable reconciliation/reopen evidence integration outside the restored failure domain; completeness rules for surviving journal/checkpoint evidence; any optional witness's pre-ack durability; and `revocation.check` exact request/response encoding, including how an unavailable sequence is represented. The three verdicts, contexts and access rule are fixed by R-VERDICT. No new refusal code or namespace field is assigned.

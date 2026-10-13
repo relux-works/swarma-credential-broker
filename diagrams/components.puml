@@ -134,6 +134,14 @@ note bottom of Bindings
   No helper principal; unbind remains dispatcher/operator (§7.3).
 end note
 note bottom of Accounts
+  Muse C7 priority decided: subscription qualification first (§10.2, §18.5).
+  PROPOSED (b): one minting owner leases the device-code-OAuth-minted
+  provider API key via META_API_KEY / exec --api-key-stdin, never OAuth tokens.
+  Fallback (c): key not subscription-billed or revoked by re-mint.
+  No OAuth access-token injection; no child linked store. macOS native store
+  is Keychain-first, file fallback; replacement inode breaks a linked store.
+  Twelve qualification rows open; seven probes need a dedicated test account
+  in its own OS user. API-key lane separate; no admitted Muse implementation.
   R-FATE fate table: user manager §7, next to R-FD3;
   stop/crash/replacement and previous-writer fence need platform qualification.
   R-LOCK: state lock never spans synchronous platform-service calls;
