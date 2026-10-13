@@ -43,7 +43,7 @@ Executor --> Harness : env: exec replaces executor; stdin process model unpublis
 Peer --> Identity : authenticate principal
 Identity --> Ledger : direct read at bind / lease / renew
 Peer --> Bindings : dispatcher administration / authorized effect.observe
-Peer --> Leases : bound trusted-class agent only
+Peer --> Leases : bound trusted-class local agent only; circle membership insufficient (§4.2)
 Peer --> Accounts : owner methods
 Peer --> Grants : grant / revocation publication; revocation.check
 Bindings --> Grants : leaf chain and caller chain separately

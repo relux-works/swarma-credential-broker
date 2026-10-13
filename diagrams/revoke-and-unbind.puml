@@ -77,6 +77,10 @@ note over D,H
   R-TRANSFER export precedes home deletion unless operator explicitly waives it.
   Workspace data becomes a candidate only through board deterministic import;
   exact repository-signed commit reviewed/integrated through board's path.
+  Reviewer: admitted review role; outside untrusted class; distinct from producer;
+  trusted-class local agent placement or person holding the role (§12.1).
+  Circle membership alone never grants review eligibility.
+  Local-only reviewer and requester-exclusion policies remain open/off (§18.23).
   Separate retirement metadata export is service-generated closed-schema data
   without agent-controlled strings/names/links/bodies; not the workspace result.
   Explicit home retention needs authentication + content confirmation;\n  refused inside agent sessions; cannot guarantee confidentiality.

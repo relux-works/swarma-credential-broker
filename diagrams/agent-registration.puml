@@ -78,6 +78,9 @@ end note
 note over O,B
   R-UNTRUSTED: slice 0/user-manager v0 refuse untrusted class.
   Later workplaces have zero egress, no broker binding/lease and no local loop.
+  Circle membership never changes a remote identity's workplace placement.
+  Host loops, including standing loops, require trusted class AND local agent placement (§4.2).
+  Membership alone grants neither host-loop authority nor a review-role grant.
   R-ALLSTOP closes admission; revocation.check unavailable while frozen.
   Prior verdict never bypasses class/freeze checks; mappings unpublished (§18.16-§18.17).
   Workspace materialization/export belong to dispatcher R-TRANSFER;
