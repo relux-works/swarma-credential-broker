@@ -21,9 +21,14 @@ D -> H: sudo swarma-user-manager (no arguments)\nstdin: user.create {kind: agent
 H -> H: under the helper lock: allocate UID, fresh random 128-bit generation; ledger (creating → active)
 H --> D: {username: worker-dev-7f3, uid: 30412, generation: 4a91c5e03b2d4788a649d70fc62e15bd}
 D -> D: sign leaf grant: subject agent:4a91c5e03b2d4788a649d70fc62e15bd, depth 0,\nnarrowed from its own grant (chain to the root)
+D -> D: binding request must carry recorded admission class for UID/generation;\nencoding unpublished; not inferred from username
 D -> B: bind {uid 30412, generation 4a91c5e03b2d4788a649d70fc62e15bd, label, profiles [dev],\nchain [leaf, dispatcher grant, root],\ncaller {chain [caller grant, …, root], intersection}, request_id: bind effect ID, expires_at}
-B -> B: peer is a dispatcher principal;\nroot-owned ledger.json (helper §4.5):\n4a91c5e03b2d4788a649d70fc62e15bd active, kind agent, created by this dispatcher;\nverify both chains, every edge incl. the leaf;\nleaf within the caller intersection; current revocations and R-TIME max/min checks; untrusted time or restore fence? refuse
-B -> B: pre-admission refusal: no intent; fresh retry checks (R-OUTCOME);\nserialize receiver journal; persist admitted bind intent before mutation;\npersist result/current target state before acknowledgement
+B -> B: peer is a dispatcher principal; verify admission-class evidence;\nrefuse untrusted/unavailable class or R-ALLSTOP freeze;\nroot-owned ledger.json (helper §4.5):\n4a91c5e03b2d4788a649d70fc62e15bd active, kind agent, created by this dispatcher;\nverify both chains, every edge incl. the leaf;\nleaf within the caller intersection; current revocations and R-TIME max/min checks; untrusted time or restore fence? refuse
+break untrusted/unavailable class evidence or R-ALLSTOP freeze
+  B --> D: refuse bind; codes unpublished (§18.16-§18.17)
+  D --> O: no binding or launch
+end
+B -> B: pre-admission refusal: no intent; fresh retry checks (R-OUTCOME);\nserialize receiver journal; persist admitted bind intent before mutation;\nrepeat class/freeze gates before authority creation;\npersist result/current target state before acknowledgement
 B --> D: binding/1 {binding_id}
 opt bind acknowledgement lost
   D -> B: effect.observe: original bind request_id, bind, canonical-argument digest
@@ -43,7 +48,7 @@ D -> L: sudo swarma-user-launcher (no arguments)\nstdin: launch.start {generatio
 L -> L: ledger: 4a91c5e03b2d4788a649d70fc62e15bd active; executor digest approved;\napply user-manager helper §7 descriptor lifecycle (R-FD3);\nprotected immutable plan on FD3; root receipt and UID/GID transition
 L -> E: exec approved curator-run as uid 30412 (plan on FD3)
 E -> E: verify and execute caller-composed plan;\nno composition or profile resolution; no network except broker
-E -> B: fresh connection (lease flow: lease-at-launch)
+E -> B: fresh connection (trusted-class lease flow: lease-at-launch)
 D --> O: execution handle (run_id, execution_id, generation, binding_id)
 note over D,L
   Privileged payloads are abbreviated, not copyable schemas.
@@ -69,5 +74,13 @@ note over D,B
   No helper broker principal. All platform-service calls release state locks
   with per-record in-flight ownership and late-result fencing (R-LOCK, §13.1).
   R-SESSION permit is session-scoped; every physical start keeps its own claim.
+end note
+note over O,B
+  R-UNTRUSTED: slice 0/user-manager v0 refuse untrusted class.
+  Later workplaces have zero egress, no broker binding/lease and no local loop.
+  R-ALLSTOP closes admission; revocation.check unavailable while frozen.
+  Prior verdict never bypasses class/freeze checks; mappings unpublished (§18.16-§18.17).
+  Workspace materialization/export belong to dispatcher R-TRANSFER;
+  worker .git/history are never platform input; broker holds no workspace.
 end note
 @enduml

@@ -11,11 +11,11 @@ E -> E: refuse if another credential source is present\n(credential_source_confl
 E -> E: verify destination-local network binding from composed plan\nrecord {profile_ref, profile_digest, assurance: cooperative}
 E -> B: connect; check the server's peer UID is the broker's
 E -> B: lease.request {harness, profile, account, channel: env,\ncredential_binding, network, launch_id}
-B -> B: under the state lock: refuse fenced restore;\n1 peer = agent principal of an active, unexpired binding (ledger 4a91c5e03b2d4788a649d70fc62e15bd active)\n2 lease chain and caller chain verify current revocations and R-TIME max/min windows\n3 leaf covers account, harness, profile; profile in binding\n4 account active, known expiry checked, harness matches\n5 channel valid; harness release qualified\n6 binding fields match; endpoint and executable approved\n7 network: cooperative match recorded as declared
+B -> B: under the state lock: require verifiable admission class; refuse untrusted class;\nrefuse R-ALLSTOP freeze or fenced restore;\n1 peer = agent principal of an active, unexpired binding (ledger 4a91c5e03b2d4788a649d70fc62e15bd active)\n2 lease chain and caller chain verify current revocations and R-TIME max/min windows\n3 leaf covers account, harness, profile; profile in binding\n4 account active, known expiry checked, harness matches\n5 channel valid; harness release qualified\n6 binding fields match; endpoint and executable approved\n7 network: cooperative match recorded as declared
 alt any check fails
-  B --> E: refusal {code: lease_not_authorised | lease_binding_mismatch | …}
+  B --> E: typed refusal; class/freeze codes unpublished;\nother check codes include lease_not_authorised / lease_binding_mismatch
   E -> E: do not exec; report
-else all checks pass
+else admission-class/freeze gates and all checks pass
   B --> E: lease/1 {lease_id, payload, token_expires_at, authorized_until}
   E -> E: re-check the binding tuple and conflicts
   E -> H: exec with CLAUDE_CODE_OAUTH_TOKEN in the process environment only\n(not argv, not files, not logs)
@@ -34,7 +34,7 @@ note over B
 end note
 note over B,H
   env: renewal refused after authorized_until; revocation stops new
-  leases/renewals; unbind ends leases (§6.4, §7.2, §8.5).
+  leases/renewals; R-ALLSTOP freezes all leases/renewals; unbind ends leases (§6.4, §7.2, §8.5).
   Release before exec vs retain until that limit: unspecified in spec §18.7.
   stdin: surviving client and release point unspecified in spec §18.7.
   external-token: live executor / later runner holds lease and can release;
@@ -59,5 +59,12 @@ note over B
   R-REBIND ends old leases; copied env token keeps only vendor lifetime.
   R-NETBIND v1: machine-owned network policy pinned at admission;
   fw.apply verifies listener serves the applied digest (§5.5).
+end note
+note over E,B
+  R-UNTRUSTED: no binding or lease for untrusted-class accounts.
+  Unavailable class evidence also refuses; encoding/codes unpublished (§18.16).
+  R-ALLSTOP is durable, checked before delivery; explicit recovery only.
+  Partial/unknown recovery keeps admission closed; delivered tokens
+  keep vendor lifetime (§15.5). Freeze code/record formats unpublished (§18.17).
 end note
 @enduml

@@ -10,7 +10,10 @@ participant "Approved Codex executable\nbroker UID; vendor refresh writer" as V
 database "Broker-owned attempt evidence\nand durable vendor home" as S
 
 E -> O: lease.request {harness: codex_cli, channel: external-token, …}
-O -> O: verify lease checks 1–7 (active UID/generation and binding,\nlease + caller chains, current revocations, source/network qualification, R-TIME max/min checks)
+O -> O: require verifiable admission class; refuse untrusted class or R-ALLSTOP freeze;\nverify lease checks 1–7 (active UID/generation and binding,\nlease + caller chains, current revocations, source/network qualification, R-TIME max/min checks)
+break untrusted/unavailable class evidence or R-ALLSTOP freeze
+  O --> E: refuse; code unpublished; no material or admitted refresh
+end
 break restore fenced or prior writer / store / outcome unresolved
   O --> E: revocation_state_unavailable / lease_owner_unavailable; no material
 end
@@ -23,7 +26,10 @@ opt refresh required and safe
   M --> O: qualified writer-lifecycle evidence
   O -> S: reload durable home; resolve/persist attempt outcome
 end
-O -> O: repeat current authorization, R-TIME and restore fence under state lock before release
+O -> O: repeat admission class, R-ALLSTOP freeze, current authorization,\nR-TIME and restore fence under state lock before release
+break untrusted/unavailable class evidence or R-ALLSTOP freeze at final check
+  O --> E: refuse; mapping unpublished; no material
+end
 O --> E: payload {access_token, chatgpt_account_id, plan_type?}
 E -> A: start private app-server; executor remains its client (§9.3)
 E -> A: initialize (experimental capability required for external tokens)
@@ -32,7 +38,11 @@ E -> A: account/login/start {type: chatgptAuthTokens, accessToken, chatgptAccoun
 A -> A: model call answers 401
 A -> E: account/chatgptAuthTokens/refresh (answer expected within ~10 s)
 E -> O: lease.renew {lease_id, rejected_sha256} (deadline 8 s)
-O -> O: check lease ownership and repeat checks 1–7 including restore fence
+O -> O: check lease ownership, admission class and R-ALLSTOP freeze;\nrepeat checks 1–7 including restore fence
+break untrusted/unavailable class evidence or R-ALLSTOP freeze
+  O --> E: refuse renewal; code unpublished; no material
+  E --> A: error answer; turn fails
+end
 break previous writer / store / outcome unresolved
   O --> E: lease_owner_unavailable; no replacement refresh
   E --> A: error answer; turn fails
@@ -40,8 +50,8 @@ end
 alt rejected token is still current
   O -> O: prior writer/outcome resolved; durable intent before contained refresh;\nresolve attempt and reload durable home (N rejected launches -> 1 writer)
 end
-alt renewed within the deadline and authorisation still valid
-  O -> O: after refresh, repeat authorisation, R-TIME and restore fence under state lock\nimmediately before releasing material
+alt renewed within deadline; class verified, trusted; no R-ALLSTOP freeze; authority valid
+  O -> O: after refresh, repeat admission class, R-ALLSTOP freeze,\nauthorisation, R-TIME and restore fence under state lock\nimmediately before releasing material
   O --> E: payload {access_token, chatgpt_account_id}
   E -> E: verify same chatgpt_account_id as the lease
   alt account ID matches
@@ -63,7 +73,7 @@ note over E,O
   Teardown/release ordering and init-failure / runner-loss cleanup:
   unspecified in spec §18.7; this opt is a permitted release, not a new policy.
   Without release: authorized_until bounds renewal; revocation stops
-  new leases/renewals; unbind ends leases (§6.4, §7.2, §8.5).
+  new leases/renewals; R-ALLSTOP freezes all leases/renewals; unbind ends leases (§6.4, §7.2, §8.5).
   Release cannot erase a copied access token (§12.1).
 end note
 note over O: the refresh token never leaves the broker's store;\nlease_grant_revoked / lease_caller_revoked refuse renewal
@@ -126,5 +136,14 @@ note over E,O
   not_before at min(now, watermark); untrusted time refuses renewal.
   R-REBIND ends old leases; new binding cannot renew this lease.
   Fenced fresh-lease handoff is OPEN (§18.11); explicit park/restart until then.
+end note
+note over E,O
+  R-UNTRUSTED: untrusted workers never receive a lease (§12.1).
+  R-ALLSTOP freeze is journaled before acknowledgement; late refresh
+  cannot deliver material while frozen or clear the fence (§15.5).
+  Restart/restore alone cannot recover; partial/unknown results keep closed.
+  Already delivered tokens keep vendor lifetime; no vendor recall.
+  Class encoding, freeze/recovery act records and refusal codes
+  are unpublished (§18.16-§18.17); no new account/lease enum.
 end note
 @enduml

@@ -27,9 +27,10 @@ folder "Broker service home: /opt/swarma/services/swarma-credential-broker\nbrok
   artifact "Stable lock beside Codex home\nread / refresh / reload serialisation" as Lock
   artifact "Grant envelopes\nsigned public authorisation metadata" as Grants
   artifact "Revocation state {seq, records}\nauthoritative local state" as Revocations
-  artifact "Binding records and receiver journal/tombstones\nUID + generation; chains; bind/unbind effect evidence" as Bindings
+  artifact "Binding records and receiver journal/tombstones\nUID + generation; admission-class evidence;\nchains; bind/unbind effect evidence" as Bindings
   artifact "Durable refresh attempt evidence\nintent before launch; prior outcome / process identity" as Attempts
   artifact "Durable time watermark / elapsed evidence\ntrusted advances, expiry/reset history; layout unpublished" as Time
+  artifact "R-ALLSTOP freeze / recovery journal\nlogical record; layout and intake unpublished" as Freeze
   artifact "Lease records\nowner tuple + launch/policy metadata; NEVER payload" as Leases
   artifact "Append-only audit log\ntyped principal/account/launch/outcome metadata\nno material, raw frames, secret errors or token hashes" as Audit
 }
@@ -48,7 +49,7 @@ Operator --> Root : sign existing broker envelope after operator admission
 Operator --> OperatorRecords : admitted operator acts
 Operator --> Socket : admitted owner/operator methods
 Observer --> Socket : status / account.list / grant.list / binding.list; no confirmation
-Dispatcher --> Socket : bind / unbind; effect.observe; revocation.check
+Dispatcher --> Socket : bind with admission class (encoding unpublished) / unbind; effect.observe; revocation.check
 Executor --> Socket : fresh agent-side lease connection
 Socket --> Broker : broker/1; no network listener
 Broker --> Config : read configuration
@@ -57,6 +58,7 @@ Broker --> Secrets : put / get / delete / describe (§5.3)
 Broker --> Grants : signed grants
 Broker --> Revocations : publish under shared state lock (§6.4)
 Broker --> Bindings : bind / unbind records
+Broker --> Freeze : durable freeze before acknowledgement; explicit recovery evidence
 Broker --> Leases : persist without payload (§8.3)
 Broker --> Audit : append (§12.3)
 Broker --> Lock : internal per-account auth owner locks
@@ -154,5 +156,13 @@ note bottom of Bindings
   R-REBIND same UID/generation: old-binding tombstone and ended leases,
   then fresh binding ID; replay cannot reactivate or target replacement.
   R-OUTCOME bind/unbind tables retain the six R-OBS states (§13.2).
+end note
+note bottom of Freeze
+  R-ALLSTOP freezes all leases/renewals and final post-refresh delivery;
+  every service start checks freeze/recovery evidence (§15.5).
+  Partial/unknown/unreadable results keep admission closed; no automatic restart.
+  Delivered tokens keep vendor lifetime. No new file basename or state enum.
+  R-UNTRUSTED admission evidence retained for UID/generation; no binding/lease
+  for untrusted or unavailable class. Encodings/codes unpublished (§18.16-§18.17).
 end note
 @enduml

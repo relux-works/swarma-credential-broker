@@ -21,29 +21,29 @@ package "swarma-credential-broker daemon: one unprivileged service UID" {
   component "Peer authenticator\nkernel effective UID; fixed role\nbroker/1 Unix socket only" as Peer
   component "Principal / UID-generation reader\nactive helper generation or pinned identity" as Identity
   component "Grant verifier + revocations\ntwo separate chains; v0 software root" as Grants
-  component "Binding index\ndispatcher bind / replacement / unbind" as Bindings
-  component "Lease service\nchecks 1-7; binding/time + 2-7 under state lock\nownership on renew/release/report" as Leases
+  component "Binding index\nverified admission class\ndispatcher bind / replacement / unbind" as Bindings
+  component "Lease service\nclass/freeze gates + checks 1-7; binding/time + 2-7 under state lock\nownership on renew/release/report" as Leases
   component "Account management + auth owner\none internal refresher per rotating account\nslice 1 Codex adapter" as Accounts
   component "Events / audit writer\ntyped metadata only" as Events
-  database "Durable store: broker UID\naccounts + secrets, config, grants,\nrevocations, bindings, leases, time evidence, audit" as Store
+  database "Durable store: broker UID\naccounts + secrets, config, grants,\nrevocations, bindings/class evidence, leases,\nR-ALLSTOP journal, time evidence, audit" as Store
 }
 
 Caller --> Dispatcher : request execution with caller-composed plan
 Dispatcher --> Helper : create / retire account
 Helper --> Ledger : publish generations
-Dispatcher --> Peer : bind / unbind; effect.observe; revocation.check; no material
+Dispatcher --> Peer : bind with admission class (encoding unpublished) / unbind; effect.observe; revocation.check; no material
 Person --> Phone : inspect exact act; biometric confirmation
 Phone --> Admin : SSH over tailnet, pinned key only; forced command; signed act
 Person --> Admin : terminal sudo: password; timestamp_timeout=0; no NOPASSWD
 Admin --> OperatorStore : admitted act uses account-held authority
-Admin --> Peer : admitted owner/operator methods; fresh operator connection
+Admin --> Peer : admitted owner/operator acts, including R-ALLSTOP; fresh operator connection
 Observer --> Peer : status / account.list / grant.list / binding.list; no confirmation
 Executor --> Peer : fresh connection; lease methods
 Executor --> Harness : env: exec replaces executor; stdin process model unpublished\nexternal-token: start private app-server; retain live client (§8.5, §9.3)
 Peer --> Identity : authenticate principal
 Identity --> Ledger : direct read at bind / lease / renew
 Peer --> Bindings : dispatcher administration / authorized effect.observe
-Peer --> Leases : bound agent only
+Peer --> Leases : bound trusted-class agent only
 Peer --> Accounts : owner methods
 Peer --> Grants : grant / revocation publication; revocation.check
 Bindings --> Grants : leaf chain and caller chain separately
@@ -145,5 +145,13 @@ note bottom of Grants
   Untrusted time refuses new authority; restore reconciles time evidence.
   Expiry-driven binding removal also needs monotonic lifetime (§15.1).
   R-NETBIND: machine-owned policy, pinned admission and served digest (§5.5).
+end note
+note bottom of Peer
+  R-UNTRUSTED refuses bind/replacement, lease and renewal;
+  unavailable class evidence refuses, never inferred from account name.
+  R-ALLSTOP journals broker-wide freeze before acknowledgement;
+  final delivery after refresh checks it. Explicit recovery only;
+  partial/unknown results keep closed. Delivered tokens keep vendor lifetime.
+  Class encoding and node-wide act/records/codes unpublished (§18.16-§18.17).
 end note
 @enduml

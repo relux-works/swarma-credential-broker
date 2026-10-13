@@ -1,10 +1,12 @@
 @startuml revoke-and-unbind
 !theme plain
-title Broker v0, design only: ending access, grant revocation, task end, account withdrawal
+title Broker v0, design only: ending access, grant revocation, task end, account withdrawal, R-ALLSTOP node-wide freeze
 
 actor "Person" as P
 participant "Phone app / operator device key\nsecure element; biometric presence" as Phone
 participant "Operator command\nswarma-operator; no harness or shell" as O
+participant "Original requester principal" as R
+participant "swarma-workspace-export\napproved executor; child UID; fixed environment; no network" as X
 participant "swarma-dispatcher\nown service OS account" as D
 participant "swarma-user-manager\nroot, no-argument sudo entry" as H
 participant "swarma-credential-broker\nunprivileged broker service UID" as B
@@ -42,12 +44,40 @@ opt reply lost or receiver recovery
   B --> D: recorded (result + current state) | pending | rolled_back |\nnot_recorded | unavailable | contradictory
   D -> D: only authoritative evidence proves absence; unknown holds claim
 end
+opt workspace-capable allocation: R-TRANSFER cleanup obligation
+  D -> H: round end: account-wide journaled stop and confirm absence
+  H --> D: account-wide absence evidence or unresolved result
+  D -> D: workplace round write-fenced; no further tool calls into workspace
+  alt confirmed absence; export admitted
+    D -> X: export workspace data; no links followed; skip worker .git/history
+    alt whole export succeeds
+      X --> D: bounded change set
+      D -> D: journal result digests and recorded export
+      D --> R: recorded workspace result only to original requester
+    else export refuses
+      X --> D: whole-export refusal; no partial result
+      D -> D: export cleanup obligation remains pending
+    end
+  else absence unconfirmed
+    D -> D: no export; retain cleanup obligation
+  end
+  opt explicit operator waiver of export obligation
+    O -> D: admitted operator act (format unpublished; e.g. after compromise)
+    D -> D: record waiver; never silently drop export obligation
+  end
+  break neither export recorded nor operator waiver
+    D -> D: retain home; no retirement deletion
+  end
+end
 D -> H: user.retire {generation: 4a91c5e03b2d4788a649d70fc62e15bd}\n(abbreviated helper request; distinct retire effect ID)
 H -> H: state retiring: launcher refuses 4a91c5e03b2d4788a649d70fc62e15bd;\nstop processes, verify quiescence; (v1: egress stays denied)
 H -> H: declared-key cleanup; delete home;\nremove account and group; state removed
 note over D,H
-  Ordinary retirement deletes the home; export only service-generated
-  closed-schema metadata without agent-controlled strings/names/links/bodies.
+  R-TRANSFER export precedes home deletion unless operator explicitly waives it.
+  Workspace data becomes a candidate only through board deterministic import;
+  exact repository-signed commit reviewed/integrated through board's path.
+  Separate retirement metadata export is service-generated closed-schema data
+  without agent-controlled strings/names/links/bodies; not the workspace result.
   Explicit home retention needs authentication + content confirmation;\n  refused inside agent sessions; cannot guarantee confidentiality.
   Unbind tombstones remain for admissible retry/reconciliation (§7.2);
   expired/missing evidence is unavailable, never not_recorded.
@@ -58,7 +88,7 @@ note over B: a recycled UID or a repeated label inherits nothing:\nbindings, gra
 
 == Independent direct operator retirement while broker is unavailable ==
 O -> H: authenticated operator retirement through helper's local contract
-H -> H: irreversible retiring ledger fence; local quiescence and deletion
+H -> H: irreversible retiring ledger fence; local quiescence; deletion waits for recorded export or explicit waiver
 H --> O: local retirement result; NOT a broker unbind receipt
 O -> O: retain explicit durable unconfirmed binding-cleanup obligation
 note over O,B
@@ -69,6 +99,21 @@ note over O,B
   R-OUTCOME: pre-admission rejection has no intent; unfinished admitted
   unbind is pending and continues identical arguments, only narrowing.
   Terminal replay never removes a replacement binding (§13.2).
+end note
+
+== Node-wide emergency stop (R-ALLSTOP) ==
+O -> D: one operator narrowing act; phone authentication + one confirmation\nor password terminal fallback; refused inside agent sessions
+D -> D: journal hold; close admission
+D -> H: journal range deny-all (R-RANGE-DENY) and account-wide stops\nfor every agent/workplace generation, with confirmed absence
+D -> B: broker part of admitted node-wide act (intake unpublished)
+B -> B: under state lock: durably journal freeze of all leases/renewals\nbefore acknowledgement; includes queued and post-refresh delivery
+B --> D: broker freeze recorded; no assertion about other services
+note over D,B
+  Session host closes delivery and snapshots bound boards; each service journals its part.
+  Revocation.check unavailable; admission remains closed on partial/unknown results.
+  Explicit operator recovery only; restart/restore never automatically clears freeze.
+  Already delivered tokens keep vendor lifetime, not recalled by this act.
+  Act/record/recovery formats and refusal codes unpublished (§18.17).
 end note
 
 == the account is withdrawn ==

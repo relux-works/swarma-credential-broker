@@ -48,7 +48,7 @@ end note
 state "Binding record: broker-owned persistent state (§7.1)" as Bindings {
   state "active" as BindingActive
   state "removed" as BindingRemoved
-  [*] --> BindingActive : dispatcher service principal: bind\nbroker verifies ledger + separate lease/caller chains (§7.2)
+  [*] --> BindingActive : dispatcher service principal: bind\nbroker requires verifiable trusted class, no R-ALLSTOP freeze;\nverifies ledger + separate lease/caller chains (§7.2)
   BindingActive --> BindingRemoved : creating dispatcher / operator: unbind; or E-rebind old removal;\nbroker: trusted expiry AND monotonic lifetime (§7.2)
 }
 
@@ -78,8 +78,8 @@ state "Lease record: broker-owned persistent metadata, no payload (§8.3)" as Le
   state "released" as LeaseReleased
   state "expired" as LeaseExpired
   state "revoked" as LeaseRevoked
-  [*] --> LeaseActive : agent-side executor: lease.request\nbroker admits only after checks 1-7 (§8.2)
-  LeaseActive --> LeaseActive : same UID/generation/binding: renew\nbroker repeats current checks even after refresh (§8.5)
+  [*] --> LeaseActive : agent-side executor: lease.request\nbroker admits only after class/freeze gates and checks 1-7 (§8.2)
+  LeaseActive --> LeaseActive : same UID/generation/binding: renew\nbroker repeats class/freeze + current checks even after refresh (§8.5)
   LeaseActive --> LeaseReleased : same lease principal: lease.release (§8.5)
   LeaseReleased --> LeaseReleased : same principal: idempotent release (§8.5)
 }
@@ -97,7 +97,8 @@ note right of Leases
   Env exec replaces executor: no post-exec renew/release/report.
   Env pre-exec release vs retain, stdin client lifetime, and live
   external-token holder's teardown ordering: unspecified in spec §18.7.
-  Revocation or unbind stops access; copied payloads survive
+  Revocation/unbind stop new material; R-ALLSTOP freezes all leases/renewals.
+  Copied payloads survive
   until token expiry or vendor revocation (§6.4, §7.2, §12.1).
   [[../spec/broker.md#83-response-and-lease-record Spec §8.3]]
   [[../spec/broker.md#85-renewal-release-and-reports Spec §8.5]]
@@ -155,5 +156,14 @@ note bottom of Grants
   Only trusted time advances durable watermark; untrusted time holds authority.
   Expired binding is unusable while monotonic removal gate retains record;
   reset/restore preserves genuinely expired authority (§15.1).
+end note
+note bottom of Leases
+  R-UNTRUSTED: no binding/lease for untrusted-class accounts;
+  missing/unverifiable class evidence refuses, including stale bindings.
+  R-ALLSTOP freezes all leases/renewals through a journaled global fence;
+  not a new lease/account/grant enum and not vendor revocation.
+  No restart/restore automatic recovery; explicit operator recovery only;
+  partial/unknown node-wide evidence keeps admission closed (§15.5).
+  Delivered tokens keep vendor lifetime; class/freeze codes/formats unpublished.
 end note
 @enduml

@@ -7,14 +7,20 @@ A credential broker for agent systems. It runs under its own OS user, holds subs
 ## What it is for
 
 - One person, one subscription: a subscription is enrolled once and handed to the launches that person authorised, instead of a separate login per managed home.
-- Agents run as separate OS users; a launch asks the broker for a lease for its profile and harness, and receives the credential only in the launched process.
+- Trusted local agents run as separate OS users; a launch asks the broker for a lease for its profile and harness, and receives the credential only in the launched process.
 - Authority is a signed grant (`credential.lease` on an account, for a profile, until a time), verifiable down to a root key; delegation can only narrow.
 - An account may require a network profile, so its traffic leaves only through a named egress.
 - Codex personal plans: a single auth owner refreshes the account with a required writer-lifecycle gate across daemon replacement; launches receive external access tokens and never hold a refresh token.
 
 The configured operator and every subscription/API account's owner are `swarma-operator`, a separate account that never hosts agent sessions and holds the v0 Ed25519 software root. The main path uses a phone-held, hardware-backed **operator device key**: biometric confirmation signs each exact operator act, SSH over the tailnet reaches a forced **operator command** with no shell, and the machine verifies the pinned phone key. Terminal fallback uses password-authenticated sudo into `swarma-operator`, no `NOPASSWD` and `timestamp_timeout=0`. Widening acts need content confirmation and are refused inside agent sessions; revocation needs authentication only. Mandatory `swarma-observer` reads status, accounts, grants and bindings without confirmation. [Operator custody and acts](spec/broker.md#43-trust-root-and-key-classes) are design requirements; [operator format and phone-key lifecycle publication](spec/broker.md#18-open-questions) remain open.
 
-The broker's v0 trusted-process exception is explicit: the harness can read and copy its leased token. Revocation stops new leases and renewals; a copied token remains usable until expiry or vendor revocation. See [the exposure limits](spec/broker.md#121-what-a-compromised-agent-can-do) and [the required injection qualification](spec/broker.md#122-protected-binding-and-conflicting-sources).
+The broker's v0 trusted-process exception is explicit: the harness can read and copy its leased token. Revocation and the journaled R-ALLSTOP node-wide freeze stop new leases and renewals; a copied token remains usable until expiry or vendor revocation. See [the exposure limits](spec/broker.md#121-what-a-compromised-agent-can-do) and [the required injection qualification](spec/broker.md#122-protected-binding-and-conflicting-sources).
+
+R-UNTRUSTED accounts never receive a broker binding or lease; admission-class evidence from the dispatcher is mandatory, and slice 0/user-manager v0 refuse the class. A workplace has zero egress and its loop stays at the donor. Local trusted agents reach only model-provider endpoints through the bound profile proxy. No web tool is the default: tasks carry read-only resources, and trusted-circle web access is an explicit opt-in. The platform web-tool search key is a service credential, never an agent lease; [custody remains open](spec/broker.md#18-open-questions).
+
+[R-ALLSTOP](spec/broker.md#155-node-wide-emergency-stop-r-allstop) freezes all broker leases and renewals durably, including delivery after asynchronous refresh. Recovery is explicit; a partial or unknown node-wide result keeps admission closed. Already delivered tokens keep their vendor lifetime. The phone or terminal operator path admits the node-wide act; agent sessions cannot invoke it.
+
+[R-TRANSFER](spec/broker.md#121-what-a-compromised-agent-can-do) makes code leave an isolated account only as platform-exported data after account-wide process absence. Export precedes retirement unless an operator explicitly waives the cleanup obligation. The orchestrator imports a repository-signed candidate through the board, obtains review of that exact commit and integrates through its existing path. Builds, tests and any execution of worker code belong only to R-VERIFY ephemeral runners on another machine; R-EXEC allows qualified light checks in agent accounts.
 
 ## How it fits
 
@@ -38,7 +44,7 @@ The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at
 | Figure | PlantUML source | Defining specification |
 |---|---|---|
 | M-CB1 — v0 components and process identities | [components.puml](diagrams/components.puml) | [§3 Components](spec/broker.md#3-components), [§3.1 First consumer](spec/broker.md#31-first-consumer-and-execution-boundary), [§4 Identities](spec/broker.md#4-identities-and-trust) |
-| M-CB2 — lease refusal and recovery | [lease-recovery.puml](diagrams/lease-recovery.puml) | [§6.4 Revocation](spec/broker.md#64-revocation), [§8 Leases](spec/broker.md#8-leases), [§9 Codex auth owner](spec/broker.md#9-codex-auth-owner), [§15.4 Fenced restore](spec/broker.md#154-fenced-local-restore-and-reopen) |
+| M-CB2 — lease refusal and recovery | [lease-recovery.puml](diagrams/lease-recovery.puml) | [§6.4 Revocation](spec/broker.md#64-revocation), [§8 Leases](spec/broker.md#8-leases), [§9 Codex auth owner](spec/broker.md#9-codex-auth-owner), [§15.4 Fenced restore](spec/broker.md#154-fenced-local-restore-and-reopen), [§15.5 Node-wide freeze](spec/broker.md#155-node-wide-emergency-stop-r-allstop) |
 | M-CB3 — account, binding, lease and grant states | [record-states.puml](diagrams/record-states.puml) | [§5.1 Account record](spec/broker.md#51-record), [§6.4 Revocation](spec/broker.md#64-revocation), [§7 Bindings](spec/broker.md#7-bindings), [§13.2 Observations and verdicts](spec/broker.md#132-methods), [§8.3 Lease record](spec/broker.md#83-response-and-lease-record) |
 | M-CB4 — owned storage, socket and removal | [storage-layout.puml](diagrams/storage-layout.puml) | [§5.3 Secret store](spec/broker.md#53-secret-store), [§12.4 Files](spec/broker.md#124-files), [§15 Installation and lifecycle](spec/broker.md#15-installation-and-lifecycle) |
 

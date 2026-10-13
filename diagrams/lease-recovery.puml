@@ -14,7 +14,7 @@ participant "Harness / private Codex app-server\nagent OS account" as Harness
 note over Broker,Grants
   Broker also persists accounts/secrets, bindings, lease metadata
   and typed audit events; lease payload is never persisted (§8.3).
-  Restore fence refuses bind, leases and renewals (§15.4);
+  R-ALLSTOP freeze and restore fence refuse bind, leases and renewals (§15.4-§15.5);
   revocation.check is unavailable; prior verdict never waives final checks.
   Ledger is read directly, never inferred from an agent home (§4.2).
   [[../spec/broker.md#82-checks-in-order Spec §8.2]]
@@ -44,11 +44,15 @@ else executor checks pass
     Broker --> Executor : peer_identity_unavailable; refuse connection
   else peer identity available and server verified
     Executor -> Broker : lease.request (protected binding, network, launch_id)
+    Broker -> Broker : require verifiable current admission class; refuse untrusted class;\nR-ALLSTOP freeze checked under state lock (codes unpublished)
     Broker -> Ledger : active UID + generation at bind / lease / renew
     Ledger --> Broker : record or read/parse/identity failure
     Broker -> Grants : verify lease chain AND caller chain\nagainst current revocations and R-TIME max/min windows under state lock
     Grants --> Broker : verified state or unavailable / revoked / invalid
-    alt wrong role, inactive generation, chain, binding or account/profile/channel/network
+    alt untrusted/unavailable admission class or R-ALLSTOP freeze
+      Broker --> Executor : refuse; mappings unpublished (§18.16-§18.17)
+      Executor -> Executor : do not exec; no material
+    else wrong role, inactive generation, chain, binding or account/profile/channel/network
       Broker --> Executor : role_not_permitted / principal_ledger_mismatch /\nlease_unbound / lease_not_authorised / lease_binding_mismatch / ...
       Executor -> Executor : do not exec; report typed refusal
       note over Executor,Broker
@@ -58,7 +62,7 @@ else executor checks pass
         Enforced network requirement in v0: lease_network_enforcement_unavailable.
         Recovery must satisfy current checks; no alternative login (§8.2, §12.2).
       end note
-    else all checks 1-7 pass and restore fence open
+    else class verified, trusted; no R-ALLSTOP freeze; checks 1-7 pass; restore fence open
       Broker --> Executor : lease/1 + payload
       Executor -> Executor : re-check tuple / sources immediately before exec
       alt tuple changed or source conflict
@@ -69,6 +73,7 @@ else executor checks pass
           Successful exec replaces executor; env harness is not a broker client.
           No return, post-exec release, renewal or report (§8.5).
           authorized_until bounds renewal; revocation stops new leases/renewals;
+          R-ALLSTOP freezes all leases/renewals;
           unbind ends leases. Pre-exec release vs retain: unspecified in spec §18.7.
           stdin client lifetime / release point: unspecified in spec §18.7.
         end note
@@ -104,6 +109,27 @@ else affected lease or caller chain revoked
 end
 note over Executor,Harness : Copied tokens are not erased: expiry or vendor revocation only (§12.1).
 
+== Independent node-wide emergency stop (R-ALLSTOP, §15.5) ==
+Operator -> Broker : broker part of node-wide operator narrowing act (intake unpublished)
+Broker -> Grants : durably journal freeze under state lock shared with final release\nlogical journal, not a new revocation envelope
+Broker --> Operator : broker freeze recorded; not proof of other services' results
+Executor -> Broker : queued lease / renewal completion or reconnect while frozen
+Broker --> Executor : refuse; no material (code unpublished)
+Broker -> Broker : revocation.check unavailable; startup preserves freeze
+note over Operator,Broker
+  One phone authentication/confirmation or fresh password terminal fallback;
+  refused from agent sessions. Dispatcher hold closes admission;
+  user manager range deny and journaled account-wide stops with absence;
+  session host closes delivery and snapshots bound boards. Each journals its part.
+  Delivered tokens keep vendor lifetime; broker cannot recall them.
+end note
+alt any service result partial/unknown or recovery evidence unavailable
+  Broker -> Broker : keep admission and delivery closed; no automatic restart
+else all service parts reconciled and operator explicitly authorizes recovery
+  Operator -> Broker : explicit recovery (act and record formats unpublished)
+  Broker -> Grants : journal broker recovery evidence; retain other admission gates
+end
+
 == Independent fenced local restoration case (§15.4) ==
 Operator -> Broker : close bind, leases and renewals; disable auto-start
 Operator -> Operator : publish durable restore mark outside restored failure domain
@@ -120,7 +146,7 @@ end
 opt authority reconciled or explicitly replaced; reopen authorized
   Operator -> Operator : persist external reconciliation/reopen evidence, then clear mark
   Manager -> Manager : verify start check; recover service; publish readiness
-  Broker -> Broker : only then open bind, leasing/renewal and current verdicts
+  Broker -> Broker : only then reopen, provided independent R-ALLSTOP recovery also satisfied
   Operator -> Manager : re-enable auto-start last
 end
 note over Operator,Grants
@@ -137,9 +163,9 @@ note over Executor,Broker
 end note
 Executor -> Executor : broker connection lost
 Executor -> Broker : new connection; verify server UID; renew same lease_id
-Broker -> Broker : require same (uid, generation, binding_id)\nactive lease before max(now, watermark) reaches authorized_until; repeat checks 1-7
-alt ownership / lifetime / authorisation fails
-  Broker --> Executor : lease_not_owner / lease_not_active / current check refusal
+Broker -> Broker : require current verifiable trusted class and no R-ALLSTOP freeze;\nrequire same (uid, generation, binding_id)\nactive lease before max(now, watermark) reaches authorized_until; repeat checks 1-7
+alt class/freeze gate or ownership / lifetime / authorisation fails
+  Broker --> Executor : current refusal; class/freeze mappings unpublished;\nexisting ownership/lifetime codes lease_not_owner / lease_not_active
 else checks pass
   note over Executor,Broker : Lease survives disconnect; no new principal or fallback source is authorised.
 end
@@ -152,8 +178,8 @@ note over Executor,Harness
 end note
 Harness -> Executor : account/chatgptAuthTokens/refresh after 401
 Executor -> Broker : lease.renew {lease_id, rejected_sha256} (default 8 s deadline)
-Broker -> Broker : ownership + checks 1-7
-alt current checks fail (including non-active account / unavailable owner)
+Broker -> Broker : admission-class/freeze gates + ownership + checks 1-7
+alt current checks fail (including class/freeze gates or non-active account / unavailable owner)
   Broker --> Executor : typed refusal; no refresh material released
   Executor --> Harness : error answer; turn fails
   note over Broker,Adapter : Stopped owner sets owner_unavailable; recovery transition unspecified in spec §9.4.
@@ -201,8 +227,8 @@ else admitted and owner available
     end
     opt current token available and account active
       Adapter --> Broker : reloaded access token + account ID
-      Broker -> Broker : repeat authorisation, R-TIME and restore fence under state lock immediately before release
-      alt still authorised and within deadline
+      Broker -> Broker : repeat admission class, R-ALLSTOP freeze, authorisation,\nR-TIME and restore fence under state lock immediately before release
+      alt verified trusted class, no R-ALLSTOP freeze, still authorised and within deadline
         Broker --> Executor : renewed access token + account ID
         alt account ID matches lease
           Executor --> Harness : correlated refresh answer
@@ -213,7 +239,7 @@ else admitted and owner available
       else operation misses deadline
         Broker --> Executor : renew_timeout
         Executor --> Harness : error answer; turn fails
-      else authorisation revoked / expired
+      else class unavailable/untrusted, R-ALLSTOP frozen, or authorisation revoked / expired
         Broker --> Executor : current authorisation refusal; no material
         Executor --> Harness : error answer; turn fails
       end
@@ -226,7 +252,8 @@ end
 note over Executor,Broker
   Exact teardown/release ordering and init-failure / runner-loss cleanup:
   unspecified in spec §18.7. Without release, authorized_until bounds
-  renewal; revocation stops new leases/renewals; unbind ends leases.
+  renewal; revocation stops new leases/renewals; R-ALLSTOP freezes them all;
+  unbind ends leases.
   Automatic lease-state transitions / cleanup scheduling are unpublished (§8.5).
 end note
 note over Executor,Harness
