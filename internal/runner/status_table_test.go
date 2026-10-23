@@ -372,6 +372,8 @@ func TestCommandStatusTable(t *testing.T) {
 	// recognized invalid options beat an already stopped parent, while valid
 	// options honor it; stops on either side of rename preserve status/output.
 	t.Run("preflight/input-stop-boundary", inputStopPrecedence)
+	// A validator reused after lease admission follows the recheck phase row.
+	t.Run("recheck/catalog-input-origin", postLeaseCatalog)
 	for _, timing := range []string{"fsync", "rename", "undelayed"} {
 		t.Run("final/publication-"+timing, func(t *testing.T) {
 			tracePublicationTiming(t, timing)

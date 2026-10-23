@@ -83,7 +83,13 @@ func (r *statusRecord) capture(err error) {
 		f.code = e.Code
 		switch e.Status {
 		case 64:
-			f.origin = originInput
+			f.origin = originAdmission
+			// The initial catalog check accompanies authority resolution before
+			// lease admission. Reusing its validator after admission is a
+			// configuration refusal, not terminal pre-execution input.
+			if r.phase == phasePreflight || r.phase == phaseAuthority {
+				f.origin = originInput
+			}
 		case 69:
 			f.origin = originAdmission
 		case 75:

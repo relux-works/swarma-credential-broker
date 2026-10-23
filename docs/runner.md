@@ -157,7 +157,7 @@ unwrap chains never establish provenance.
 | Connect / server verification | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease; version probe must already be confirmed absent. Close any acquired connection, home lock and staging output. |
 | Hello | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease or live child. Close connection, home lock and staging output. |
 | Lease request | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | A refused request grants no lease. A successfully returned lease requires exactly one release attempt even if execution is already stopped; close connection and staging output. |
-| Post-lease recheck | Admission/configuration refusal, adapter error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held, no app-server. Release, erase material, close connection/home lock and remove staging output. |
+| Post-lease recheck | Catalog/admission/configuration refusal, adapter error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held, no app-server. Release, erase material, close connection/home lock and remove staging output. |
 | App-server start / initialize | Qualification, spawn or initialization refusal, transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held; child may have started. Confirm descendants absent, release and erase; keep home fenced if absence is unknown. |
 | Login | Account/login refusal, transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held and child started. Interrupt if active, confirm absence, release and erase. |
 | Turn | Matching completed turn: 0 provisionally; vendor failed/interrupted: 1; protocol/start/transport error, unexpected error or panic: 69; authority expiry: 75; own stop: 124/130 | Lease and child held. Close admission, interrupt if active, confirm absence, release and erase before publication. |
@@ -193,6 +193,9 @@ all execution returns reach it. `execute` records admission/recheck failures,
 only the writer observation record. Teardown and release report explicit
 unavailability origins before the classifier runs. Direct internal refusals
 are normalized to origins; adapter-supplied status fields never select an exit.
+The initial catalog validation accompanies the first authority resolve before
+lease admission and can report input 64. The same validator at post-lease recheck
+has admission origin: 69, with own-stop 124/130 and cleanup 75 precedence.
 The classifier never follows a foreign error chain. Its panic guard also covers
 the bounded diagnostic writer; cleanup operation guards let remaining release
 and erasure obligations run after an adapter panic.
