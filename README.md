@@ -180,6 +180,9 @@ contention keeps the original request deadline; a non-draining socket cannot ser
 other leases' state transitions. Filesystem publication also uses revision CAS
 outside the request state lock. The owner scheduler
 uses the shared proactive gate; admitted demand suppresses proactive work.
+The normative [connection request lifecycle](docs/request-lifecycle.md) defines
+ID reservation and retirement, response completion, and the separate queue,
+waiter, writer and publication resources.
 Before admitting a refresh after a snapshot, the engine checks for live demand.
 An already admitted attempt may reconcile under the manager lifetime, even when
 its response waiters disappear; an abandoned snapshot starts no new refresh.
