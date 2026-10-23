@@ -124,6 +124,15 @@ Dedicated service-user isolation remains the required platform target. Appendix
 A defines the required exit from this interim mode, after the migration tool
 is reviewed; permission changes alone do not make same-UID operation isolated.
 
+R2 uses the broker.md mode-0666 socket in an existing broker-owned mode-0755
+directory. During this interim R2 stage only, its ancestor checks also permit
+daemon-owned ancestors and root-owned sticky ancestors. A sticky ancestor is
+permitted only when the broker's socket directory itself is daemon-owned with
+mode exactly 0755. The listener checks this at listen time and again before
+serving. This ancestor exception is withdrawn when the dedicated service
+deployment exists. That deployment retains broker.md's strictly root-owned,
+non-writable ancestor chain as a deployment requirement.
+
 ## 3. Enrolment and existing logins
 
 **Accepted curator ruling R3.** A person requests
