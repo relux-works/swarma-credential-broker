@@ -18,6 +18,14 @@ func TestReviewPublicCommand(t *testing.T) {
 	for _, mode := range []string{"native", "environment-override", "argument-override", "cancelled", "existing-report", "live-with-reference"} {
 		t.Run(mode, func(t *testing.T) {
 			path, c, evidence := setup(t)
+			// Keep the socket fixture independent of the subtest name and the
+			// platform's Unix-domain address length limit.
+			shortEvidence, err := os.MkdirTemp("", "qc-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.RemoveAll(shortEvidence) })
+			evidence = shortEvidence
 			marker := filepath.Join(evidence, "candidate-executed")
 			candidate := []byte("#!/bin/sh\n: > '" + marker + "'\nexit 0\n")
 			if os.WriteFile(c.Policy.Executable, candidate, 0700) != nil {
