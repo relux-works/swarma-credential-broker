@@ -48,8 +48,9 @@ Implementation integration questions:
   bodies. Applied unit properties remain unavailable until the contained owner
   supplies its template and current-property observer. Every required row is
   pending, live execution remains refused, and no production tuple qualifies.
-  See [qualification](docs/qualification.md). An interrupted-run fence requires
-  operator reconciliation while closed; an automatic recovery tool is not shipped.
+  See [qualification](docs/qualification.md). An interrupted-run fence, missing activation or recovered pending activation
+  requires operator reconciliation while closed; an automatic recovery tool is
+  not shipped.
 - The runner currently reads the same broker-owned 0600 configuration as the
   daemon in interim R2 mode. A dedicated-service deployment needs a protected
   client-readable policy contract; unreadable policy remains refused, with no

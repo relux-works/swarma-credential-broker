@@ -210,7 +210,7 @@ func TestMaterialHashProvenance(t *testing.T) {
 // Claim: evidence is durable before the list exists, and interruption at each
 // publication stage leaves an admission fence, including after atomic rename.
 func TestPublicationCrashOrdering(t *testing.T) {
-	for _, stage := range []string{"before-evidence-flush", "after-evidence-flush", "after-list-replace", "after-list-directory-flush", "success"} {
+	for _, stage := range []string{"before-evidence-flush", "after-evidence-flush", "after-list-replace", "after-list-directory-flush", "after-fence-removal-flush", "success"} {
 		t.Run(stage, func(t *testing.T) {
 			r, _, rec := fixtureRepository(t)
 			seen := []string{}
@@ -219,12 +219,16 @@ func TestPublicationCrashOrdering(t *testing.T) {
 				root, e := r.root(false)
 				check(t, e)
 				defer root.Close()
-				if at == "before-evidence-flush" && exists(root, "qualified.json") {
+				present, lookupErr := r.exists(root, "qualified.json")
+				check(t, lookupErr)
+				if at == "before-evidence-flush" && present {
 					t.Error("list published before evidence flush")
 				}
 				if at != "before-evidence-flush" {
 					b, _ := wire.Encode(rec)
-					if !exists(root, "record-"+Hash(b)+".json") {
+					present, lookupErr := r.exists(root, "record-"+Hash(b)+".json")
+					check(t, lookupErr)
+					if !present {
 						t.Error("missing flushed evidence")
 					}
 				}

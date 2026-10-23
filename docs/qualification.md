@@ -104,23 +104,48 @@ broker-owned 0600, with no final symlink. Relative operations remain bound to an
 opened directory descriptor. This follows the static policy's protection model
 and retains the interim same-user deployment's trust boundary.
 
-1. Acquire the exclusive directory lock and create/fsync the `in-progress`
-   admission fence; fsync the directory. Readers take a nonblocking shared lock
-   and refuse a running or interrupted transaction.
-2. Measure current inputs and verify all required executed green rows, typed
-   artifacts and live approval. Persist/fsync the content-addressed record,
-   then fsync the directory. Existing bytes at that name must be identical.
-3. Write/fsync the pending list and atomically rename it to `qualified.json`.
-   The list adds only the exact measured identity; no wildcard version exists.
-4. Fsync the directory. Re-read the list, record, approval/artifacts and current
-   measurements before removing the fence and flushing that removal.
+Only a confirmed `ENOENT` proves a missing file. Lookup errors such as EIO or
+EACCES refuse admission; permission checks and protected opens also fail closed.
+All listed records must pass protection, digest, closed-schema, approval and
+artifact verification before any matching tuple can be selected. One corrupt or
+missing unrelated record refuses the entire list, regardless of entry order.
 
-Fault hooks cover before evidence flush, after evidence flush, after list
-replace and after list-directory flush. Every interrupted path preserves the
-fence, so a visible renamed list is insufficient for admission. Pending command
-runs also leave admission closed. Fence recovery requires an operator to
-reconcile the interrupted evidence while closed; there is no automatic recovery
-or override command here.
+Publication holds the exclusive lock. Readers hold a nonblocking shared lock.
+The following state table describes failures and crash recovery; a marker being
+visible never substitutes for validated evidence.
+
+| Step | State after an error or crash | `Read` verdict |
+|---|---|---|
+| Open/protect root and acquire lock | No new authority was created; an earlier committed list is unchanged | No new tuple; existing authority still needs every normal check |
+| Create/fsync `in-progress`, fsync directory | Fence exists, or publication has not created a new list | Refuse new tuple |
+| Remove prior `activation.json`, fsync directory | Fence retained; old activation cannot commit this attempt | Refuse |
+| Write/fsync evidence and directory | Evidence may exist; fence retained | Refuse |
+| Write/fsync pending list, replace list once, fsync directory | List may be visible; fence retained | Refuse |
+| Re-read every listed record/source and current measurements | Any mismatch leaves fence retained | Refuse |
+| Write/fsync `pending-activation`, fsync directory | Prepared activation bytes bind the list digest; fence retained | Refuse |
+| Unlink fence, fsync directory | On failure, activation is absent and prepared activation remains | Refuse, including immediately after a returned flush error |
+| Rename prepared activation to `activation.json` | Last fallible operation, performed only after all durability operations succeed | Admit only after the entire list and current measurements verify |
+
+Activation is a closed `qualification-activation/1` object binding the exact
+qualified-list digest. Its inode and preparation directory entry were flushed
+before fence removal. No fsync follows its final rename: that would introduce
+another possible durability failure after admission had become visible. A crash
+may lose this final namespace change and restore `pending-activation`; that is a
+conservative refusal requiring reconciliation. If the activation name survives,
+all authority data and the fence-removal flush preceded it. Readers require both
+fence and pending activation to be confirmed absent and the protected activation
+to match the entire list. An old publication without activation is unqualified.
+
+Fault hooks retain the earlier evidence/list stages and add the completed
+fence-removal flush. Test-only syscall shims exercise every reached storage I/O
+boundary, including the final flush after unlink; production cannot select the
+shim. Every injected failure is required to fire, with an adjacent successful
+control. The tests simulate individual call failures and stopped publication
+stages; they do not emulate filesystem power-loss recovery.
+
+Pending command runs leave admission closed. Fence or activation recovery
+requires an operator to reconcile the interrupted evidence while closed; there
+is no automatic recovery or override command here.
 
 The daemon and runner use `policy.Config.Qualified` and the same protected list
 and evidence reader. The daemon checks before requests/refresh and before
