@@ -60,8 +60,29 @@ unloads; its connected control and collected-unit refusal exercise the boundary.
 `Confidence.Validate` must supply trusted time and freshness outside the restored
 store's rollback domain. There is no shipped always-fresh implementation. The
 watermark is persisted before material release, advances only on trusted time,
-and remains sticky after clock correction. JWT expiry is a conservative bound
-on vendor-supplied material, not signature verification or freshness evidence.
+and remains sticky after clock correction. `Engine.admissionTime` is the single
+time-admission rule: independent evidence must be trusted and fresh, supply a
+nonzero `Now`, and cover `max(Now, checkpoint.Watermark)` strictly before
+`AuthorityUntil`. Equality is refused. Retained metadata supplies only a lower
+bound; it cannot establish independent time authority. A covered sticky watermark
+remains valid after clock correction. `confidenceAt` persists any accepted
+advance before admission, after retained-history and manager-identity checks;
+resolution persists the accepted effective time with its outcome checkpoint.
+Recovery checks time before reconciliation and rechecks at resolution publication.
+
+| Admission | Shared time rule call sites |
+|---|---|
+| Material snapshot | `Snapshot` → `snapshot` → `confidenceAt` → `admissionTime` |
+| Fresh-home lifecycle prerequisite | `AdmitFreshHome` → `confidenceAt` → `admissionTime` |
+| Refresh / retry decision | `Refresh` → `snapshot` and `confidenceAt` → `admissionTime` |
+| New writer | `Refresh` → `attempt` → `confidenceAt` → `admissionTime`, revalidated before publishing intent or starting a unit |
+| Proactive decision | `Due` → `snapshot` and `confidenceAt` → `admissionTime`; actual proactive work calls `Refresh` |
+| Replacement recovery | `New` → `restore` → `recover` → `admissionTime`, before recovery effects; `restore` alone is history validation, not admission |
+| Post-vendor / recovered resolution | `resolve` → `admissionTime` using the prospective generation before publishing resolved evidence or its checkpoint |
+
+No admission path checks independent time flags or authority bounds separately.
+JWT expiry is a conservative bound on vendor-supplied material, not signature
+verification or freshness evidence.
 Unknown expiry is refused. The proactive window defaults to 48 hours; `Due`
 uses durable half-remaining-lifetime spacing after success to avoid loops with
 short vendor lifetimes. Scheduling calls the lease manager's shared proactive
@@ -176,7 +197,7 @@ No initial plan is hard-coded, and a genuine later committed plan change is vali
 | Checkpoint | `state`, `pending_attempt`, `retained_attempts`, `last_resolved_attempt` | authority | Exact contiguous resolved prefix and at most one named pending intent; state follows final prefix outcome or unavailable while pending. validateChain/retained/recover and admission use these. |
 | Checkpoint | `store_generation`, `token_generation` | authority | Exact result of checkpointed prefix, initially 1/1. validateChain, confidence validation and material publication use these. |
 | Checkpoint | `vendor_store_digest`, `current_token_digest`, `plan_type` | authority | Exact last checkpointed committed generation metadata, preserved across safe/rejected and pending prefixes; initial root captured by first intent; settled digests also equal protected current material. validateChain checks before Snapshot/fresh-home/recovery/writer admission; Snapshot returns only checked plan. |
-| Checkpoint | `watermark` | authority | Nonzero trusted durable watermark at least all checkpointed resolution times; confidence validation must cover it before admission. validateChain/confidenceAt/resolve read it. |
+| Checkpoint | `watermark` | authority | Nonzero trusted durable watermark at least all checkpointed resolution times; confidence validation must cover it before admission. validateChain/admissionTime/confidenceAt/resolve read it. |
 | Checkpoint | `next_proactive`, `retry_at`, `safe_failures` | authority | Derived checkpointed-prefix schedule/count, including permitted conservative retry lower bound, as in scheduling table. validateChain checks; Refresh/Due/resolve consume only checked values. |
 
 Unknown RPC placeholders before the response (`submitted` and `running`) are

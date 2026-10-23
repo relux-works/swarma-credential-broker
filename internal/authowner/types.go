@@ -67,7 +67,8 @@ type Manager interface {
 
 // Confidence is independent, operator-controlled time and restore evidence.
 // The implementation must not derive Fresh from these same local checkpoints.
-// Validate is called before attempt admission and each material snapshot.
+// Validate supplies evidence to the shared time rule at every admission and
+// again before post-vendor or recovered resolution publication.
 type Confidence interface {
 	Validate(context.Context, string, string, uint64, time.Time) (TimeEvidence, error)
 }

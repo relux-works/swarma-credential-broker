@@ -200,32 +200,45 @@ func (e *Engine) checkpoint(a *account, c Checkpoint) error {
 	a.checkpoint = c
 	return nil
 }
+
+// admissionTime is the sole trusted-time rule for every admission and
+// resolution. The checkpoint supplies a lower bound, never independent authority.
+// It does not publish a watermark: callers persist the returned effective time
+// only together with their normal admission or resolution checkpoint.
+func (e *Engine) admissionTime(ctx context.Context, a *account, c Checkpoint) (TimeEvidence, error) {
+	t, err := e.confidence.Validate(ctx, a.config.Label, a.config.HomeID, c.StoreGeneration, c.Watermark)
+	if err != nil || !t.Trusted || !t.Fresh || t.Now.IsZero() {
+		return TimeEvidence{}, ErrUnavailable
+	}
+	if t.Now.Before(c.Watermark) {
+		t.Now = c.Watermark
+	}
+	if !t.Now.Before(t.AuthorityUntil) {
+		return TimeEvidence{}, ErrUnavailable
+	}
+	return t, nil
+}
+
 func (e *Engine) confidenceAt(ctx context.Context, a *account) (TimeEvidence, error) {
 	if a.blocked || e.retained(a) != nil || a.config.Disk.Healthy() != nil {
 		return TimeEvidence{}, ErrUnavailable
 	}
-	now, err := e.confidence.Validate(ctx, a.config.Label, a.config.HomeID, a.checkpoint.StoreGeneration, a.checkpoint.Watermark)
-	if err != nil || !now.Trusted || !now.Fresh || now.Now.IsZero() || !now.Now.Before(now.AuthorityUntil) {
+	t, err := e.admissionTime(ctx, a, a.checkpoint)
+	if err != nil {
 		return TimeEvidence{}, ErrUnavailable
 	}
 	current, err := e.manager.Identity(ctx)
 	if err != nil || current != e.identity {
 		return TimeEvidence{}, ErrUnavailable
 	}
-	if now.Now.After(a.checkpoint.Watermark) {
+	if t.Now.After(a.checkpoint.Watermark) {
 		c := a.checkpoint
-		c.Watermark = now.Now.UTC()
+		c.Watermark = t.Now.UTC()
 		if e.checkpoint(a, c) != nil {
 			return TimeEvidence{}, ErrUnavailable
 		}
 	}
-	if now.Now.Before(a.checkpoint.Watermark) {
-		now.Now = a.checkpoint.Watermark
-	}
-	if !now.Now.Before(now.AuthorityUntil) {
-		return TimeEvidence{}, ErrUnavailable
-	}
-	return now, nil
+	return t, nil
 }
 func (e *Engine) snapshot(ctx context.Context, a *account) (owner.Snapshot, error) {
 	v := owner.Snapshot{State: owner.Unavailable}
@@ -274,7 +287,7 @@ func (e *Engine) Refresh(ctx context.Context, label string, generation uint64) (
 	if now.Now.Before(a.checkpoint.RetryAt) {
 		return current, nil
 	}
-	if err = e.attempt(ctx, a, now); err != nil {
+	if err = e.attempt(ctx, a); err != nil {
 		return owner.Snapshot{State: owner.Unavailable}, err
 	}
 	return e.snapshot(ctx, a)
@@ -308,18 +321,8 @@ func (e *Engine) AdmitFreshHome(ctx context.Context, label string) error {
 		return err
 	}
 	defer e.leave(a)
-	if e.retained(a) != nil || a.config.Disk.Healthy() != nil {
-		return ErrUnavailable
-	}
-	identity, err := e.manager.Identity(ctx)
-	if err != nil || identity != e.identity {
-		return ErrUnavailable
-	}
-	t, err := e.confidence.Validate(ctx, label, a.config.HomeID, a.checkpoint.StoreGeneration, a.checkpoint.Watermark)
-	if err != nil || !t.Trusted || !t.Fresh || !t.Now.Before(t.AuthorityUntil) {
-		return ErrUnavailable
-	}
-	return nil
+	_, err = e.confidenceAt(ctx, a)
+	return err
 }
 func evidenceName(id string, rev uint64) string {
 	return fmt.Sprintf("owner-attempt-%s-%06d.json", id, rev)
@@ -341,9 +344,13 @@ func (e *Engine) appendEvidence(a *account, v Evidence) error {
 	a.attempts[v.Attempt] = append(a.attempts[v.Attempt], v)
 	return nil
 }
-func (e *Engine) attempt(ctx context.Context, a *account, t TimeEvidence) error {
+func (e *Engine) attempt(ctx context.Context, a *account) error {
 	// Retained attempts are never evicted to make room for a new writer.
 	if ctx.Err() != nil || a.blocked || e.retained(a) != nil || len(a.intents) >= e.config.MaxAttempts {
+		return ErrUnavailable
+	}
+	t, err := e.confidenceAt(ctx, a)
+	if err != nil {
 		return ErrUnavailable
 	}
 	old, err := load(a.config, false)
@@ -491,16 +498,11 @@ func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Obse
 	c.PendingAttempt = ""
 	c.RetainedAttempts = uint64(len(a.intents))
 	// Trusted time is revalidated after vendor I/O before checkpoint publication.
-	t, err := e.confidence.Validate(ctx, a.config.Label, a.config.HomeID, c.StoreGeneration, c.Watermark)
-	if err != nil || !t.Trusted || !t.Fresh || t.Now.IsZero() || !t.Now.Before(t.AuthorityUntil) {
+	t, err := e.admissionTime(ctx, a, c)
+	if err != nil {
 		return ErrUnavailable
 	}
-	if t.Now.After(c.Watermark) {
-		c.Watermark = t.Now.UTC()
-	}
-	if !c.Watermark.Before(t.AuthorityUntil) {
-		return ErrUnavailable
-	}
+	c.Watermark = t.Now.UTC()
 	resolvedAt := c.Watermark
 	list := a.attempts[b.Attempt]
 	if len(list) > 0 && list[len(list)-1].Phase == "resolved" {
@@ -593,6 +595,9 @@ func (e *Engine) binding(a *account, b Binding) bool {
 }
 func (e *Engine) recover(ctx context.Context, a *account) error {
 	if e.validateChain(a) != nil {
+		return ErrUnavailable
+	}
+	if _, err := e.admissionTime(ctx, a, a.checkpoint); err != nil {
 		return ErrUnavailable
 	}
 	var unresolved []Intent

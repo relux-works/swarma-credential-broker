@@ -340,6 +340,9 @@ func TestRetainedFieldSubstitutions(t *testing.T) {
 				t.Run(recordName, func(t *testing.T) {
 					for _, field := range reflectedFields(typ, "") {
 						t.Run(field.path, func(t *testing.T) {
+							if phase == "checkpoint" && field.path == "watermark" {
+								t.Run("admission-boundaries", func(t *testing.T) { testWatermarkAdmissions(t, history, field) })
+							}
 							for _, mode := range []string{"live", "replacement"} {
 								t.Run(mode, func(t *testing.T) {
 									restore()
