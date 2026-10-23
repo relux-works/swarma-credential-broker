@@ -311,7 +311,11 @@ func (e *Engine) AdmitFreshHome(ctx context.Context, label string) error {
 	if !a.historyValid || a.config.Disk.Healthy() != nil {
 		return ErrUnavailable
 	}
-	for id := range a.intents {
+	for id, intent := range a.intents {
+		// Retained absence from another boot/manager requires operator reconciliation.
+		if intent.Identity != e.identity {
+			return ErrUnavailable
+		}
 		ev := a.attempts[id]
 		if len(ev) == 0 {
 			return ErrUnavailable
@@ -435,6 +439,11 @@ func (e *Engine) attempt(ctx context.Context, a *account, t TimeEvidence) error 
 func validRunning(b Binding, o Observation) bool {
 	return o.Complete && o.RestartNo && o.Identity == b.Identity && o.Unit == b.Unit && o.Invocation != "" && o.Cgroup != "" && o.CgroupID != "" && o.Properties != ""
 }
+
+// sameWriter compares stable identity, not changing process or lifecycle status.
+func sameWriter(a, b Observation) bool {
+	return a.Identity == b.Identity && a.Unit == b.Unit && a.Invocation == b.Invocation && a.Cgroup == b.Cgroup && a.CgroupID == b.CgroupID && a.Properties == b.Properties
+}
 func confirmed(b Binding, before, after Observation) bool {
 	return validRunning(b, before) && after.Complete && after.RestartNo && after.Identity == b.Identity && after.Unit == b.Unit && after.Invocation == before.Invocation && after.Cgroup == before.Cgroup && after.CgroupID == before.CgroupID && after.Properties == before.Properties && after.StopCompleted && after.Empty && after.PopulatedZero && (after.Active == "inactive" || after.Active == "failed")
 }
@@ -486,7 +495,8 @@ func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Obse
 		}
 	}
 	if outcome == Unknown {
-		if result.Outcome == Committed && material.Digest == c.StoreDigest {
+		token := sha256.Sum256([]byte(material.Token))
+		if result.Outcome == Committed && hex.EncodeToString(token[:]) == c.TokenDigest {
 			return ErrRenewFailed
 		}
 		return ErrUnavailable
@@ -595,6 +605,7 @@ func (e *Engine) restore(a *account) error {
 		sort.Slice(list, func(i, j int) bool { return list[i].Revision < list[j].Revision })
 		a.attempts[id] = list
 		previous := 0
+		var observed Observation
 		for i, v := range list {
 			b := v.Binding
 			b.Revision = 1
@@ -606,8 +617,16 @@ func (e *Engine) restore(a *account) error {
 				return ErrUnavailable
 			}
 			previous = phase
-			if phase >= 2 && !validRunning(intent.Binding, v.Observation) {
-				return ErrUnavailable
+			// Submitted may precede observation; every supplied observation must bind
+			// the same verified writer, including already checkpointed history.
+			if phase >= 2 || v.Observation != (Observation{}) {
+				if !validRunning(intent.Binding, v.Observation) {
+					return ErrUnavailable
+				}
+				if observed.Complete && !sameWriter(observed, v.Observation) {
+					return ErrUnavailable
+				}
+				observed = v.Observation
 			}
 			if phase >= 4 && (v.Absence != "confirmed" || !v.Observation.StopCompleted || !v.Observation.Empty || !v.Observation.PopulatedZero) {
 				return ErrUnavailable

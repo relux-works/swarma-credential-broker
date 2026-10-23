@@ -59,6 +59,7 @@ type Systemd struct {
 	uid            uint32
 	mu             sync.Mutex
 	specs          map[string]UnitSpec
+	retained       map[string]bool
 	verified       Identity
 }
 
@@ -80,7 +81,7 @@ func NewSystemd(ctx context.Context, prefix, daemon string) (*Systemd, error) {
 	if conn.Auth([]dbus.Auth{dbus.AuthExternal(strconv.FormatUint(uint64(uid), 10))}) != nil || conn.Hello() != nil || !conn.SupportsUnixFDs() {
 		return fail()
 	}
-	m := &Systemd{conn: conn, prefix: prefix, daemon: daemon, uid: uid, specs: map[string]UnitSpec{}}
+	m := &Systemd{conn: conn, prefix: prefix, daemon: daemon, uid: uid, specs: map[string]UnitSpec{}, retained: map[string]bool{}}
 	if conn.Object(destination, managerPath).CallWithContext(ctx, destination+".Manager.Subscribe", 0).Err != nil {
 		return fail()
 	}
@@ -137,6 +138,8 @@ func (m *Systemd) Start(ctx context.Context, s UnitSpec) error {
 		return ErrUnavailable
 	}
 	m.specs[s.Name] = s
+	// If this uncertain submission creates the unit, AddRef belongs to this connection.
+	m.retained[s.Name] = true
 	m.mu.Unlock()
 	props := append(properties(s), prop("StandardInputFileDescriptor", dbus.UnixFD(s.Input.Fd())), prop("StandardOutputFileDescriptor", dbus.UnixFD(s.Output.Fd())))
 	return m.job(ctx, s.Name, "StartTransientUnit", "fail", props, []auxiliary{})
@@ -407,6 +410,23 @@ func (m *Systemd) Stop(ctx context.Context, name string, before Observation) (Ob
 	if err != nil || identity != before.Identity {
 		return Observation{}, ErrUnavailable
 	}
+	// AddRef at creation belongs to that D-Bus connection. Replacement must pin
+	// the retained unit itself before a stop can make it collectible. Keep this
+	// reference through durable terminal publication; only Unload releases it.
+	// Failure (including prior collection) is unknown, never confirmed absence.
+	m.mu.Lock()
+	held := m.retained[name]
+	m.mu.Unlock()
+	// The engine serializes lifecycle calls for each never-reused unit name.
+	// RefUnit is counted: repeated stops must reuse this connection's reference.
+	if !held {
+		if m.conn.Object(destination, managerPath).CallWithContext(ctx, destination+".Manager.RefUnit", 0, name).Err != nil {
+			return Observation{}, ErrUnavailable
+		}
+		m.mu.Lock()
+		m.retained[name] = true
+		m.mu.Unlock()
+	}
 	current, err := m.Observe(ctx, name)
 	if err != nil || current.Invocation != before.Invocation || current.Properties != before.Properties || !current.RestartNo {
 		return Observation{}, ErrUnavailable
@@ -453,6 +473,9 @@ func (m *Systemd) Unload(ctx context.Context, name string) error {
 	if obj.CallWithContext(ctx, destination+".Manager.UnrefUnit", 0, name).Err != nil {
 		return ErrUnavailable
 	}
+	m.mu.Lock()
+	delete(m.retained, name)
+	m.mu.Unlock()
 	return nil
 }
 

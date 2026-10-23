@@ -39,7 +39,23 @@ recursive membership with `cgroup.events populated=0`. Removal of a previously
 verified cgroup is accepted only after that stop and complete manager readback.
 Unknown observations hold the account unavailable. Changed epochs, missing
 records and contradictory identities require external operator reconciliation;
-a new manager's empty inventory cannot clear them.
+a new manager's empty inventory cannot clear them. Fresh-home admission checks
+retained intent epochs as well; no operator reconciliation ceremony is shipped.
+Restore compares stable invocation, cgroup path/identity and property digest
+across every supplied observation, including checkpointed resolved attempts.
+
+Creation's `AddRef` belongs to its D-Bus connection. `Stop` acquires the current
+connection's `RefUnit` before observation and stop, and retains it until `Unload`
+after durable terminal evidence/checkpoint publication. References are counted;
+creation and repeated stops reuse the connection's tracked reference, and explicit
+unload releases it once. A missing unit, failed reference or lost connection
+stays unknown. Autonomous collection before takeover
+cannot be reconstructed as absence. This follows systemd's
+[transient-unit lifecycle](https://www.freedesktop.org/software/systemd/man/257/org.freedesktop.systemd1.html)
+and [sender-scoped unit references](https://github.com/systemd/systemd/blob/v257/src/core/dbus-unit.c).
+The real-manager connection replacement regression closes the original connection,
+stops through its replacement, verifies retained terminal readback and explicitly
+unloads; its connected control and collected-unit refusal exercise the boundary.
 
 `Confidence.Validate` must supply trusted time and freshness outside the restored
 store's rollback domain. There is no shipped always-fresh implementation. The
@@ -50,7 +66,8 @@ Unknown expiry is refused. The proactive window defaults to 48 hours; `Due`
 uses durable half-remaining-lifetime spacing after success to avoid loops with
 short vendor lifetimes. Scheduling calls the lease manager's shared proactive
 gate. Qualified safe nonrotation uses completion-based 1/2/4/.../60-second
-backoff. Unchanged successful reads report `renew_failed` and remain closed;
+backoff. Successful reads with unchanged access-token material report `renew_failed`,
+including stores with changed non-token metadata, and remain closed;
 ambiguous exchange outcomes never enter automatic retry.
 
 ## Requirement coverage
@@ -61,14 +78,14 @@ These names identify executable claims, rather than native-vendor qualification.
 |---|---|---|
 | §4 stable locks, approved vendor, managed RPC and durable reload | `engine_linux.go`, `vendor_linux.go`, existing store locks | `TestStableHomeLock`, `TestIntentBeforeStartAndCommittedControl`, `TestDuplicateConfiguredVendorRefused` |
 | §4 proactive window, unknown expiry, trusted time and watermark | `Due`, `confidenceAt`, `load` | `TestProactiveShortLifetime`, `TestStoreTimeAndFreshnessFences` |
-| §4 unchanged token and N=8/64 coalescing | `Refresh`, `resolve`, lease owner-error bridge | `TestUnchangedReportsRenewFailed`, `TestOwnerUnchangedRefusalPreserved`, `TestLeaseCoalescingCountsVendorUnits` |
+| §4 unchanged token and N=8/64 coalescing | `Refresh`, `resolve`, lease owner-error bridge | `TestUnchangedReportsRenewFailed`, `TestProbeUnchangedTokenMetadata`, `TestOwnerUnchangedRefusalPreserved`, `TestLeaseCoalescingCountsVendorUnits` |
 | §4.2 safe backoff, rejection, ambiguity and cancellation | `resolve`, `managed` | `TestSafeBackoffRejectionAndExpiry`, `TestSafeBackoffCompletionAndReplacement`, `TestAmbiguousRotationNoRetry`, `TestCancelledRPCNoRetry` |
 | §5 transient service properties, private FDs and readiness | `Systemd.Probe`, `Start`, `Observe`, `Owned` | `TestRealFDContainment`, `TestRealReadinessRefusesRequiredPropertyAndDigest` |
-| §5 subtree teardown and dependency stop | `Systemd.job`, `Stop`, `readCgroup` | `TestRealGrandchildTimeoutAndDependencyStop` |
+| §5 subtree teardown and dependency stop | `Systemd.job`, `Stop`, `readCgroup` | `TestRealGrandchildTimeoutAndDependencyStop`, `TestRealManagerConnectionRetention` |
 | §5 intent before start and uncertain reply | `attempt`, immutable `Account.Append` | `TestIntentBeforeStartAndCommittedControl`, `TestUncertainStartSingleRecordedName` |
 | §5.1 canonical records, expected revisions and retention | `records.go`, `restore`, `checkpoint`, `evidence` | `TestRecordClosureAndNull`, `TestOwnerAppendImmutableAndFenced`, `TestPendingAndRetainedRecordLoss`, `TestRetentionBound` |
 | §5.1 unknown absence and no ambiguous retry | `confirmed`, `recover`, `resolve` | `TestAbsenceUnknownNoRetry`, `TestAmbiguousRotationNoRetry`, `TestDaemonDeathAndReplacementContention` |
-| §5.1 boot/epoch, interrupted cleanup and recovery | `restore`, `recover` | `TestReplacementRecoveryFences`, `TestCleanupInterruptedAndConfirmedRecovery` |
+| §5.1 boot/epoch, interrupted cleanup and recovery | `restore`, `recover` | `TestReplacementRecoveryFences`, `TestProbeFreshHomeEpochFence`, `TestProbeRetainedObservationBinding`, `TestCleanupInterruptedAndConfirmedRecovery` |
 | No material in metadata, unit properties, owner output or status | enum-only RPC metadata and explicit child environment | `TestHygieneCanary`, `TestUntrustedPlanCannotEnterEvidence`, `TestLeaseCoalescingCountsVendorUnits` |
 
 ## Lifecycle vector map

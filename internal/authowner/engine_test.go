@@ -156,6 +156,12 @@ func fakeVendor() {
 						os.Exit(8)
 					}
 				}
+				if string(mode) == "metadata-only" {
+					token, e := os.ReadFile(filepath.Join(home, "next-token"))
+					if e != nil || probeMetadata(home, string(token)) != nil {
+						os.Exit(8)
+					}
+				}
 				plan := "plus"
 				if string(mode) == "bad-plan" {
 					token, _ := os.ReadFile(filepath.Join(home, "next-token"))
