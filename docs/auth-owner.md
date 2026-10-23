@@ -70,6 +70,66 @@ backoff. Successful reads with unchanged access-token material report `renew_fai
 including stores with changed non-token metadata, and remain closed;
 ambiguous exchange outcomes never enter automatic retry.
 
+## Retained-chain validity contract
+
+The whole chain MUST be validated against this table on load and before every
+use: material snapshot, fresh-home admission, recovery and a new writer. This
+includes resolved attempts already covered by the checkpoint. Any violation
+makes the account `owner_unavailable`; later valid records cannot override an
+earlier contradiction. Validation reads the protected records again before use.
+
+All encoded fields are required, including explicit zero values. Records use
+canonical closed-schema JSON. Every attempt carries one immutable binding:
+`Installation`, `Account`, `Attempt`, `Sequence`, `Operation`, `Daemon`, `Policy`,
+`Identity.Boot`, `Identity.UID`, `Identity.Epoch`, `Unit`, `Executable`, `Home`,
+`StoreBefore`, `TokenBefore`, `Created`, and `Deadline`. These match configuration
+and the intent, except that `Daemon` identifies the original owner instance.
+Boot, manager UID and epoch match the current qualified manager. `Attempt` is a
+unique 32-digit hexadecimal identifier; `Unit` is its configured prefix and
+service suffix. `Operation` is `refresh`; generations and sequence are positive;
+creation is nonzero and deadline is later. `Revision` is defined per phase below.
+
+An observation's stable tuple is `Identity.Boot`, `Identity.UID`,
+`Identity.Epoch`, `Unit`, `Invocation`, `Cgroup`, `CgroupID`, and `Properties`.
+Every supplied observation has a complete read, `RestartNo=true`, a nonempty
+invocation, absolute clean non-root cgroup path, cgroup identity and property
+digest. It binds the intent identity/unit and every other observation in that
+attempt. No later observation can replace this tuple. `MainPID`, `ProcessStart`,
+`Substate`, `Result`, `ExitStatus`, and `Observed` are diagnostics outside the
+running-state requirements below; they do not independently certify absence.
+
+| Phase | Required state and identity evidence | RPC, outcome and plan | Revisions, sequences and generations |
+|---|---|---|---|
+| intent | Kind `attempt-intent/1`; phase `intent`; immutable binding; no observation member | No RPC/outcome members | Revision 1; account-wide sequences contiguous from 1; before-generations equal the preceding resolved result, initially 1/1 |
+| submitted | Kind `attempt-evidence/1`; same binding; zero observation allowed; any supplied observation obeys the stable tuple and running requirements | RPC/outcome `unknown`, empty plan; absence `unknown` | Revision 2; StoreAfter 0 |
+| running | Same binding and stable tuple; Active `active`, Substate `running`, positive MainPID and ProcessStart; no stop/empty/removal flags | RPC/outcome `unknown`, empty plan; absence `unknown` | Next contiguous revision; StoreAfter 0; follows submitted |
+| stopping | Same binding and running observation; stable tuple unchanged | RPC one of `committed`, `safe_no_rotation`, `reauth_required`, `unknown`; outcome `unknown`; valid plan for committed, otherwise empty; absence `unknown` | Next revision; StoreAfter 0; follows running |
+| absent | Same binding and stable tuple; Active `inactive` or `failed`; Complete, RestartNo, StopCompleted, Empty and PopulatedZero all true; CgroupRemoved may be true only with this complete stop evidence | RPC and plan equal stopping; outcome `unknown`; absence `confirmed`; unknown RPC is ambiguous, never resolved or admitted | Next revision; StoreAfter 0; follows stopping, or running for recovery with RPC unknown and empty plan |
+| resolved | Same binding and stable tuple; same complete stop evidence as absent, with Active `inactive` or `failed` | RPC and plan equal stopping and absent; RPC equals outcome, one of committed/safe/rejected; absence `confirmed`; no unknown outcome-bearing evidence anywhere in a resolved chain | Next revision; follows absent; committed increments store/token generations by one each, safe/rejected leave both unchanged; StoreAfter is resulting store generation |
+| checkpoint | Kind `account-checkpoint/1`; configured installation/account/vendor/home/policy; nonempty store/token digests, valid plan and nonzero watermark; active/transient/reauth follows committed/safe/rejected respectively | LastAttempt binds the last retained resolution; active plan equals that committed resolution; pending account is unavailable, never material authority | Positive revision at least 1 + twice retained count + one if pending; retained count covers a contiguous resolved prefix; store/token generations equal that prefix; at most one additional pending intent, explicitly named; no pending means all attempts checkpointed |
+
+Unknown RPC placeholders before the response (`submitted` and `running`) are
+expected, not successful RPC evidence. Unknown in `stopping` or `absent` makes
+the attempt ambiguous: recovery may still stop the recorded writer and retain
+absence, but neither Snapshot, AdmitFreshHome nor a new writer is admitted.
+This also closes fresh-home admission after an interrupted pre-response writer;
+external reconciliation is required even after that writer is confirmed absent.
+An incomplete chain may be loaded only as a recovery prefix. It never certifies
+material or administrative admission. Missing intermediate phases are forbidden,
+except the explicit running-to-absent recovery edge above. Checkpointed history
+cannot contain an incomplete or ambiguous attempt. Checkpoint revision counters
+detect local inconsistencies; they are not independent restore freshness proof.
+
+Connection references have a separate uncertainty boundary. A `RefUnit` call is
+tracked as possibly applied before submission. Only its successful reply proves
+one held reference. Cancellation or an uncertain reply keeps retention and
+Unload unknown; Stop must not retry that reference acquisition. Unload may report
+success only after complete terminal readback with exactly the tracked held
+reference, or confirmed collection. A lost connection never proves historical
+absence. The conservative implementation requires connection disposal and
+external recovery after an uncertain reference reply; it does not infer counts
+from an RPC error.
+
 ## Requirement coverage
 
 These names identify executable claims, rather than native-vendor qualification.
