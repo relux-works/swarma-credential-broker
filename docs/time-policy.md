@@ -15,6 +15,16 @@ dynamically added source, is unavailable. Names come from the daemon's original
 configured name, never from reverse DNS. No host-specific source list is part of
 this document.
 
+Directory membership follows chrony's
+[`search_dirs` implementation](https://github.com/mlichvar/chrony/blob/4.8/conf.c#L1619-L1664):
+`confdir` selects `*.conf`, and `sourcedir` selects `*.sources`, without matching
+leading-dot filenames. Effective files must be protected regular files; links,
+unsafe permissions and unreadable or oversized effective inputs refuse the
+sample. Names sort lexicographically, with the first configured directory winning
+for duplicate names. Ignored names still count toward the bounded directory-entry
+scan; accepted configuration bytes also have an aggregate bound. Every sample
+rebuilds this inventory, including a previously absent DHCP directory.
+
 Tracking must report Normal leap status, a sync no older than 1024 seconds,
 absolute offset no greater than 0.5 seconds, and root distance no greater than
 one second. Root distance is root delay / 2 + root dispersion. The provider also

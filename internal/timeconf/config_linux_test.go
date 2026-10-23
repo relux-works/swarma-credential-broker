@@ -4,6 +4,7 @@ package timeconf
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -254,5 +255,58 @@ func TestConfigurationComments(t *testing.T) {
 		if _, err := ParseSources([]byte(line + "\n")); err == nil {
 			t.Fatal("effective quoting/escape accepted")
 		}
+	}
+}
+
+// Claim: chrony's directory glob ignores leading-dot names for both suffixes.
+// Hidden non-NTS data cannot deny a visible valid selection, and hidden NTS
+// data cannot supply a missing selected identity; visible controls still work.
+func TestDirectoryHiddenFileMembership(t *testing.T) {
+	for _, kind := range []string{"confdir", "sourcedir"} {
+		t.Run(kind, func(t *testing.T) {
+			p, r, _, sources, _, _ := directoryFixture(t)
+			suffix := ".conf"
+			if kind == "sourcedir" {
+				suffix = ".sources"
+			}
+			writeConfig(t, p.SourceFiles[0], kind+" "+sources+"\n")
+			if err := os.Remove(filepath.Join(sources, "pool.sources")); err != nil {
+				t.Fatal(err)
+			}
+			visible := filepath.Join(sources, "visible"+suffix)
+			hidden := filepath.Join(sources, ".hidden"+suffix)
+			writeConfig(t, visible, "server 192.0.2.1 nts\n")
+			trusted(t, directoryProvider(t, p, r))
+			writeConfig(t, hidden, "server 192.0.2.2 iburst\n")
+			if _, err := directoryProvider(t, p, r).Sample(context.Background()); err != nil {
+				t.Error("ignored non-NTS dotfile refused visible selection")
+			}
+			writeConfig(t, visible, "server 192.0.2.2 nts\n")
+			writeConfig(t, hidden, "server 192.0.2.1 nts\n")
+			sample, err := directoryProvider(t, p, r).Sample(context.Background())
+			if err == nil || sample.Trusted || sample.Fresh || !sample.AuthorityUntil.IsZero() {
+				t.Error("ignored NTS dotfile supplied selected source")
+			}
+			writeConfig(t, visible, "server 192.0.2.1 nts\n")
+			trusted(t, directoryProvider(t, p, r))
+		})
+	}
+}
+
+// Claim: ignored hidden files still consume the directory-entry budget. A full
+// inventory passes at the bound and refuses one extra ignored file without any
+// collector command; hidden file contents do not enter the source inventory.
+func TestHiddenDirectoryEntryBudget(t *testing.T) {
+	p, r, _, sources, _, _ := directoryFixture(t)
+	writeConfig(t, p.SourceFiles[0], "sourcedir "+sources+"\n")
+	for i := 0; i < maxConfigEntries-1; i++ {
+		writeConfig(t, filepath.Join(sources, fmt.Sprintf(".ignored-%04d.sources", i)), "server 192.0.2.2 iburst\n")
+	}
+	trusted(t, directoryProvider(t, p, r))
+	r.calls = nil
+	writeConfig(t, filepath.Join(sources, ".extra.sources"), "server 192.0.2.2 iburst\n")
+	refused(t, directoryProvider(t, p, r))
+	if len(r.calls) != 0 {
+		t.Fatal("over-budget directory reached collector")
 	}
 }

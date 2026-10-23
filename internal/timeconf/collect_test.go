@@ -25,9 +25,16 @@ const goodAuth = "192.0.2.1,NTS,1,15,256,60,0,0,8,100\n"
 // Only the test executable handles this fake chronyc argv. No vendor/system
 // clock command runs in normal tests; its behavior comes from a fresh fixture.
 func TestMain(m *testing.M) {
+	CollectorEntry()
 	if len(os.Args) > 1 && os.Args[1] == "-c" {
-		scenario, _ := os.ReadFile(filepath.Join(filepath.Dir(os.Args[0]), "scenario"))
+		executable, err := os.Executable()
+		if err != nil {
+			os.Exit(11)
+		}
+		scenario, _ := os.ReadFile(filepath.Join(filepath.Dir(executable), "scenario"))
 		switch string(scenario) {
+		case "arguments":
+			fmt.Print(strings.Join(os.Args[1:], "|"))
 		case "descriptor":
 			_, err := unix.FcntlInt(200, unix.F_GETFD, 0)
 			if err == nil {

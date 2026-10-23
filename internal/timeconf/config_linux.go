@@ -79,7 +79,7 @@ func (r *configReader) expand(kind string, dirs []string, depth int) (Sources, e
 			return Sources{}, ErrUnavailable
 		}
 		for _, name := range names {
-			if strings.HasSuffix(name, suffix) && paths[name] == "" {
+			if !strings.HasPrefix(name, ".") && strings.HasSuffix(name, suffix) && paths[name] == "" {
 				paths[name] = filepath.Join(dir, name)
 			}
 		}
