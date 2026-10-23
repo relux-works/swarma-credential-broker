@@ -36,6 +36,9 @@ func start(t *testing.T, e *testutil.Env, mutate func(*Server)) string {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	path := filepath.Join(dir, "s")
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	l, err := Listen(path)
 	if err != nil {
 		t.Fatal("listener unavailable")
@@ -425,9 +428,15 @@ func TestSocketPathOwnership(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "s")
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	l, err := Listen(path)
 	if err != nil {
 		t.Fatal("listen failed")
+	}
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := Listen(path); err == nil {
 		t.Fatal("existing socket adopted")

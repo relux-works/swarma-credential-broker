@@ -40,6 +40,9 @@ func TestCommandDispatch(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 	socket := filepath.Join(dir, "s")
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	listener, err := server.Listen(socket)
 	if err != nil {
 		t.Fatal(err)

@@ -65,6 +65,9 @@ func TestRequestCompletionRetirement(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer os.RemoveAll(dir)
+				if err := os.Chmod(dir, 0755); err != nil {
+					t.Fatal(err)
+				}
 				l, err := Listen(filepath.Join(dir, "s"))
 				if err != nil {
 					t.Fatal(err)

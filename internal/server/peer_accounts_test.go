@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -76,6 +77,9 @@ func peerProbe(args []string) int {
 	}
 	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: args[0], Net: "unix"})
 	if err != nil {
+		if args[3] == "connect" {
+			return 70
+		}
 		return 69
 	}
 	defer conn.Close()
@@ -83,6 +87,9 @@ func peerProbe(args []string) int {
 	actual, probeErr := PeerUID(conn)
 	if err != nil || probeErr != nil || actual != uint32(broker) {
 		return 70
+	}
+	if args[3] == "connect" {
+		return 0
 	}
 	conn.SetDeadline(time.Now().Add(3 * time.Second))
 	if args[3] == "denied" {
@@ -123,7 +130,7 @@ func peerProbe(args []string) int {
 		return 0
 	}
 	var result wire.LeaseResult
-	if r.Error != nil || wire.Decode(r.Result, &result) != nil {
+	if r.Error != nil || wire.Decode(r.Result, &result) != nil || result.LeaseID == "" || result.Payload.AccessToken == "" {
 		return 70
 	}
 	// Only a non-secret correlation leaves the helper; token material stays in its memory.
@@ -162,10 +169,16 @@ func TestConfiguredPeers(t *testing.T) {
 	stopped := make(chan error, 1)
 	go func() { stopped <- s.Serve(ctx, l) }()
 	defer func() { cancel(); s.Close(); <-stopped; s.Wait() }()
+	beforeOwner := e.Owner.View()
 	peerRun(t, peers.Foreign, foreignUID, path, "denied", struct{}{}, "")
+	e.NoLeaseRecords(t)
+	if pending, waiters := e.Manager.Stats(e.Account); pending != 0 || waiters != 0 || e.Owner.View() != beforeOwner {
+		t.Fatal("denied peer changed owner or attempt state")
+	}
 	if n, _ := e.Owner.Counts(); n != 0 {
 		t.Fatal("denied peer started refresh")
 	}
+	t.Log("peer-denied: PASS; terminal denial and EOF without client writes; no lease records, attempts, material changes or refresh")
 	p := e.Policy.Clone()
 	p.Generation++
 	p.Accounts[1].AllowedUIDs = []uint32{foreignUID}
@@ -181,8 +194,41 @@ func TestConfiguredPeers(t *testing.T) {
 	if len(id) != 33 {
 		t.Fatal("allowed peer did not create lease")
 	}
+	t.Log("peer-allowed: PASS; hello and lease.request returned material in helper memory")
+	disk, err := e.Store.Account(e.Account, false)
+	if err != nil {
+		t.Fatal("lease metadata unavailable")
+	}
+	beforeRecords, err := disk.Records()
+	if err != nil || len(beforeRecords) == 0 {
+		t.Fatal("positive lease metadata unavailable")
+	}
+	beforeOwner = e.Owner.View()
 	peerRun(t, peers.Foreign, foreignUID, path, "lease.renew", wire.Renew{LeaseID: id[:32], RejectedSHA256: fmt.Sprintf("%064d", 0)}, "lease_not_owner")
 	if n, _ := e.Owner.Counts(); n != 0 {
 		t.Fatal("ownership refusal started refresh")
 	}
+	afterRecords, err := disk.Records()
+	if err != nil || !reflect.DeepEqual(beforeRecords, afterRecords) || e.Owner.View() != beforeOwner {
+		t.Fatal("ownership refusal changed lease or material")
+	}
+	if pending, waiters := e.Manager.Stats(e.Account); pending != 0 || waiters != 0 {
+		t.Fatal("ownership refusal left an attempt")
+	}
+	t.Log("owner-mismatch: PASS; separately admitted foreign peer received lease_not_owner; lease, material and writer state unchanged")
+}
+
+// Claim: both configured peer UIDs can connect to the candidate listener and
+// verify its kernel UID before any protocol I/O. This isolates the socket-mode
+// contract from Serve's independent startup checks; unavailable execution is
+// PENDING, while a started helper unable to connect fails the assertion.
+func TestConfiguredPeerConnect(t *testing.T) {
+	path := filepath.Join(peers.Directory, "connect-"+lease.RandomID())
+	l, err := Listen(path)
+	if err != nil {
+		t.Fatal("candidate socket creation failed")
+	}
+	defer func() { l.Close(); os.Remove(path) }()
+	peerRun(t, peers.Allowed, allowedUID, path, "connect", struct{}{}, "")
+	peerRun(t, peers.Foreign, foreignUID, path, "connect", struct{}{}, "")
 }

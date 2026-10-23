@@ -81,14 +81,14 @@ logged-in home.
 | systemd user tools (Linux) | Inspect containment with `systemctl --user show <probe-unit>`; a bounded probe can use `systemd-run --user --unit=<probe-unit> --property=KillMode=control-group --property=RuntimeMaxSec=5s /usr/bin/true` | User-manager state and private scratch evidence; stop only the probe's own unit |
 | Go | Build with `"$CURATOR_GO" build -o "$TMPDIR/swarma-credential-broker" ./cmd/swarma-credential-broker`; vet with `"$CURATOR_GO" vet ./...`; format-check with `"$("$CURATOR_GO" env GOROOT)/bin/gofmt" -l .` | Binary and captured logs in the selected private scratch directory; format-check output must be empty |
 
-Create scratch space outside the versioned tree, then run these package-scoped
-checks. The default eight-second deadline is exercised separately; `-short`
+Create a short, real scratch path outside the versioned tree (no symlink),
+then run these package-scoped checks. Socket tests provision their own mode-0755
+subdirectories; the scratch directory can remain private. The default eight-second deadline is exercised separately; `-short`
 excludes only that longer test. The optional peer qualification is a separate
 binary whose PENDING exit cannot be mistaken for a green package test.
 
 ```sh
-mkdir -p ../.tmp/daemon-core
-export TMPDIR="$(cd ../.tmp/daemon-core && pwd)"
+export TMPDIR="$(mktemp -d /tmp/broker.XXXXXX)"
 export GOTOOLCHAIN=local
 "$CURATOR_GO" build -o "$TMPDIR/swarma-credential-broker" ./cmd/swarma-credential-broker
 "$CURATOR_GO" vet ./...
@@ -98,14 +98,16 @@ export GOTOOLCHAIN=local
 "$CURATOR_GO" test -short=false -count=1 -timeout=15s -run '^TestDefaultRenewDeadline$' ./internal/lease
 "$CURATOR_GO" test -c -tags=peeraccounts -o "$TMPDIR/peer-qualification" ./internal/server
 "$TMPDIR/peer-qualification" -test.run '^TestConfiguredPeers$' -test.v
+"$TMPDIR/peer-qualification" -test.run '^TestConfiguredPeerConnect$' -test.v
 ```
 
-The last command requires `BROKER_TEST_PEER_CONFIG`, pointing to a broker-owned
-0600 JSON fixture configuration with exactly `allowed_peer`, `foreign_peer`,
+The standalone qualification commands require `BROKER_TEST_PEER_CONFIG`,
+pointing to a broker-owned 0600 JSON fixture configuration with exactly `allowed_peer`, `foreign_peer`,
 `socket_directory`, and `helper_executable`. The first two values are configured
 OS account names, resolved privately at runtime. The foreign UID must differ
-from broker and allowed UIDs. The directory must already have the intended
-socket permissions, and the helper must be an operator-installed copy of the
+from broker and allowed UIDs. The socket directory must already be daemon-owned
+mode 0755, with intended ancestor permissions, and the helper must be an
+operator-installed copy of the
 same peer-qualification binary accessible to those accounts. The gate uses
 `sudo -n -u` only for these configured accounts and verifies the helper's effective
 UID. It never creates accounts or changes socket permissions. The helper keeps
@@ -113,7 +115,9 @@ tokens in memory and emits only a lease ID. Missing configuration, unusable
 accounts, an inaccessible helper or socket returns **69, PENDING**, with no
 qualification credit. A protocol assertion failure returns 1. Normal tests always
 exercise the actual same-UID kernel path; injected peer failures are model
-coverage and do not qualify foreign-account behavior.
+coverage and do not qualify foreign-account behavior. The separate connection
+test treats a started helper's inability to connect as an assertion failure; its
+positive control uses the same configuration and binary.
 
 ## Daemon configuration and current boundary
 
@@ -121,10 +125,14 @@ Run `swarma-credential-broker daemon --config <protected-config>` and
 `swarma-credential-broker status --config <protected-config>`. Use
 `--init-store` with `daemon` only to create new, empty metadata directories; it
 never adopts a nonempty store whose installation marker is missing. Existing
-socket paths are refused. The socket is created with mode 0600 in an
-operator-selected directory outside the store. Cross-UID reachability is an
-installation qualification gate. Store directories are 0700; records and stable
-lock files are 0600. Configuration is a regular, broker-owned 0600 file, with no
+socket paths are refused. The socket is created with mode 0666 in an
+existing daemon-owned directory of exactly mode 0755 outside the store. Startup
+refuses unsafe directories, ancestors and existing socket-path entries; it does
+not change directory permissions. Kernel peer credentials and the static UID
+allowlist authorize clients. The [socket permission notes](docs/socket-permissions.md)
+describe the checked R2 ancestor guarantees and the stricter dedicated-service
+requirements. Cross-UID reachability is an installation qualification gate.
+Store directories are 0700; records and stable lock files are 0600. Configuration is a regular, broker-owned 0600 file, with no
 symlink, duplicate or unknown member. JSON lists must use arrays, including `[]`
 for an empty allowlist.
 

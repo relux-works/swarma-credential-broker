@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -32,6 +33,9 @@ func New(m *lease.Manager) *Server {
 
 // Listen refuses an existing path. It never removes somebody else's socket.
 func Listen(path string) (*net.UnixListener, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || checkSocketDirectory(filepath.Dir(path)) != nil {
+		return nil, wire.Refuse("lease_owner_unavailable")
+	}
 	if _, e := os.Lstat(path); !os.IsNotExist(e) {
 		return nil, wire.Refuse("lease_owner_unavailable")
 	}
@@ -41,7 +45,9 @@ func Listen(path string) (*net.UnixListener, error) {
 	}
 	l.SetUnlinkOnClose(false)
 	created, statErr := os.Lstat(path)
-	if e = os.Chmod(path, 0600); e != nil || statErr != nil {
+	e = os.Chmod(path, 0666)
+	current, modeErr := os.Lstat(path)
+	if e != nil || statErr != nil || modeErr != nil || !os.SameFile(created, current) || !socketPermissions(current) {
 		l.Close()
 		current, err := os.Lstat(path)
 		if err == nil && created != nil && os.SameFile(created, current) {
@@ -57,6 +63,10 @@ func (s *Server) Serve(ctx context.Context, l *net.UnixListener) error {
 	s.socketPath = l.Addr().String()
 	s.socketInfo, _ = os.Lstat(s.socketPath)
 	s.mu.Unlock()
+	if !socketPermissions(s.socketInfo) || checkSocketDirectory(filepath.Dir(s.socketPath)) != nil {
+		s.Close()
+		return wire.Refuse("lease_owner_unavailable")
+	}
 	stop := context.AfterFunc(ctx, func() { s.Close() })
 	defer stop()
 	for {
