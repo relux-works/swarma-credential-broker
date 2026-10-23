@@ -4,7 +4,6 @@ package egress
 
 import (
 	"errors"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -58,18 +57,17 @@ type Report struct {
 
 // ProxyEnvironment replaces all case variants, retaining the caller's other
 // explicitly selected entries. The caller must reserve closedPort for the run;
-// this helper cannot prove that a port will remain closed. NO_PROXY has no wildcard.
+// this helper cannot prove that a port will remain closed. NO_PROXY excludes
+// loopback hosts for client compatibility; Policy independently gates ports.
 func ProxyEnvironment(env []string, closedPort uint16, fakePorts []uint16) ([]string, error) {
 	if closedPort == 0 {
 		return nil, ErrUnavailable
 	}
 	proxy := "http://127.0.0.1:" + strconv.Itoa(int(closedPort))
-	no := []string{}
 	for _, p := range fakePorts {
 		if p == 0 || p == closedPort {
 			return nil, ErrUnavailable
 		}
-		no = append(no, net.JoinHostPort("127.0.0.1", strconv.Itoa(int(p))), net.JoinHostPort("::1", strconv.Itoa(int(p))))
 	}
 	out := []string{}
 	for _, e := range env {
@@ -86,6 +84,6 @@ func ProxyEnvironment(env []string, closedPort uint16, fakePorts []uint16) ([]st
 	for _, k := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"} {
 		out = append(out, k+"="+proxy, strings.ToLower(k)+"="+proxy)
 	}
-	out = append(out, "NO_PROXY="+strings.Join(no, ","), "no_proxy="+strings.Join(no, ","))
+	out = append(out, "NO_PROXY=127.0.0.1,localhost,::1", "no_proxy=127.0.0.1,localhost,::1")
 	return out, nil
 }

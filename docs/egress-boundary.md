@@ -48,8 +48,8 @@ not a separate filesystem, user or resource sandbox. The harness must use local 
 | `connect` | Notify and copy the sockaddr. Only 127.0.0.0/8 or ::1 with a configured port, or an exact configured absolute filesystem Unix path, may continue. IPv4-mapped IPv6 is classified by its embedded IPv4 address. Abstract Unix sockets are denied. Everything else returns ECONNREFUSED. |
 | `sendto` | Apply the same check when a destination is supplied. A null destination may continue on an already connected descriptor. |
 | `sendmsg`, `sendmmsg` | Copy each header and addressed sockaddr, applying the same check; deny the whole batch if any destination is refused. A batch is limited to 64 messages. Null destinations may continue. Ancillary control data is always denied with EPERM because routing controls can carry a destination outside msg_name; it is never logged. Payloads are never inspected or logged. |
-| `ioctl` | EPERM: unchecked device/interface controls must not create or redirect network traffic. |
-| `setsockopt` | Notify; permit only reuse/buffer/keepalive, TCP timing/NODELAY, and IPV6_V6ONLY options. All other options return EPERM, including multicast membership, transparent routing and protocol-specific connection controls. |
+| `ioctl` | Notify; permit exactly FIONBIO (0x5421), which changes descriptor nonblocking mode and is required by the native runtime. All other requests, including FIONREAD and device/interface controls, return EPERM. |
+| `setsockopt` | Notify; permit only reuse/buffer/keepalive, SO_BROADCAST, TCP timing/NODELAY, and IPV6_V6ONLY options. Go's ordinary UDP setup enables SO_BROADCAST even for unicast DNS. This option does not select a destination: broadcast and external addresses remain refused at connect/sendto/sendmsg, and ancillary routing stays refused. All other options return EPERM, including multicast membership, transparent routing and protocol-specific connection controls. |
 | `clone`, `clone3` | Notify. Permit ordinary thread/process creation; deny namespace flags and CLONE_UNTRACED with EPERM. clone3 flags are copied from child memory; malformed/unreadable structures fail closed. Filters inherit across ordinary forks and exec. |
 | `io_uring_setup`, `io_uring_enter`, `io_uring_register` | EPERM: asynchronous socket operations could bypass direct socket syscall checks. |
 | `bpf` | EPERM: prevents attaching alternative kernel packet programs. |
@@ -97,7 +97,7 @@ for the inheritance, synchronization, listener and continuation contracts.
 `Report.Events` records syscall name, numeric family, address class, port, verdict
 and nanoseconds from a monotonic run origin. It records no payload, IP literal,
 Unix path, command line or environment. Classes include loopback, unix, external,
-connected (no new address), mixed (an admitted batch), socket, process and other.
+connected (no new address), mixed (an admitted batch), socket, descriptor, process and other.
 `Summary` holds allowed/refused counts per class. Allowed records the supervisor's continuation decision, not a completed kernel
 operation or peer response. A notification already canceled at the final ID
 check is counted as refused. Cancellation can also win between that check and
@@ -109,8 +109,11 @@ run and returns `ErrEvidenceLimit`. Such a report cannot be used as successful
 qualification evidence. Kernel struct sizes are checked before launch.
 
 `ProxyEnvironment` replaces upper/lowercase HTTP_PROXY, HTTPS_PROXY and ALL_PROXY
-with a closed loopback proxy URL, and sets NO_PROXY only to exact loopback fake
-ports. It preserves other explicitly supplied entries. The caller must reserve
+with a closed loopback proxy URL, and sets NO_PROXY to the client-compatible host
+exclusions `127.0.0.1,localhost,::1`. Port-qualified exclusions are ignored by some
+clients. Seccomp independently enforces the exact configured destination ports,
+including when the proxy exclusion matches a reachable disallowed port.
+It preserves other explicitly supplied entries. The caller must reserve
 the proxy port for the run; the tagged smoke binds a TCP socket without listening
 and does not pass it to the candidate. Proxies are defense in depth: direct,
 UDP, noncooperative and descendant traffic is checked by seccomp regardless.
@@ -121,19 +124,35 @@ UDP, noncooperative and descendant traffic is checked by seccomp regardless.
 GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" build -o "$TMPDIR/egress-launcher" ./internal/egress/cmd/launcher
 GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/egress -count=1 -v
 EGRESS_SMOKE_CANDIDATE=<absolute-native-binary> EGRESS_SMOKE_EVIDENCE=<private-scratch> GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race -tags=realcandidate ./internal/egress -run '^TestRealCandidateVersion$' -count=1 -v
+EGRESS_SMOKE_CANDIDATE=<absolute-native-binary> EGRESS_SMOKE_EVIDENCE=<separate-private-scratch> GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race -tags=realcandidate ./internal/egress -run '^TestLocalCandidateHTTPProbe$' -count=1 -v
 ```
 
 Use a fresh short real TMPDIR directly under /tmp and the host's heavy slot.
-The smoke runs only `--version`, with empty fresh HOME/CODEX_HOME, closed proxy
+The version smoke runs only `--version`, with empty fresh HOME/CODEX_HOME, closed proxy
 settings and an empty network allowlist. It writes boundary.json, connect.trace
 and version.txt to the explicit private evidence directory. No login/account,
 issuer, protected home or native refresh is used. Native qualification remains
 PENDING; this package only supplies its egress prerequisite.
 
+The tagged HTTP probe uses a separate empty fresh HOME/CODEX_HOME and an
+explicitly configured account-free local provider. Its fake never forwards and
+returns a fixed HTTP 503. It asserts request arrival, zero external grants, and
+only loopback connects in independent strace output. The candidate then exits
+with a service error and the boundary report is marked incomplete; this expected
+result proves HTTP compatibility, not successful qualification. Artifacts in the
+explicit private directory are boundary.json, connect.trace, connect-summary.json,
+summary.json and candidate-output.txt. No real account or native refresh is used.
+
 Synthetic probes cover TEST-NET external refusal, addressed UDP/sendmsg/sendmmsg,
 IPv6 and mapped IPv6, raw/packet sockets, io_uring, later threads, fork/exec
 grandchildren, exact Unix destinations, permitted and refused local ports,
 environment/descriptor selection, cancellation, evidence overflow and bypass
-syscalls. Mutant probes use listening local endpoints outside the allowlist;
-they do not need external packets. These are finite regression witnesses, not
+syscalls. Compatibility regressions cover real wget requests with allowed and
+disallowed ports, a local DNS answer with broadcast/TEST-NET resolver refusals,
+FIONBIO with a refused valid FIONREAD, and addressed broadcast query refusals.
+Mutant probes use listening local endpoints outside the allowlist, a harmless
+pipe ioctl, or a broadcast socket whose SO_BROADCAST remains disabled. The last
+control yields kernel EACCES if a mutant continues it, preventing emission while
+distinguishing continuation from the expected supervisor ECONNREFUSED.
+They do not need external packets. These are finite regression witnesses, not
 an exhaustive syscall/hostile-kernel security proof.

@@ -20,6 +20,9 @@ func main() {
 	if len(os.Args) < 3 {
 		os.Exit(2)
 	}
+	if compatibility(os.Args[1], os.Args[2]) {
+		return
+	}
 	mode := os.Args[1]
 	port, _ := strconv.Atoi(os.Args[2])
 	var err error

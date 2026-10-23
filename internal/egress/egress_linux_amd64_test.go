@@ -280,7 +280,8 @@ func TestFailureAndCancellation(t *testing.T) {
 }
 
 // Claim: proxy variables (including lowercase client variants) are replaced,
-// NO_PROXY names only exact local fake ports, and invalid/overlapping ports fail.
+// NO_PROXY names loopback hosts, and invalid/overlapping ports fail. Real-client
+// proxy selection and independent port enforcement are tested separately.
 func TestProxyEnvironment(t *testing.T) {
 	for _, p := range []uint16{0, 1234} {
 		if _, e := ProxyEnvironment([]string{}, p, []uint16{1234}); e == nil {
@@ -292,7 +293,7 @@ func TestProxyEnvironment(t *testing.T) {
 		t.Fatal(e)
 	}
 	joined := strings.Join(env, "\n")
-	if strings.Contains(joined, "external") || strings.Contains(joined, "*") || !strings.Contains(joined, "HTTPS_PROXY=http://127.0.0.1:1234") || !strings.Contains(joined, "NO_PROXY=127.0.0.1:5678,[::1]:5678") {
+	if strings.Contains(joined, "external") || strings.Contains(joined, "*") || !strings.Contains(joined, "HTTPS_PROXY=http://127.0.0.1:1234") || !strings.Contains(joined, "NO_PROXY=127.0.0.1,localhost,::1") || !strings.Contains(joined, "no_proxy=127.0.0.1,localhost,::1") {
 		t.Fatal(joined)
 	}
 }

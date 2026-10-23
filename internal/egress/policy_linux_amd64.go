@@ -195,10 +195,16 @@ func (p Policy) decide(fd int, n notification) decision {
 			}
 		}
 		return result
+	case unix.SYS_IOCTL:
+		// FIONBIO only changes descriptor nonblocking mode. Keep all other
+		// device/interface controls, including FIONREAD, refused.
+		if a[1] == 0x5421 {
+			return decision{class: "descriptor"}
+		}
 	case unix.SYS_SETSOCKOPT:
 		// No multicast membership, transparent routing, repair or protocol-specific
 		// connect options. These listed knobs cannot create a new destination.
-		if (a[1] == unix.SOL_SOCKET && (a[2] == unix.SO_REUSEADDR || a[2] == unix.SO_REUSEPORT || a[2] == unix.SO_KEEPALIVE || a[2] == unix.SO_SNDBUF || a[2] == unix.SO_RCVBUF)) ||
+		if (a[1] == unix.SOL_SOCKET && (a[2] == unix.SO_REUSEADDR || a[2] == unix.SO_REUSEPORT || a[2] == unix.SO_KEEPALIVE || a[2] == unix.SO_SNDBUF || a[2] == unix.SO_RCVBUF || a[2] == unix.SO_BROADCAST)) ||
 			(a[1] == unix.IPPROTO_TCP && (a[2] == unix.TCP_NODELAY || a[2] == unix.TCP_KEEPIDLE || a[2] == unix.TCP_KEEPINTVL || a[2] == unix.TCP_KEEPCNT || a[2] == unix.TCP_USER_TIMEOUT)) ||
 			(a[1] == unix.IPPROTO_IPV6 && a[2] == unix.IPV6_V6ONLY) {
 			return decision{class: "socket"}
