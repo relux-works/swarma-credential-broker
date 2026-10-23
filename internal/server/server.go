@@ -179,10 +179,6 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 			return ctx.Err()
 		}
 		write := func(delivery context.Context, authDeadline time.Time) error {
-			// Revocation closes this one socket, interrupting a blocked write.
-			// A partial frame is terminal transport failure, never success.
-			stopWrite := context.AfterFunc(delivery, func() { c.Close() })
-			defer stopWrite()
 			if delivery.Err() != nil {
 				return delivery.Err()
 			}
@@ -201,14 +197,13 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 					}
 				}
 			}
-			_ = c.SetWriteDeadline(writeUntil)
 			response := map[string]any{"request_id": id}
 			if err != nil {
 				response["error"] = wire.Refuse(lease.ErrorCode(err))
 			} else {
 				response["result"] = result
 			}
-			return wire.Write(c, response)
+			return writeFrame(delivery, c, response, writeUntil)
 		}
 		if material, ok := result.(wire.LeaseResult); ok && err == nil {
 			delivery, stop := context.WithDeadline(ctx, until)
@@ -398,4 +393,41 @@ func Status(ctx context.Context, path string, expectedUID uint32) (wire.Status, 
 		}
 	}
 	return out, nil
+}
+
+// frameWriter lets transport interruption cover real socket writes without
+// coupling successful frame completion to connection lifetime.
+type frameWriter interface {
+	io.Writer
+	io.Closer
+	SetWriteDeadline(time.Time) error
+}
+
+func writeFrame(ctx context.Context, c frameWriter, response any, until time.Time) error {
+	if err := c.SetWriteDeadline(until); err != nil {
+		return err
+	}
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		// Interrupt an active write; a completed frame must not close the socket
+		// carrying its following release receipt. A write error closes it below.
+		_ = c.SetWriteDeadline(time.Now())
+		close(interrupted)
+	})
+	defer func() {
+		// A stale interrupt must never expire the next frame's write deadline.
+		if !stop() {
+			<-interrupted
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	err := wire.Write(c, response)
+	if err != nil {
+		// Close before releasing the connection's writer gate: another response
+		// must never append bytes to a partial frame.
+		_ = c.Close()
+	}
+	return err
 }

@@ -164,8 +164,11 @@ publication under policy/account fences, then writes outside those state locks.
 Release closes new publication admission for the lease, revokes its registered
 writes and waits for them to stop before durable release acknowledgement. Policy
 replacement closes admission and does the same for the old generation before
-publishing its durable successor. Revocation interrupts only the affected socket;
-a partial frame is a terminal transport failure, never a successful delivery.
+publishing its durable successor. Revocation interrupts the affected write with
+an expired socket deadline. The writer waits for that interrupt to finish before
+retirement or reuse of the connection, so a fully written frame preserves the
+connection for its following release receipt. A partial frame fails its write and
+closes the connection; it is never a successful delivery.
 The write deadline also ends at the lease/token/account authorization limit.
 
 Arrival deadlines start before lookup. A lease-label index avoids locking
