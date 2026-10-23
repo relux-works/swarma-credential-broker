@@ -41,11 +41,15 @@ Implementation integration questions:
 - Which release evidence will establish safe transient backoff and unknown-expiry
   handling? The core rejects unknown expiry and delegates retries to the owner.
 
-- The qualification slice must define the machine-readable `qualification/1`
-  evidence schema, protected storage and exact-tuple reader, and the §8.2 procedure that publishes its
-  qualified release set. The runner's `protectedAuthority.qualifiedSet` seam
-  currently returns an empty production set; `qualification_id` alone is never
-  admission. Test-only qualification providers are excluded from the command.
+- Protected `qualification/1` records, evidence-first publication, current-input
+  observer contracts and the command frame are implemented. Production version,
+  experimental schema and model catalog remain unavailable until the next
+  qualification slice supplies a network-isolated candidate launcher and row
+  bodies. Applied unit properties remain unavailable until the contained owner
+  supplies its template and current-property observer. Every required row is
+  pending, live execution remains refused, and no production tuple qualifies.
+  See [qualification](docs/qualification.md). An interrupted-run fence requires
+  operator reconciliation while closed; an automatic recovery tool is not shipped.
 - The runner currently reads the same broker-owned 0600 configuration as the
   daemon in interim R2 mode. A dedicated-service deployment needs a protected
   client-readable policy contract; unreadable policy remains refused, with no

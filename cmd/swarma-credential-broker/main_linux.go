@@ -9,12 +9,14 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/lease"
 	"github.com/relux-works/swarma-credential-broker/internal/owner"
 	"github.com/relux-works/swarma-credential-broker/internal/policy"
+	"github.com/relux-works/swarma-credential-broker/internal/qualification"
 	"github.com/relux-works/swarma-credential-broker/internal/server"
 	"github.com/relux-works/swarma-credential-broker/internal/store"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 	"io"
 	"os"
 	"os/signal"
+	"reflect"
 	"sync"
 	"syscall"
 )
@@ -57,7 +59,14 @@ func run(args []string, out, diagnostic io.Writer) int {
 		return 69
 	}
 	defer s.Close()
-	m, e := lease.New(c.Policy, s, owner.Stopped{}, lease.Options{}, *initialize)
+	m, e := lease.New(c.Policy, s, owner.Stopped{}, lease.Options{Qualification: func(ctx context.Context, p policy.Policy) error {
+		next, e := policy.Load(*config, p.BrokerUID)
+		if e != nil || !reflect.DeepEqual(next.Policy, p) {
+			return qualification.ErrUnavailable
+		}
+		_, _, e = next.Qualified(ctx, *config, nil)
+		return e
+	}}, *initialize)
 	if e != nil {
 		fmt.Fprintln(diagnostic, "lease_owner_unavailable")
 		return 69

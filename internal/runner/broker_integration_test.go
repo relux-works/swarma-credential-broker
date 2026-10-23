@@ -16,6 +16,7 @@ import (
 
 	"github.com/relux-works/swarma-credential-broker/internal/lease"
 	"github.com/relux-works/swarma-credential-broker/internal/owner"
+	"github.com/relux-works/swarma-credential-broker/internal/policy"
 	"github.com/relux-works/swarma-credential-broker/internal/server"
 	"github.com/relux-works/swarma-credential-broker/internal/store"
 	"github.com/relux-works/swarma-credential-broker/internal/testutil"
@@ -62,7 +63,7 @@ type daemonFixture struct {
 	observations chan string
 }
 
-func integratedFixture(t *testing.T, f *fixture, stopped bool, timeout bool) *daemonFixture {
+func integratedFixture(t *testing.T, f *fixture, stopped bool, timeout bool, gates ...func(context.Context, policy.Policy) error) *daemonFixture {
 	t.Helper()
 	path, c := staticFixture(t, f)
 	root, e := os.MkdirTemp("/tmp", "daemon-")
@@ -106,6 +107,9 @@ func integratedFixture(t *testing.T, f *fixture, stopped bool, timeout bool) *da
 		backend = owner.Stopped{}
 	}
 	options := lease.Options{Now: time.Now}
+	if len(gates) > 0 {
+		options.Qualification = gates[0]
+	}
 	if timeout {
 		options.RenewTimeout = 100 * time.Millisecond
 		fake.Gate(make(chan struct{}))

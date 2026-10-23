@@ -51,6 +51,10 @@ The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at
 | M-CB3 — account, binding, lease and grant states | [record-states.puml](diagrams/record-states.puml) | [§5.1 Account record](spec/broker.md#51-record), [§6.4 Revocation](spec/broker.md#64-revocation), [§7 Bindings](spec/broker.md#7-bindings), [§13.2 Observations and verdicts](spec/broker.md#132-methods), [§8.3 Lease record](spec/broker.md#83-response-and-lease-record) |
 | M-CB4 — owned storage, socket and removal | [storage-layout.puml](diagrams/storage-layout.puml) | [§5.3 Secret store](spec/broker.md#53-secret-store), [§12.4 Files](spec/broker.md#124-files), [§15 Installation and lifecycle](spec/broker.md#15-installation-and-lifecycle) |
 
+See [qualification](docs/qualification.md) for the protected release-evidence
+record and the pending `qualify-codex` administrative command. It runs no
+candidate in this slice and cannot qualify a production release.
+
 ## Tools
 
 This repository contains specifications, PlantUML sources, declarative JSON
@@ -82,6 +86,7 @@ isolated helpers and that fake vendor, with fresh homes. No logged-in home is us
 | Codex CLI | Inspect a selected release with `codex --version`, `codex app-server --help`, `codex app-server generate-json-schema --experimental --out <scratch-schema-directory>` | Schema in the chosen scratch directory; always use a fresh empty HOME/CODEX_HOME, never an existing login |
 | systemd user tools (Linux) | Inspect containment with `systemctl --user show <probe-unit>`; a bounded probe can use `systemd-run --user --unit=<probe-unit> --property=KillMode=control-group --property=RuntimeMaxSec=5s /usr/bin/true` | User-manager state and private scratch evidence; stop only the probe's own unit |
 | godbus/dbus v5.1.0 | Direct D-Bus transport in `internal/authowner`; fetch with `"$CURATOR_GO" mod download github.com/godbus/dbus/v5`; checks below exercise it | Module cache and `go.sum`; no token material in unit properties |
+| Qualification command | `swarma-credential-broker qualify-codex --executable "$CANDIDATE" --evidence-dir "$EVIDENCE" --fixtures`; live syntax and exit codes in [qualification](docs/qualification.md) | Owner-only `run.json` in the supplied evidence directory; protected admission fence beside static configuration. Required bodies are pending, so no qualified entry is published |
 | Go | Build with `"$CURATOR_GO" build -o "$TMPDIR/swarma-credential-broker" ./cmd/swarma-credential-broker`; vet with `"$CURATOR_GO" vet ./...`; format-check with `"$("$CURATOR_GO" env GOROOT)/bin/gofmt" -l .` | Binary and captured logs in the selected private scratch directory; format-check output must be empty |
 
 Create a short, real scratch path outside the versioned tree (no symlink),

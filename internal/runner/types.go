@@ -76,8 +76,8 @@ type Policy struct {
 }
 
 // Authority must re-read protected policy and qualification evidence on each
-// Resolve. The Linux integration keeps production qualification closed until
-// its protected release-evidence provider is supplied.
+// Resolve. The Linux integration reads protected published evidence and keeps
+// production qualification closed while required current observers are unavailable.
 type Authority interface {
 	Resolve(context.Context, Options) (Policy, error)
 }

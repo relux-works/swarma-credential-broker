@@ -1,0 +1,294 @@
+//go:build linux
+
+// Package qualify implements the owner-only qualification command frame.
+package qualify
+
+import (
+	"context"
+	"flag"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/relux-works/swarma-credential-broker/internal/policy"
+	"github.com/relux-works/swarma-credential-broker/internal/qualification"
+	"github.com/relux-works/swarma-credential-broker/internal/wire"
+	"golang.org/x/sys/unix"
+)
+
+type options struct {
+	executable, evidence, approval, account string
+	fixtures, live                          bool
+}
+
+func parse(args []string) (options, error) {
+	var o options
+	f := flag.NewFlagSet("qualify-codex", flag.ContinueOnError)
+	f.SetOutput(io.Discard)
+	f.StringVar(&o.executable, "executable", "", "")
+	f.StringVar(&o.evidence, "evidence-dir", "", "")
+	f.StringVar(&o.approval, "approval-ref", "", "")
+	f.StringVar(&o.account, "account", "", "")
+	f.BoolVar(&o.fixtures, "fixtures", false, "")
+	f.BoolVar(&o.live, "live", false, "")
+	counts := map[string]int{}
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			key, _, _ := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+			counts[key]++
+			if counts[key] > 1 {
+				return o, qualification.ErrInvalid
+			}
+		}
+	}
+	if f.Parse(args) != nil || f.NArg() != 0 || o.fixtures == o.live || !filepath.IsAbs(o.executable) || filepath.Clean(o.executable) != o.executable || !filepath.IsAbs(o.evidence) || filepath.Clean(o.evidence) != o.evidence || o.fixtures && (o.approval != "" || o.account != "") {
+		return o, qualification.ErrInvalid
+	}
+	return o, nil
+}
+
+type driver struct {
+	path        string
+	environment []string
+	observer    func(policy.Config) qualification.IdentityObserver
+}
+
+func Command(ctx context.Context, args []string, configPath string, environment []string, out io.Writer) int {
+	d := driver{path: configPath, environment: environment}
+	return d.run(ctx, args, out)
+}
+
+type report struct {
+	CompletedAt string                 `json:"completed_at"`
+	Kind        string                 `json:"kind"`
+	Identity    qualification.Identity `json:"identity"`
+	Unavailable []string               `json:"unavailable_observers"`
+	Cases       []qualification.Case   `json:"cases"`
+	Disposition string                 `json:"disposition"`
+}
+
+// Inherited credentials are refused by name; their values and native homes are
+// never inspected. Inheritable extra descriptors are also unavailable inputs.
+func cleanEnvironment(env []string) bool {
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		upper := strings.ToUpper(key)
+		if key == "CODEX_HOME" || strings.HasPrefix(upper, "CODEX_") || strings.HasPrefix(upper, "OPENAI_") || strings.Contains(upper, "TOKEN") || strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "SECRET") || strings.Contains(upper, "API_KEY") || strings.Contains(upper, "AUTH_HELPER") {
+			return false
+		}
+	}
+	entries, e := os.ReadDir("/proc/self/fd")
+	if e != nil {
+		return false
+	}
+	for _, entry := range entries {
+		fd, e := strconv.Atoi(entry.Name())
+		if e != nil || fd < 3 {
+			continue
+		}
+		flags, e := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+		if e == unix.EBADF {
+			continue
+		}
+		if e != nil || flags&unix.FD_CLOEXEC == 0 {
+			return false
+		}
+	}
+	return true
+}
+func privateDirectory(path string) bool {
+	f, e := os.OpenFile(path, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
+	if e != nil {
+		return false
+	}
+	defer f.Close()
+	s, e := f.Stat()
+	if e != nil {
+		return false
+	}
+	st, ok := s.Sys().(*syscall.Stat_t)
+	return ok && st.Uid == uint32(os.Geteuid()) && s.Mode() == os.ModeDir|0700
+}
+
+// privateSocket is a bounded reservation for future row dispatch, not an
+// ordinary lease endpoint. No row implementation or lease authority ships here.
+type privateSocket struct {
+	listener        *net.UnixListener
+	path            string
+	info            os.FileInfo
+	stop            func() bool
+	candidateDigest string
+}
+
+func reserve(ctx context.Context, dir string, digest string) (*privateSocket, error) {
+	if ctx.Err() != nil || !policy.Hash(digest) {
+		return nil, qualification.ErrUnavailable
+	}
+	path := filepath.Join(dir, "qualification.sock")
+	if _, e := os.Lstat(path); !os.IsNotExist(e) {
+		return nil, qualification.ErrUnavailable
+	}
+	l, e := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if e != nil {
+		return nil, qualification.ErrUnavailable
+	}
+	l.SetUnlinkOnClose(false)
+	s := &privateSocket{listener: l, path: path, candidateDigest: digest}
+	s.info, _ = os.Lstat(path)
+	if os.Chmod(path, 0600) != nil {
+		l.Close()
+		if current, e := os.Lstat(path); e == nil && s.info != nil && os.SameFile(current, s.info) {
+			os.Remove(path)
+		}
+		return nil, qualification.ErrUnavailable
+	}
+	s.stop = context.AfterFunc(ctx, func() { l.Close() })
+	return s, nil
+}
+func (s *privateSocket) close() {
+	s.stop()
+	s.listener.Close()
+	if now, e := os.Lstat(s.path); e == nil && s.info != nil && os.SameFile(now, s.info) {
+		os.Remove(s.path)
+	}
+}
+func (d driver) run(parent context.Context, args []string, out io.Writer) int {
+	o, e := parse(args)
+	if e != nil {
+		return 64
+	}
+	// This slice grants no live authority, even with a syntactically valid ref.
+	if o.live {
+		return 69
+	}
+	if !cleanEnvironment(d.environment) || !privateDirectory(o.evidence) {
+		return 69
+	}
+	c, e := policy.Load(d.path, uint32(os.Geteuid()))
+	if e != nil || c.Policy.Executable != o.executable {
+		return 69
+	}
+	raw, e := wire.Encode(c)
+	if e != nil {
+		return 69
+	}
+	var observer qualification.IdentityObserver = qualification.NativeObserver{ExecutablePath: o.executable, StaticPolicy: raw}
+	if d.observer != nil {
+		observer = d.observer(c)
+	}
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	defer cancel()
+	repository := qualification.Repository{Path: qualification.Directory(d.path), UID: c.Policy.BrokerUID, Observer: observer}
+	var outcome report
+	e = repository.WhileClosed(ctx, func() error {
+		identity, _, missing := qualification.Observe(ctx, observer)
+		if identity.Version != "" && identity.Version != "0.163.0" {
+			return qualification.ErrUnavailable
+		}
+		if identity.Executable.SHA256 != "" && identity.Executable.SHA256 != c.Policy.ExecutableSHA256 {
+			return qualification.ErrUnavailable
+		}
+		if policy.Hash(identity.Executable.SHA256) {
+			socket, e := reserve(ctx, o.evidence, identity.Executable.SHA256)
+			if e != nil {
+				return e
+			}
+			defer socket.close()
+		}
+		// Every required body is pending. -1 denotes no execution, not an exit.
+		pending := qualification.Pending(identity)
+		sort.Strings(missing)
+		r := report{Kind: "qualification-run/1", Identity: identity, Unavailable: missing, Cases: pending.Cases, Disposition: "pending", CompletedAt: pending.CompletedAt}
+		next, e := policy.Load(d.path, c.Policy.BrokerUID)
+		if e != nil {
+			return qualification.ErrUnavailable
+		}
+		before, e := wire.Encode(c)
+		if e != nil {
+			return e
+		}
+		after, e := wire.Encode(next)
+		if e != nil || string(before) != string(after) {
+			return qualification.ErrUnavailable
+		}
+		again, _, missingAgain := qualification.Observe(ctx, observer)
+		sort.Strings(missingAgain)
+		if again != identity || strings.Join(missingAgain, ",") != strings.Join(missing, ",") {
+			return qualification.ErrUnavailable
+		}
+		b, e := wire.Encode(r)
+		if e != nil {
+			return qualification.ErrUnavailable
+		}
+		f, e := os.OpenFile(filepath.Join(o.evidence, "run.json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
+		if e != nil {
+			return qualification.ErrUnavailable
+		}
+		n, e := f.Write(b)
+		if e == nil && n != len(b) {
+			e = io.ErrShortWrite
+		}
+		if e == nil {
+			e = f.Sync()
+		}
+		ce := f.Close()
+		if e == nil {
+			e = ce
+		}
+		if e != nil {
+			return qualification.ErrUnavailable
+		}
+		dir, e := os.Open(o.evidence)
+		if e != nil {
+			return qualification.ErrUnavailable
+		}
+		e = dir.Sync()
+		dir.Close()
+		if e != nil {
+			return qualification.ErrUnavailable
+		}
+		_, e = out.Write(append(b, '\n'))
+		if e == nil {
+			outcome = r
+		}
+		return e
+	})
+	if e != nil {
+		return 69
+	}
+	return resultCode(outcome.Cases, outcome.Unavailable)
+}
+
+// resultCode defines the frame's exit contract before row bodies are supplied.
+// Pending or absent execution is unavailable, distinct from an executed failure.
+func resultCode(cases []qualification.Case, unavailable []string) int {
+	if len(unavailable) > 0 || len(cases) != len(qualification.RequiredCases()) {
+		return 69
+	}
+	failed := false
+	for n, c := range cases {
+		if c.ID != qualification.RequiredCases()[n] {
+			return 69
+		}
+		for _, x := range []qualification.Control{c.Positive, c.Negative} {
+			if !x.Executed || x.Verdict == "pending" {
+				return 69
+			}
+			if x.Verdict == "failed" {
+				failed = true
+			} else if x.Verdict != "passed" || x.ExitCode != 0 {
+				return 69
+			}
+		}
+	}
+	if failed {
+		return 1
+	}
+	return 0
+}

@@ -24,6 +24,9 @@ type Event struct {
 	At      time.Time
 }
 type Options struct {
+	// Qualification re-reads protected evidence before issuance/refresh and again
+	// before delivery. The standalone daemon always installs this gate.
+	Qualification  func(context.Context, policy.Policy) error
 	Observe        func(Event)
 	Now            func() time.Time
 	RenewTimeout   time.Duration
@@ -306,6 +309,11 @@ func (m *Manager) Call(ctx context.Context, uid uint32, method string, params an
 		}
 		if _, e := p.Check(uid, r); e != nil {
 			return Outcome{Err: e}
+		}
+		if m.options.Qualification != nil {
+			if e := m.options.Qualification(ctx, p); e != nil {
+				return Outcome{Err: wire.Refuse("lease_harness_unqualified")}
+			}
 		}
 		op.request = r
 		label = r.Account
@@ -681,7 +689,13 @@ func (m *Manager) live(a *account, op *operation) bool {
 	return false
 }
 func (m *Manager) usable(s owner.Snapshot, label string) error {
-	return usable(m.Policy(), m.options.Now(), s, label)
+	p := m.Policy()
+	if m.options.Qualification != nil {
+		if e := m.options.Qualification(m.ctx, p); e != nil {
+			return wire.Refuse("lease_harness_unqualified")
+		}
+	}
+	return usable(p, m.options.Now(), s, label)
 }
 func usable(p policy.Policy, now time.Time, s owner.Snapshot, label string) error {
 	switch s.State {
@@ -776,6 +790,11 @@ func (m *Manager) Publish(ctx context.Context, uid uint32, generation uint64, re
 	snapshot, err := m.owner.Snapshot(ctx, label)
 	if err != nil {
 		return wire.Refuse("lease_owner_unavailable")
+	}
+	if m.options.Qualification != nil {
+		if e := m.options.Qualification(ctx, m.Policy()); e != nil {
+			return wire.Refuse("lease_harness_unqualified")
+		}
 	}
 	if a.store.Healthy() != nil {
 		return wire.Refuse("lease_owner_unavailable")

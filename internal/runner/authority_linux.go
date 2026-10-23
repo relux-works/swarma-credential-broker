@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	static "github.com/relux-works/swarma-credential-broker/internal/policy"
+	"github.com/relux-works/swarma-credential-broker/internal/qualification"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 )
 
@@ -21,17 +22,35 @@ type protectedAuthority struct {
 	path     string
 	mu       sync.Mutex
 	resolved *static.Config
-	// The qualification slice supplies the protected, exact-tuple qualification reader here. The
-	// shipped reader returns an empty set; references alone grant no admission.
+	// Tests may select the fixture seam only through a test-compiled constructor.
 	qualifiedSet func(context.Context) ([]Policy, error)
+	observer     qualification.IdentityObserver
 }
 
-func productionQualifiedSet(context.Context) ([]Policy, error) { return nil, nil }
+func (a *protectedAuthority) productionQualifiedSet(ctx context.Context, c static.Config, o Options, p Policy) ([]Policy, error) {
+	rec, catalog, e := c.Qualified(ctx, a.path, a.observer)
+	if e != nil {
+		return nil, e
+	}
+	fp, e := ConfigurationDigest(o, nil)
+	if e != nil {
+		return nil, e
+	}
+	p.Qualified = true
+	p.Release = "codex-cli " + rec.Identity.Version
+	p.SchemaSHA256 = rec.Identity.Schema.SHA256
+	p.ConfigSHA256 = fp
+	p.Catalog = map[string][]string{}
+	for _, m := range catalog.Models {
+		p.Catalog[m.Name] = append([]string(nil), m.Efforts...)
+	}
+	return []Policy{p}, nil
+}
 
 // ProtectedDependencies connects the operator-selected static policy to the
 // runner. Production qualification has no caller-controlled override.
 func ProtectedDependencies(path string, environment []string) Dependencies {
-	a := &protectedAuthority{path: path, qualifiedSet: productionQualifiedSet}
+	a := &protectedAuthority{path: path}
 	return Dependencies{Authority: a, Connect: a.connect, Environment: environment}
 }
 func (a *protectedAuthority) load(ctx context.Context) (static.Config, error) {
@@ -62,7 +81,12 @@ func (a *protectedAuthority) Resolve(ctx context.Context, o Options) (Policy, er
 	if account.NetworkRequired {
 		return Policy{}, refuse("lease_network_enforcement_unavailable", 69)
 	}
-	set, e := a.qualifiedSet(ctx)
+	var set []Policy
+	if a.qualifiedSet != nil {
+		set, e = a.qualifiedSet(ctx)
+	} else {
+		set, e = a.productionQualifiedSet(ctx, c, o, p)
+	}
 	if e != nil || ctx.Err() != nil {
 		return Policy{}, refuse("lease_harness_unqualified", 69)
 	}

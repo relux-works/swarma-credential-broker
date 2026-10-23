@@ -19,14 +19,14 @@ socket path. The runner retains its post-lease authority/configuration recheck.
 Regular-file reads cannot establish a bound on a stalled filesystem; contexts
 are checked before and after them.
 
-The production qualified set is **empty**. A nonempty `qualification_id` does
-not qualify anything. `protectedAuthority.qualifiedSet` is the single seam for
-the qualification slice's protected, exact-tuple release evidence reader. The current provider returns
-no entries; production therefore refuses `lease_harness_unqualified` before a
-lease or version probe when otherwise valid policy is present. No
-`qualification/1` storage schema is introduced here. The fixture provider and
-constructor exist only in `_test.go`; the command cannot select them. The
-shipped daemon still uses `owner.Stopped` and refuses issuance independently.
+The production qualified set comes from the protected list and evidence beside
+static configuration, through the common daemon/runner reader. A nonempty
+`qualification_id` does not qualify anything. Current version, schema, applied
+properties and model-catalog observers are unavailable, so production still
+refuses `lease_harness_unqualified` before a lease or version probe. See
+[qualification](qualification.md) for the exact record, publication and observer
+contract. Fixture observers and constructors exist only in tests; the command
+cannot select them. The shipped owner remains stopped independently.
 
 ## Wire validation
 
