@@ -154,9 +154,8 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	writeGate := make(chan struct{}, 1)
-	writeGate <- struct{}{}
-	send := func(id any, result any, err error, g uint64, until time.Time, method string) error {
+	requests := newConnectionCalls()
+	send := func(id any, result any, err error, g uint64, until time.Time, method string, call *connectionCall) error {
 		// A request waiting behind its own connection's writer retains its
 		// original arrival deadline; a non-draining connection is closed.
 		wait, stopWait := context.WithDeadline(ctx, until)
@@ -165,64 +164,58 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 			wait, stopWait = context.WithTimeout(ctx, 2*time.Second)
 		}
 		defer stopWait()
-		select {
-		case <-writeGate:
-		default:
-			select {
-			case <-writeGate:
-			case <-wait.Done():
-				return wait.Err()
+		return requests.respond(wait, func() error {
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
-		}
-		defer func() { writeGate <- struct{}{} }()
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		write := func(delivery context.Context, authDeadline time.Time) error {
-			if delivery.Err() != nil {
-				return delivery.Err()
-			}
-			writeUntil := time.Now().Add(2 * time.Second)
-			if !until.IsZero() && !time.Now().Before(until) {
-				result = nil
-				err = wire.Refuse("request_deadline_exceeded")
-				if method == "lease.renew" {
-					err = wire.Refuse("renew_timeout")
+			write := func(delivery context.Context, authDeadline time.Time) error {
+				if delivery.Err() != nil {
+					return delivery.Err()
 				}
-			}
-			if err == nil {
-				for _, bound := range []time.Time{until, authDeadline} {
-					if !bound.IsZero() && bound.Before(writeUntil) {
-						writeUntil = bound
+				writeUntil := time.Now().Add(2 * time.Second)
+				if !until.IsZero() && !time.Now().Before(until) {
+					result = nil
+					err = wire.Refuse("request_deadline_exceeded")
+					if method == "lease.renew" {
+						err = wire.Refuse("renew_timeout")
 					}
 				}
+				if err == nil {
+					for _, bound := range []time.Time{until, authDeadline} {
+						if !bound.IsZero() && bound.Before(writeUntil) {
+							writeUntil = bound
+						}
+					}
+				}
+				response := map[string]any{"request_id": id}
+				if err != nil {
+					response["error"] = wire.Refuse(lease.ErrorCode(err))
+				} else {
+					response["result"] = result
+				}
+				frame, err := newRequestFrameWriter(c, requests, call)
+				if err != nil {
+					return err
+				}
+				return writeFrame(delivery, frame, response, writeUntil)
 			}
-			response := map[string]any{"request_id": id}
-			if err != nil {
-				response["error"] = wire.Refuse(lease.ErrorCode(err))
-			} else {
-				response["result"] = result
+			if material, ok := result.(wire.LeaseResult); ok && err == nil {
+				delivery, stop := context.WithDeadline(ctx, until)
+				defer stop()
+				wrote := false
+				e := s.Manager.Publish(delivery, uid, g, material, func(delivery context.Context, authDeadline time.Time) error {
+					wrote = true
+					return write(delivery, authDeadline)
+				})
+				if wrote {
+					return e
+				}
+				result, err = nil, e
 			}
-			return writeFrame(delivery, c, response, writeUntil)
-		}
-		if material, ok := result.(wire.LeaseResult); ok && err == nil {
-			delivery, stop := context.WithDeadline(ctx, until)
-			defer stop()
-			wrote := false
-			e := s.Manager.Publish(delivery, uid, g, material, func(delivery context.Context, authDeadline time.Time) error {
-				wrote = true
-				return write(delivery, authDeadline)
-			})
-			if wrote {
-				return e
-			}
-			result, err = nil, e
-		}
-		return s.Manager.WithGenerationContext(ctx, g, func(delivery context.Context) error { return write(delivery, time.Time{}) })
+			return s.Manager.WithGenerationContext(ctx, g, func(delivery context.Context) error { return write(delivery, time.Time{}) })
+		})
 	}
 	hello := false
-	pending := map[string]bool{}
-	var pendingMu sync.Mutex
 	var calls sync.WaitGroup
 	defer func() { cancel(); calls.Wait() }()
 	for {
@@ -231,9 +224,9 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 			cancel()
 			if errors.Is(e, wire.ErrTooLarge) {
 				select {
-				case <-writeGate:
+				case <-requests.writer:
 					terminal(c, "frame_too_large")
-					writeGate <- struct{}{}
+					requests.writer <- struct{}{}
 				default:
 					// Another frame is already blocked; closing interrupts it.
 				}
@@ -253,10 +246,10 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 				return
 			}
 			if h.Profile != wire.Profile || len(h.Versions) != 1 || h.Versions[0] != 1 {
-				_ = send(r.ID, nil, wire.Refuse("version_unsupported"), p.Generation, time.Time{}, "hello")
+				_ = send(r.ID, nil, wire.Refuse("version_unsupported"), p.Generation, time.Time{}, "hello", nil)
 				return
 			}
-			if send(r.ID, map[string]any{"version": 1, "profile": wire.Profile, "principal": map[string]any{"uid": uid}, "policy_generation": p.Generation}, nil, p.Generation, time.Time{}, "hello") != nil {
+			if send(r.ID, map[string]any{"version": 1, "profile": wire.Profile, "principal": map[string]any{"uid": uid}, "policy_generation": p.Generation}, nil, p.Generation, time.Time{}, "hello", nil) != nil {
 				return
 			}
 			hello = true
@@ -293,17 +286,16 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 		default:
 			return
 		}
-		pendingMu.Lock()
-		if pending[r.ID] || len(pending) >= 128 {
-			pendingMu.Unlock()
+		admission, stopAdmission := context.WithDeadline(ctx, s.Manager.Deadline(r.Method, arrival))
+		call, err := requests.reserve(admission, r.ID)
+		stopAdmission()
+		if err != nil {
 			return
 		}
-		pending[r.ID] = true
-		pendingMu.Unlock()
 		calls.Add(1)
-		go func(r wire.Request, params any, arrival time.Time) {
+		go func(r wire.Request, params any, arrival time.Time, call *connectionCall) {
 			defer calls.Done()
-			defer func() { pendingMu.Lock(); delete(pending, r.ID); pendingMu.Unlock() }()
+			defer requests.retire(call)
 			var out lease.Outcome
 			if r.Method == "status" {
 				call, cancel := context.WithDeadline(ctx, arrival.Add(2*time.Second))
@@ -324,11 +316,11 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 				return
 			}
 			until := s.Manager.Deadline(r.Method, arrival)
-			if send(r.ID, out.Result, out.Err, out.Generation, until, r.Method) != nil {
+			if send(r.ID, out.Result, out.Err, out.Generation, until, r.Method, call) != nil {
 				cancel()
 				c.Close()
 			}
-		}(r, params, arrival)
+		}(r, params, arrival, call)
 	}
 }
 
