@@ -155,7 +155,7 @@ func incoming(c *net.UnixConn) (int, error) {
 	return int(count), probe
 }
 
-// Claim: default Linux socket buffers filled by ordinary lease responses yield the same excessive arrival delay; this changes no socket options or candidate production source.
+// Claim: six ordinary default-buffer clients leaving responses unread cannot postpone another lease renewal beyond its eight-second arrival budget plus 500 ms scheduling allowance; this changes no socket options.
 func TestReviewDefaultSocketPublicationDeadline(t *testing.T) { defaultSocketPublication(t, true) }
 
 // Claim: draining ordinary default-buffer responses allows the neighboring lease renewal to succeed.
