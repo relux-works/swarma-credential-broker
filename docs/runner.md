@@ -140,6 +140,51 @@ failure is 75 and dominates vendor success/failure. Otherwise statuses are
 69 (admission/source/qualification/initialization refusal), 124 (execution
 deadline) and 130 (handled signal after cleanup).
 
+## Normative exit classification
+
+This table specializes profile §6 for the embedding seam. Each row is a phase,
+and each listed origin is a separate case. "Own stop" means the runner itself
+observed its execution context's `Err()`, or its own output descriptor/timer
+wake. An adapter or writer returning, wrapping, converting or panicking with a
+context error supplies no such evidence. Error text, `Is`, `As` and foreign
+unwrap chains never establish provenance.
+
+| Phase | Error origin and phase result | Resources and obligations |
+|---|---|---|
+| Argument parsing / preflight | Invalid argument, prompt or catalog: 64; source/qualification refusal or inspection error: 69; output staging I/O: 75; own stop while acquiring prompt: 124/130; unexpected error or panic: phase failure (69, or 75 for output) | No lease; no vendor child. Close any acquired home lock; remove staging output. Invalid input is rejected before execution starts. |
+| Authority resolve | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease or child. Close home lock and remove staging output. |
+| Connect / server verification | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease; version probe must already be confirmed absent. Close any acquired connection, home lock and staging output. |
+| Hello | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease or live child. Close connection, home lock and staging output. |
+| Lease request | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | A refused request grants no lease. A successfully returned lease requires exactly one release attempt even if execution is already stopped; close connection and staging output. |
+| Post-lease recheck | Admission/configuration refusal, adapter error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held, no app-server. Release, erase material, close connection/home lock and remove staging output. |
+| App-server start / initialize | Qualification, spawn or initialization refusal, transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held; child may have started. Confirm descendants absent, release and erase; keep home fenced if absence is unknown. |
+| Login | Account/login refusal, transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held and child started. Interrupt if active, confirm absence, release and erase. |
+| Turn | Matching completed turn: 0 provisionally; vendor failed/interrupted: 1; protocol/start/transport error, unexpected error or panic: 69; authority expiry: 75; own stop: 124/130 | Lease and child held. Close admission, interrupt if active, confirm absence, release and erase before publication. |
+| Refresh callback | Renewal/owner unavailable, cutoff, identity/authority mismatch, malformed/duplicate callback, adapter/transport error, independent adapter context error, unexpected error or panic: 75 | Lease and child held. One bounded reply to original ID, no late reply; interrupt, confirm absence, release and erase. Renewal failure dominates a simultaneous own stop. |
+| Output streaming | Writer-owned context error, output I/O, unexpected error or panic: 75; own descriptor/context stop: 124/130 | Lease and child may still be held. Interrupt, confirm absence, release and erase; preserve previous output file. |
+| Final flush / publication | Writer-owned context error, output I/O, unexpected error or panic: 75; own descriptor/context stop: 124/130; successful replacement: 0 | Child absence and release already confirmed. Clear retained text/material, remove staging file on failure, preserve previous destination. |
+| Teardown | Unknown absence, cleanup I/O, unexpected error or panic: 75 | Independent total 5-second budget. Attempt release even if stop fails; unknown absence retains durable home fence. Never publish on failure. |
+| Release | Adapter/transport error, independent adapter context error, timeout, unexpected error or panic: 75 | Independent remaining cleanup budget; one idempotent release attempt. Absence and release are separate facts. Erase and close regardless; never publish on failure. |
+
+One classifier consumes an explicit phase/origin record and runner-owned stop
+evidence after resource cleanup. Its precedence is: (1) cleanup, release, renewal
+or genuine output failure gives 75; (2) otherwise an observed own deadline gives
+124, or an observed own cancellation gives 130; (3) otherwise use the table's
+phase result, including invalid input 64 before execution, admission 69, vendor
+failure 1 and fully published success 0. If parent interruption and the runner
+timeout combine, the execution context's first recorded cause wins. A real
+output failure stays 75 even when cancellation arrives concurrently. Internal
+per-call deadlines are adapter/transport failures, not execution deadline 124.
+Panic handling never formats a foreign error or invokes its conversion methods;
+it uses the recorded phase, runs remaining cleanup obligations and emits fixed
+metadata. An unavailable cleanup observation always closes success.
+
+The public Command status matrix exercises these rows with bounded fake
+adapters/writers and real contained fake-child lifecycles. It asserts release
+counts, process absence, home-fence state and preservation of old output as well
+as status. These fixtures do not establish arbitrary adapter cooperation or
+storage-latency bounds.
+
 ## Validation boundaries
 
 `internal/runner/testdata/appserver` is a Go stdio fake, built by the runner tests together
