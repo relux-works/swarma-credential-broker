@@ -151,6 +151,7 @@ unwrap chains never establish provenance.
 
 | Phase | Error origin and phase result | Resources and obligations |
 |---|---|---|
+| Pre-execution input validation boundary | Recognized invalid command/input: 64 even if the parent is already cancelled or expired; valid options with stopped prompt acquisition: 124/130 | No lease or child. Invalid input is terminal before execution admission; a stopped unread prompt is not evidence of invalid input. |
 | Argument parsing / preflight | Invalid argument, prompt or catalog: 64; source/qualification refusal or inspection error: 69; output staging I/O: 75; own stop while acquiring prompt: 124/130; unexpected error or panic: phase failure (69, or 75 for output) | No lease or app-server. A qualification version probe may run only after protected authority resolution and must be confirmed absent. Close any acquired home lock; remove staging output. Invalid input is rejected before execution starts. |
 | Authority resolve | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease or child. Close home lock and remove staging output. |
 | Connect / server verification | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease; version probe must already be confirmed absent. Close any acquired connection, home lock and staging output. |
@@ -162,16 +163,22 @@ unwrap chains never establish provenance.
 | Turn | Matching completed turn: 0 provisionally; vendor failed/interrupted: 1; protocol/start/transport error, unexpected error or panic: 69; authority expiry: 75; own stop: 124/130 | Lease and child held. Close admission, interrupt if active, confirm absence, release and erase before publication. |
 | Refresh callback | Renewal/owner unavailable, cutoff, identity/authority mismatch, malformed/duplicate callback, adapter/transport error, independent adapter context error, unexpected error or panic: 75 | Lease and child held. One bounded reply to original ID, no late reply; interrupt, confirm absence, release and erase. Renewal failure dominates a simultaneous own stop. |
 | Output streaming | Writer-owned context error, output I/O, unexpected error or panic: 75; own descriptor/context stop: 124/130 | Lease and child may still be held. Interrupt, confirm absence, release and erase; preserve previous output file. |
-| Final flush / publication | Writer-owned context error, output I/O, unexpected error or panic: 75; own descriptor/context stop: 124/130; successful replacement: 0 | Child absence and release already confirmed. Clear retained text/material, remove staging file on failure, preserve previous destination. |
+| Final flush / staging | Writer-owned context error, output I/O, unexpected error or panic: 75; own descriptor/context stop observed before replacement admission: 124/130 | Child absence and release already confirmed. Write, sync and close staging, then check the execution context immediately before atomic replacement. A stop observed here removes staging and preserves the previous destination. |
+| Atomic publication boundary | Successful destination replacement: terminal 0; a stop concurrent with successful replacement or observed afterward cannot change it | Confirmed child absence, release and home cleanup precede replacement. Rename is the publication point; no fallible delivery operation follows it. After publication, erase retained text/material and close staging handles without reclassifying success. |
 | Teardown | Unknown absence, cleanup I/O, unexpected error or panic: 75 | Independent total 5-second budget. Attempt release even if stop fails; unknown absence retains durable home fence. Never publish on failure. |
 | Release | Adapter/transport error, independent adapter context error, timeout, unexpected error or panic: 75 | Independent remaining cleanup budget; one idempotent release attempt. Absence and release are separate facts. Erase and close regardless; never publish on failure. |
 
 One classifier consumes an explicit phase/origin record and runner-owned stop
-evidence after resource cleanup. Its precedence is: (1) cleanup, release, renewal
-or genuine output failure gives 75; (2) otherwise an observed own deadline gives
-124, or an observed own cancellation gives 130; (3) otherwise use the table's
-phase result, including invalid input 64 before execution, admission 69, vendor
-failure 1 and fully published success 0. If parent interruption and the runner
+evidence after resource cleanup. Its precedence is: (1) successful atomic
+publication is terminal 0, with later stops excluded from arbitration; (2)
+recognized pre-execution invalid command/input is terminal 64, regardless of
+parent context state; (3) before publication, cleanup, release, renewal or genuine
+output failure gives 75; (4) otherwise an observed own deadline gives 124, or an
+observed own cancellation gives 130; (5) otherwise use the table's phase result,
+including admission 69, vendor failure 1 and success 0. The final context check
+admits atomic replacement; a successful rename wins a stop racing that operation.
+An observed stop before this admission cannot replace the previous destination.
+If parent interruption and the runner
 timeout combine, the execution context's first recorded cause wins. A real
 output failure stays 75 even when cancellation arrives concurrently. Internal
 per-call deadlines are adapter/transport failures, not execution deadline 124.
@@ -194,7 +201,13 @@ The public Command status matrix exercises these rows with bounded fake
 adapters/writers and real contained fake-child lifecycles. It asserts release
 counts, process absence, home-fence state and preservation of old output as well
 as status. These fixtures do not establish arbitrary adapter cooperation or
-storage-latency bounds.
+storage-latency bounds. Boundary rows additionally exercise invalid options with
+an already stopped parent, and real filesystem timing: a 200 ms fsync entry
+delay tests cancellation before replacement, a 200 ms rename exit delay tests
+cancellation after kernel publication, and undelayed/uninterrupted controls
+establish ordinary successful replacement. The trace must show the intended
+successful delayed operation on the output staging file; setup failure is not
+boundary evidence.
 
 ## Validation boundaries
 
@@ -213,7 +226,9 @@ RUNNER_QUALIFICATION=1 GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -ra
 ```
 
 The required rows are all four `TestCommandProcDisappearance` cases and
-`TestStopProcDisappearance`, together with their parent test. Each registers
+`TestStopProcDisappearance`, together with their parent test, plus the three
+`TestProbePublicationTiming` storage rows and their corresponding
+`TestCommandStatusTable/final/publication-*` rows. Each registers
 `requiredEvidenceRow` before any possible skip. In this mode, missing `strace`
 fails immediately; any required row calling `Skip` also fails in cleanup. Both
 paths name the row as `UNVERIFIED`. New required rows must register the same

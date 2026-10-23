@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 )
@@ -54,7 +55,7 @@ func (o *outputFile) abort() {
 		o.root = nil
 	}
 }
-func (o *outputFile) commit(data []byte) error {
+func (o *outputFile) commit(ctx context.Context, data []byte) error {
 	info, err := o.root.Lstat(o.target)
 	if o.before == nil {
 		if !os.IsNotExist(err) {
@@ -74,6 +75,11 @@ func (o *outputFile) commit(data []byte) error {
 		return refuse("output_unavailable", 75)
 	}
 	o.file = nil
+	// Staging I/O may overlap a stop. Check again after it, immediately before
+	// admitting atomic replacement. A successful rename wins a concurrent stop.
+	if err = ctx.Err(); err != nil {
+		return err
+	}
 	if err = o.root.Rename(o.temp, o.target); err != nil {
 		return refuse("output_unavailable", 75)
 	}

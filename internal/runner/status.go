@@ -64,6 +64,7 @@ type statusRecord struct {
 	ownStop    stopCause
 	outputStop stopCause
 	execution  context.Context
+	published  bool
 }
 type observationKey struct{}
 
@@ -107,7 +108,7 @@ func (r *statusRecord) capture(err error) {
 	r.failure = f
 }
 func (r *statusRecord) observe(ctx context.Context) {
-	if r.ownStop != stopNone || ctx == nil {
+	if r.published || r.ownStop != stopNone || ctx == nil {
 		return
 	}
 	// Context errors are observed directly; adapter errors cannot set this field.
@@ -149,6 +150,10 @@ func classify(r *statusRecord, w io.Writer) (status int) {
 	code := ""
 	f := r.failure
 	switch {
+	case r.published:
+		status = 0
+	case f != nil && f.origin == originInput:
+		status, code = 64, f.code
 	case f != nil && (f.origin == originOutput || f.origin == originRenewal || f.origin == originCleanup || f.origin == originRelease || f.origin == originUnexpected && unavailable(f.phase)):
 		status, code = 75, f.code
 	case r.ownStop == stopDeadline:
@@ -157,8 +162,6 @@ func classify(r *statusRecord, w io.Writer) (status int) {
 		status, code = 130, "interrupted"
 	case f == nil:
 		status = 0
-	case f.origin == originInput:
-		status, code = 64, f.code
 	case f.origin == originVendor:
 		status, code = 1, f.code
 	default:

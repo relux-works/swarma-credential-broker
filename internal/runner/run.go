@@ -310,9 +310,18 @@ func execute(ctx context.Context, o Options, prompt []byte, streams IO, d Depend
 	if state.ownStop != stopNone {
 		return nil
 	}
-	if err = output.commit(final); err != nil {
+	if err = output.commit(ctx, final); err != nil {
+		// Only commit's direct observation of our context returns these causes;
+		// its genuine file errors remain output failures even during a stop.
+		if err == context.Canceled || err == context.DeadlineExceeded {
+			state.observe(ctx)
+			return nil
+		}
 		return err
 	}
+	// All cleanup and release obligations preceded the irreversible rename.
+	// Later context observations cannot turn published output into a failure.
+	state.published = true
 	return nil
 }
 

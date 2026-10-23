@@ -368,6 +368,15 @@ func TestCommandStatusTable(t *testing.T) {
 			t.Fatalf("missing normative phase %s", p)
 		}
 	}
+	// Boundary combinations are distinct rows, not inferred from phase labels:
+	// recognized invalid options beat an already stopped parent, while valid
+	// options honor it; stops on either side of rename preserve status/output.
+	t.Run("preflight/input-stop-boundary", inputStopPrecedence)
+	for _, timing := range []string{"fsync", "rename", "undelayed"} {
+		t.Run("final/publication-"+timing, func(t *testing.T) {
+			tracePublicationTiming(t, timing)
+		})
+	}
 }
 
 type statusFaultBroker struct {
