@@ -79,8 +79,11 @@ Changing this policy is an operator action outside this socket subset.
 
 The daemon MUST obtain `SO_PEERCRED` on every connection, fail
 `peer_identity_unavailable` if unavailable, and authenticate the connecting UID.
-A UID absent from every enabled entry receives `role_not_permitted`. A known
-UID must first be admitted to the requested profile; otherwise refuse
+A UID absent from every enabled entry receives `role_not_permitted` at accept,
+before any header, payload or hello is read; §7 defines its terminal uncorrelated
+response. Failure to obtain peer credentials uses the same accept-time path.
+No request is processed, lease created, material delivered or writer started.
+A known UID must first be admitted to the requested profile; otherwise refuse
 `lease_not_authorised`. Only then check account existence
 (`lease_account_unknown`) and its exact UID/account allowlist
 (`lease_not_authorised`). This order bounds account enumeration to peers already
@@ -549,19 +552,34 @@ historical native-resume observation as current qualification.
 
 The transport is exactly [§13.1](broker.md#131-transport): Unix stream, four-byte
 unsigned big-endian byte length, then one CCJ-1 canonical JSON object; maximum
-payload 65536 bytes, rejected before allocation/read when larger
+payload 65536 bytes, rejected before payload allocation/read when larger
 (`frame_too_large`). No newline is part of the payload. CCJ-1 rejects duplicate
 keys, invalid UTF-8/lone surrogates, fractional/unsafe integers and negative zero;
 recursively sort keys by Unicode scalar, emit minimal escapes and no insignificant
 whitespace. No top-level `sig` member is allowed in these unsigned envelopes.
-Unknown fields, noncanonical bytes and malformed members close the connection
-without processing or reflecting input. No new malformed-frame refusal code is
-assigned; Appendix A has none for this envelope.
+Zero length, truncated header/body, unknown fields, noncanonical bytes and
+malformed members (including a malformed first frame) close the connection
+without a response frame, request processing or input reflection. An idle or
+partial first frame has a 2-second monotonic read deadline from accept; an
+incomplete later frame has the same deadline from its first header byte. A
+malformed frame never makes its apparent request ID trustworthy. No new
+malformed-frame refusal code is assigned; Appendix A has none for this envelope.
 
 Request envelope is `{method, params, request_id}`. `request_id` is a nonempty
 ASCII string of at most 64 bytes, unique among outstanding calls on that
-connection; it is correlation, not replay authority. Response is exactly
-`{request_id, result}` or `{request_id, error: {code, message, details}}`.
+connection; it is correlation, not replay authority. A response to a validated
+request is exactly `{request_id, result}` or
+`{request_id, error: {code, message, details}}`, echoing that request's ID.
+There is one connection-level exception: accept-time `role_not_permitted` or
+`peer_identity_unavailable`, and header-only `frame_too_large`, use
+`{request_id: null, error: {code, message, details: {}}}` followed by close.
+These terminal frames are at most 512 payload bytes with fixed sanitized text;
+the server attempts one bounded write and closes within 2 seconds of refusal,
+even if the client does not read. It MUST NOT read a body to obtain correlation.
+A reading client expects the null-ID frame; an incomplete write is a terminal
+transport failure, never success or a retry on the same connection. All other
+pre-request/parser failures close without response as above. No lease, material
+or vendor writer may result from any of these failures.
 `message` is fixed sanitized text; `details` is a closed metadata object (empty
 unless explicitly specified). No raw request or secret is echoed. Unknown
 methods close the connection without effects. Unanswered requests are canceled
@@ -572,7 +590,8 @@ The first request MUST be `hello` with `versions: [1]` and
 `principal: {uid}` (kernel identity) and current `policy_generation`. Unsupported
 version/profile refuses `version_unsupported` and closes. A general broker client
 MUST NOT negotiate this profile accidentally; no fallback between authority
-models is allowed. Before successful hello, no other method is processed.
+models is allowed. Before successful hello, any other method closes without
+a response or processing; it cannot obtain a lease or material.
 
 All object members below are required unless marked optional. Times are RFC 3339
 UTC seconds with `Z`; hashes are 64 lowercase hex; lease/launch IDs are opaque,
@@ -630,14 +649,10 @@ OS/kernel/systemd version, applied unit properties and sanitized configuration.
 Observed 0.163.0 schema support is experimental and explicitly marked unstable;
 its presence is not a compatibility commitment.
 
-Fresh-home probes establish capability rejection/acceptance and external-token
-shape. The [exact-release bridge source](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/app-server/src/external_auth.rs)
-specifies a 10-second refresh wait. A bounded fake inference-401 probe observed timeout diagnostics at 10.007 and 10.008
-seconds after separate unanswered callbacks; the vendor retried afterwards.
-The probe stopped before terminal turn completion, so it does not prove the
-runner's failure/teardown path. Qualification MUST also measure it with a fake
-inference 401, unanswered callback and late reply, with positive in-budget renewal. This profile does not
-infer the callback behavior from `account/rateLimits/read` 401.
+The exact-release research observations are in [Appendix B](#appendix-b-research-evidence).
+Qualification MUST measure the refresh callback with a fake inference 401,
+unanswered callback and late reply, with positive in-budget renewal. Callback
+behavior MUST NOT be inferred from `account/rateLimits/read` 401.
 
 Qualification of 0.163.0 MUST include the full §9.6 table mapped below, real
 device login, application-network-policy fetch, approved endpoint routing,
@@ -661,7 +676,40 @@ overrides and pin approved routing. No real login is needed for protocol,
 recovery or negative-source fixtures. Endpoint availability does not prove a
 complete fake policy response or a safe real-account test.
 
-### 8.1 Mandatory 0.163.0 qualification procedure
+### 8.1 Configured identities and genuine peer qualification
+
+Public fixtures MUST use the roles `broker`, `allowed_peer` and `foreign_peer`,
+never fixed OS UIDs or a fixed UID-bound digest. The test operator supplies their
+account mapping in protected test configuration. Resolve each role through the
+OS account database and obtain the broker UID from the running daemon's
+configured account. The foreign UID must differ from both other roles; broker
+and allowed_peer may share a UID only in the declared same-user R2 mode. Resolve numeric IDs and derive binding
+hashes only in private test setup as described in the vector README; role names
+are never wire authority. Public evidence MUST omit the account mapping and
+resolved UID values.
+
+Genuine `SO_PEERCRED` qualification MUST start separate client processes as the
+configured allowed and foreign accounts, verify each process's effective UID,
+and connect them to the actual candidate Unix socket. The daemon must use the
+kernel's peer credentials, never a UID injected into a model or request. The
+foreign account is absent from every enabled policy entry for `peer-denied`;
+it connects fresh and sends nothing. The allowed account completes hello, then
+`lease.request`. Record the terminal denial, no reads/processed requests or
+lease/material/writer effects, and the positive lease. For `owner-mismatch`,
+explicitly admit that foreign account to a separate fixture account/profile
+before its fresh hello, while leaving the original lease owned by allowed_peer.
+This test must reach lease ownership checks, not connection denial.
+
+If any configured account is missing, has a forbidden UID alias, cannot start
+its client process, or cannot reach the fixture socket with the intended
+permissions, report the affected row **PENDING**, with no qualification credit;
+never skip it as passing. Missing environment returns exit 69 for qualification.
+Do not create substitute accounts, choose numeric defaults or weaken the socket
+permissions to manufacture a pass. Shared test accounts are configuration only,
+with no public account names. Model-only role substitution is artifact evidence
+and MUST be reported separately from genuine multi-UID process evidence.
+
+### 8.2 Mandatory 0.163.0 qualification procedure
 
 The v0 implementation MUST provide an owner-only qualification entry point:
 
@@ -676,7 +724,7 @@ means a failed row; exit 64 means bad inputs; exit 69 means missing approval or
 unavailable qualification environment. Neither command can itself retire the
 existing login. During qualification ordinary lease admission stays closed.
 A narrowly scoped test client may exercise the candidate's admission and runner
-paths only on a private qualification socket, with fixed test peer/account,
+paths only on a private qualification socket, with configuration-resolved test peer/account,
 bounded lifetime and the candidate digest. This authority is removed at teardown;
 it cannot enable ordinary clients, unrelated releases/accounts or fallback.
 
@@ -722,11 +770,8 @@ it cannot enable ordinary clients, unrelated releases/accounts or fallback.
    unqualified. A digest/config/platform change invalidates the entry and reruns
    the affected identity's qualification; old evidence cannot bless a new binary.
 
-A fixture-only report is useful progress, not a production qualified entry. This
-spec task runs research probes and artifact validation only; execution of the
-mandatory implementation qualification and approved live rows belongs to v0
-implementation/cutover. The procedure makes 0.163.0 deliverable without weakening
-`lease_harness_unqualified` for an untested candidate or another release.
+A fixture-only report cannot publish a production qualified entry. Current
+research limits are recorded once in [Appendix B](#appendix-b-research-evidence).
 
 ## 9. Negative cases and adjacent positive controls
 
@@ -738,7 +783,7 @@ the case changes that premise. Every refusal requires zero material delivery.
 
 | Test / inputs (negative first) | Expected refusal or invariant; observable post-state | Nearby positive control | Mode |
 |---|---|---|---|
-| `peer-denied`: kernel UID absent from policy, forged UID in data | `role_not_permitted`; no lease/attempt, no material | `peer-allowed`: configured kernel UID negotiates and leases | F |
+| `peer-denied`: fresh connection as configured foreign account, UID absent from every entry, no client bytes | Accept-time `role_not_permitted`, null-ID terminal frame; no header/body reads or processed request, no lease/attempt/material | `peer-allowed`: configured allowed-account process completes hello then leases | F; genuine multi-UID process evidence required (§8.1) |
 | `account-denied`: admitted peer requests another known account | `lease_not_authorised`; neither account starts a writer | `account-allowed`: exact peer/account/profile tuple leases | F |
 | `account-unknown`: profile-admitted peer requests nonexistent label | `lease_account_unknown`; no account is created or fallback used | `account-known`: existing allowlisted label leases | F |
 | `release-unqualified`: 0.163.0 digest lacks qualification | `lease_harness_unqualified`; no vendor child | `release-qualified`: fake approved tuple leases | F; real tuple L |
@@ -763,7 +808,9 @@ the case changes that premise. Every refusal requires zero material delivery.
 | `time-untrusted`: clock/freshness evidence missing after restart | `lease_owner_unavailable`; no watermark advance/material | `time-trusted`: trusted time and current evidence permit bounded lease | F |
 | `init-without-capability`: login without experimentalApi | `external_token_init_failed`, child stopped and lease released | `init-with-capability`: initialize/initialized then external login succeeds | F |
 | `resume-conflict`: account/config drift or native-file path at resume | Refuse before inference; no old lease reused | `resume-fresh`: qualified same-account thread resume after new lease/login | F; resume qualification L |
-| `frame-oversized`: length 65537 before payload | `frame_too_large`; body unread, no effects | `frame-valid`: canonical hello framed with exact length succeeds | F |
+| `frame-oversized`: length 65537 before payload | Null-ID terminal `frame_too_large` then close; body unread, no effects | `frame-valid`: canonical hello framed with exact length succeeds | F |
+| `frame-zero-length`, `frame-truncated-header`, `frame-malformed-first`: invalid first exchange | Close without response or processed request; no apparent-ID echo or effects | `frame-valid`: well-formed hello returns its validated request ID | F |
+| `peer-identity-unavailable`: accept-time kernel credential probe fails | Null-ID terminal `peer_identity_unavailable`; no input read or request/material/writer | `frame-valid`: available configured peer identity completes hello | F; injected probe failure is model-only |
 | `profile-unsupported`: ordinary/unknown profile or version | `version_unsupported`, close, no authority-model fallback | `profile-v0`: exact profile plus versions [1] succeeds | F |
 
 ### 9.1 Mapping every broker §9.6 row
@@ -787,53 +834,239 @@ contract in [§15.1](broker.md#151-service-user-and-time). The manual Linux boot
 below is for this interim deployment only; it MUST NOT create a second account
 if the platform installer already provisioned one.
 
-First close admission, disable automatic restart, stop the old daemon, and
-resolve every retained writer through §5. Confirm full process absence and
-store/outcome reconciliation before moving anything. Stop is not proof of safe
-rotation. If any outcome is unresolved, keep it unavailable after migration;
-never enrol or refresh during the move. The operator supplies `OLD_USER` and the
-absolute `SOURCE_STORE` path privately; neither is a shipped default. All old
-paths/configurations that could auto-start the daemon must remain disabled.
+Run **script A alone**, then stop for operator reconciliation. The scripts are
+separate invocations; neither invokes the other. They assume the reviewed
+interim service is the only activation/listener unit. If socket activation,
+external restart jobs or other launch paths exist, first disable and verify all
+of them in a reviewed maintenance plan; these scripts MUST NOT be used until
+that precondition holds. Stopping the daemon closes its socket admission but
+does not prove descendant absence or safe rotation.
+
+### A.1 Script A: close old admission
+
+Supply the old account privately as the sole argument. No store path or value
+is read. Failure leaves admission closed as far as the completed operations
+permit; resolve any failure before proceeding.
 
 ```sh
-# Run as root; supply these values privately, without logging their contents.
-read -r OLD_USER
-read -r SOURCE_STORE
-case "$SOURCE_STORE" in /*) ;; *) exit 64 ;; esac
+#!/bin/sh
+set -eu
+test "$(id -u)" = 0
+test "$#" -eq 1
+OLD_USER=$1
 OLD_UID=$(id -u "$OLD_USER")
-runuser -u "$OLD_USER" -- env XDG_RUNTIME_DIR="/run/user/$OLD_UID" \
-  systemctl --user disable --now swarma-credential-broker.service
-# STOP HERE until the operator has confirmed the §5 absence/outcome gates.
-# The following commands do not establish those gates.
-useradd --system --user-group --home-dir /opt/swarma/services/swarma-credential-broker \
-  --shell /usr/sbin/nologin swarma-credential-broker
-install -d -o root -g root -m 0755 /opt/swarma/services
-install -d -o swarma-credential-broker -g swarma-credential-broker -m 0700 \
-  /opt/swarma/services/swarma-credential-broker
-DEST_STORE=/opt/swarma/services/swarma-credential-broker/store
-test -d "$SOURCE_STORE" && test ! -L "$SOURCE_STORE" && test ! -e "$DEST_STORE" || exit 1
-# Store migration must stay on one filesystem for an atomic rename.
-test "$(stat -c %d "$SOURCE_STORE")" = \
-  "$(stat -c %d /opt/swarma/services/swarma-credential-broker)" || exit 1
-mv -T -- "$SOURCE_STORE" "$DEST_STORE"
-chown -R --no-dereference swarma-credential-broker:swarma-credential-broker "$DEST_STORE"
-find -P "$DEST_STORE" -type d -exec chmod 0700 {} +
-find -P "$DEST_STORE" -type f -exec chmod 0600 {} +
-loginctl enable-linger swarma-credential-broker
-BROKER_UID=$(id -u swarma-credential-broker)
-systemctl start "user@$BROKER_UID.service"
+test "$OLD_UID" -ne 0
+old_manager() {
+  runuser -u "$OLD_USER" -- env XDG_RUNTIME_DIR="/run/user/$OLD_UID" \
+    systemctl --user "$@"
+}
+# Stop the listener and disable/mask its only activation unit.
+old_manager disable --now swarma-credential-broker.service
+old_manager mask --now swarma-credential-broker.service
+test "$(old_manager show swarma-credential-broker.service -p UnitFileState --value)" = masked
+test "$(old_manager show swarma-credential-broker.service -p ActiveState --value)" = inactive
+test "$(old_manager show swarma-credential-broker.service -p MainPID --value)" = 0
+printf '%s\n' 'Admission closed; old service disabled, masked and inactive.'
+printf '%s\n' 'Operator confirmation of section 5 writer absence and outcomes is required before script B.'
 ```
 
-The administrator MUST inspect the store structure before migration and refuse
-links, unexpected mount points or untrusted parent ownership; the commands do
-not sanitize a hostile tree. Cross-filesystem migration needs an explicitly
-reviewed offline procedure, never a silent copy-and-delete fallback.
+The operator now resolves every retained writer through §5, records complete
+same-attempt absence and store/outcome reconciliation, and confirms no
+remaining activation paths. Stop alone is insufficient. Any unknown outcome
+keeps admission closed and blocks script B. The confirmation prompt below is
+an explicit human checkpoint, not automatic evidence of those gates.
+
+### A.2 Script B: provision and migrate offline
+
+Invoke separately with the old account and absolute source-store directory as
+its two private arguments. It requires an exact confirmation line on standard
+input **after** the operator has recorded the §5 evidence. Root must serialize
+account provisioning/migration and exclude concurrent filesystem/account changes.
+The existing root-owned mode-0755 service parent and all ancestors must be
+trusted. Before invocation inspect metadata offline: no links, unexpected mount
+points, hard-linked files or untrusted parents; the homogeneous old ownership
+and modes checked below are mandatory. The commands never read file contents.
+Cross-filesystem migration needs a separately reviewed procedure.
+
+All user, group, home and destination absence checks precede mutation; only getent
+status 2 establishes a missing entry. Any existing entry/path, dangling link or
+lookup error aborts. The rollback trap is local to this invocation: it restores
+the original store path/ownership, removes only its newly created empty home,
+user and group after identity checks, and never recursively deletes data. A
+failed guard preserves resources for offline recovery. Do not rerun blindly.
+Successful migration disarms rollback; reversing a committed migration requires
+another reviewed maintenance plan. Neither script starts a new daemon, enables
+lingering, resumes admission or enrols an account.
+
+```sh
+#!/bin/sh
+set -eu
+test "$(id -u)" = 0
+test "$#" -eq 2
+OLD_USER=$1
+SOURCE_STORE=$2
+SERVICE=swarma-credential-broker
+PARENT=/opt/swarma/services
+SERVICE_HOME=$PARENT/$SERVICE
+DEST_STORE=$SERVICE_HOME/store
+case "$SOURCE_STORE" in /*) ;; *) exit 64 ;; esac
+case "$SOURCE_STORE/" in "$PARENT/"*|*/../*|*/./*|*//*) exit 64 ;; esac
+case "$PARENT/" in "$SOURCE_STORE/"*) exit 64 ;; esac
+test "$SOURCE_STORE" != /
+OLD_UID=$(id -u "$OLD_USER")
+OLD_GID=$(id -g "$OLD_USER")
+test "$OLD_UID" -ne 0
+printf '%s\n' 'Type SECTION5_ABSENCE_AND_OUTCOME_CONFIRMED only after the recorded section 5 gates pass.'
+IFS= read -r CONFIRMATION
+test "$CONFIRMATION" = SECTION5_ABSENCE_AND_OUTCOME_CONFIRMED
+old_manager() {
+  runuser -u "$OLD_USER" -- env XDG_RUNTIME_DIR="/run/user/$OLD_UID" \
+    systemctl --user "$@"
+}
+test "$(old_manager show swarma-credential-broker.service -p UnitFileState --value)" = masked
+test "$(old_manager show swarma-credential-broker.service -p ActiveState --value)" = inactive
+test "$(old_manager show swarma-credential-broker.service -p MainPID --value)" = 0
+require_absent_entry() {
+  if getent "$1" "$SERVICE" >/dev/null; then
+    exit 1
+  else
+    LOOKUP_STATUS=$?
+    test "$LOOKUP_STATUS" -eq 2 || exit 1
+  fi
+}
+require_absent_path() {
+  if test -e "$1" || test -L "$1"; then exit 1; fi
+}
+# All absence checks precede any mutation. A database failure is not absence.
+require_absent_entry passwd
+require_absent_entry group
+require_absent_path "$SERVICE_HOME"
+require_absent_path "$DEST_STORE"
+test -d "$PARENT"
+test ! -L "$PARENT"
+test "$(stat -c '%u:%a' "$PARENT")" = 0:755
+test -d "$SOURCE_STORE"
+test ! -L "$SOURCE_STORE"
+test "$(stat -c %d "$SOURCE_STORE")" = "$(stat -c %d "$PARENT")"
+# A homogeneous, link-free offline tree permits exact ownership rollback.
+BAD_ENTRIES=$(find -P "$SOURCE_STORE" -xdev \
+  \( ! -uid "$OLD_UID" -o ! -gid "$OLD_GID" -o \
+     \( -type d ! -perm 0700 \) -o \( -type f ! -perm 0600 \) -o \
+     \( ! -type d ! -type f \) -o \( -type f -links +1 \) \) -printf x)
+test -z "$BAD_ENTRIES"
+STORE_ID=$(stat -c '%d:%i' "$SOURCE_STORE")
+GROUP_CREATED=0
+USER_CREATED=0
+HOME_CREATED=0
+STORE_MOVED=0
+MIGRATION_COMMITTED=0
+NEW_UID=
+NEW_GID=
+HOME_ID=
+lookup_group_id() {
+  GROUP_ENTRY=$(getent group "$SERVICE") || return 1
+  GROUP_FIELDS=${GROUP_ENTRY#*:}
+  GROUP_FIELDS=${GROUP_FIELDS#*:}
+  printf '%s\n' "${GROUP_FIELDS%%:*}"
+}
+rollback() {
+  # Never remove pre-existing paths/accounts or overwrite a reappearing source.
+  test "$(id -u)" = 0 || return 1
+  test "$MIGRATION_COMMITTED" -eq 0 || return 1
+  if test "$STORE_MOVED" -eq 1; then
+    test "$(stat -c '%d:%i' "$DEST_STORE")" = "$STORE_ID" || return 1
+    if test -e "$SOURCE_STORE" || test -L "$SOURCE_STORE"; then return 1; fi
+    chown -R --no-dereference "$OLD_UID:$OLD_GID" "$DEST_STORE" || return 1
+    mv -T -- "$DEST_STORE" "$SOURCE_STORE" || return 1
+    test "$(stat -c '%d:%i' "$SOURCE_STORE")" = "$STORE_ID" || return 1
+  else
+    test "$(stat -c '%d:%i' "$SOURCE_STORE")" = "$STORE_ID" || return 1
+    if test -e "$DEST_STORE" || test -L "$DEST_STORE"; then return 1; fi
+  fi
+  if test "$HOME_CREATED" -eq 1; then
+    test "$(stat -c '%d:%i' "$SERVICE_HOME")" = "$HOME_ID" || return 1
+    rmdir -- "$SERVICE_HOME" || return 1
+  fi
+  if test "$USER_CREATED" -eq 1; then
+    test "$(id -u "$SERVICE")" = "$NEW_UID" || return 1
+    test "$(id -g "$SERVICE")" = "$NEW_GID" || return 1
+    userdel "$SERVICE" || return 1
+  fi
+  if test "$GROUP_CREATED" -eq 1; then
+    ROLLBACK_GID=$(lookup_group_id) || return 1
+    test "$ROLLBACK_GID" = "$NEW_GID" || return 1
+    groupdel "$SERVICE" || return 1
+  fi
+  printf '%s\n' 'Rollback verified; source store restored, created resources removed, admission closed.'
+}
+on_exit() {
+  RESULT=$1
+  trap - EXIT HUP INT TERM
+  if test "$MIGRATION_COMMITTED" -eq 0; then
+    if rollback; then :; else
+      printf '%s\n' 'Rollback refused or failed; preserve remaining resources for offline recovery.' >&2
+      exit 1
+    fi
+  fi
+  exit "$RESULT"
+}
+trap 'on_exit $?' EXIT
+trap 'exit 1' HUP INT TERM
+groupadd --system "$SERVICE"
+GROUP_CREATED=1
+NEW_GID=$(lookup_group_id)
+test -n "$NEW_GID"
+useradd --system --no-create-home --no-user-group --no-log-init \
+  --gid "$NEW_GID" --home-dir "$SERVICE_HOME" --shell /usr/sbin/nologin \
+  --key CREATE_MAIL_SPOOL=no "$SERVICE"
+USER_CREATED=1
+NEW_UID=$(id -u "$SERVICE")
+test "$(id -g "$SERVICE")" = "$NEW_GID"
+mkdir -m 0700 -- "$SERVICE_HOME"
+HOME_CREATED=1
+HOME_ID=$(stat -c '%d:%i' "$SERVICE_HOME")
+chown "$NEW_UID:$NEW_GID" "$SERVICE_HOME"
+mv -T -- "$SOURCE_STORE" "$DEST_STORE"
+STORE_MOVED=1
+chown -R --no-dereference "$NEW_UID:$NEW_GID" "$DEST_STORE"
+test "$(stat -c '%d:%i' "$DEST_STORE")" = "$STORE_ID"
+require_absent_path "$SOURCE_STORE"
+BAD_ENTRIES=$(find -P "$SERVICE_HOME" -xdev \
+  \( ! -uid "$NEW_UID" -o ! -gid "$NEW_GID" -o \
+     \( -type d ! -perm 0700 \) -o \( -type f ! -perm 0600 \) \) -printf x)
+test -z "$BAD_ENTRIES"
+test "$(old_manager show swarma-credential-broker.service -p ActiveState --value)" = inactive
+MIGRATION_COMMITTED=1
+printf '%s\n' 'Migration verified; ownership and modes checked, old admission remains closed.'
+printf '%s\n' 'New daemon and user manager have not been started; installation readiness gates remain.'
+```
 
 Before starting the new daemon, install the reviewed user service and executable
 under protected ownership, set its store path to DEST_STORE, update clients'
 pinned broker UID/socket and static policy, invalidate all old leases, and
 verify the new manager's writer containment while admission is closed. Reconcile
 all retained attempt identities against the old manager; a new manager's empty
-inventory is not absence evidence. Enable only the new service after readiness
-checks. The old service MUST remain disabled. Account outcome ambiguity survives
-the user change. No command here reads, prints or imports credential values.
+inventory is not absence evidence. Enable lingering/start the new user manager
+only in that reviewed installation step. Enable only the new service after
+readiness checks. The old service MUST remain disabled/masked. Account outcome
+ambiguity survives the user change. No command here reads, prints or imports
+credential values.
+
+## Appendix B. Research evidence
+
+Research on 2026-10-23 used the selected 0.163.0 binary, synthetic material,
+local fake endpoints and new empty homes. Fresh-home probes observed external
+login capability rejection/acceptance and token shape. The
+[exact-release bridge source](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/app-server/src/external_auth.rs)
+specifies a 10-second refresh wait. Unanswered fake inference-401 callbacks
+produced timeout diagnostics at 10.007 and 10.008 seconds; the vendor then
+retried. Those probes stopped before terminal turn completion and do not prove
+the runner's failure/teardown path. Bounded user-manager stop observations do
+not qualify full daemon/descendant containment.
+
+These observations and artifact validation are research evidence only. No
+implementation qualification, genuine multi-UID broker-process test, managed
+real-account refresh or live cutover was executed by this specification work.
+The mandatory procedure in [§8.2](#82-mandatory-01630-qualification-procedure)
+and approved live rows remain pending. R1/R2 remain pending; R3 and runner
+scope are accepted as recorded in §1.1.
