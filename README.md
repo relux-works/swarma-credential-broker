@@ -1,8 +1,10 @@
 # swarma-credential-broker
 
+The credential broker is **Merovingian** in the platform's codenames.
+
 A credential broker for agent systems. It runs under its own OS user, holds subscription and API credentials in its own store, and leases them to authorised agent launches over a Unix socket whose peer it identifies through the kernel (`getpeereid` / `SO_PEERCRED`).
 
-**Status: design in progress.** Nothing is implemented yet. The specification is [`spec/broker.md`](spec/broker.md); diagrams are in [`diagrams/`](diagrams/).
+**Status: design in progress.** Nothing is implemented yet. The specification is [`spec/broker.md`](spec/broker.md); diagrams are in [`diagrams/`](diagrams/). The proposed [Codex refresher v0 profile](spec/v0-codex-refresher.md) extracts the auth owner and external-token runner ahead of slice 0, pending curator rulings and release qualification.
 
 ## What it is for
 
@@ -48,6 +50,18 @@ The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at
 | M-CB2 — lease refusal and recovery | [lease-recovery.puml](diagrams/lease-recovery.puml) | [§6.4 Revocation](spec/broker.md#64-revocation), [§8 Leases](spec/broker.md#8-leases), [§9 Codex auth owner](spec/broker.md#9-codex-auth-owner), [§15.4 Fenced restore](spec/broker.md#154-fenced-local-restore-and-reopen), [§15.5 Node-wide freeze](spec/broker.md#155-node-wide-emergency-stop-r-allstop) |
 | M-CB3 — account, binding, lease and grant states | [record-states.puml](diagrams/record-states.puml) | [§5.1 Account record](spec/broker.md#51-record), [§6.4 Revocation](spec/broker.md#64-revocation), [§7 Bindings](spec/broker.md#7-bindings), [§13.2 Observations and verdicts](spec/broker.md#132-methods), [§8.3 Lease record](spec/broker.md#83-response-and-lease-record) |
 | M-CB4 — owned storage, socket and removal | [storage-layout.puml](diagrams/storage-layout.puml) | [§5.3 Secret store](spec/broker.md#53-secret-store), [§12.4 Files](spec/broker.md#124-files), [§15 Installation and lifecycle](spec/broker.md#15-installation-and-lifecycle) |
+
+## Tools
+
+This repository contains specifications, PlantUML sources and declarative JSON
+vectors; it has no implementation build or runtime test suite yet.
+
+| Tool | Purpose and command | Outputs |
+|---|---|---|
+| Git | Review whitespace with `git diff --check`; verify signed changes with `git log --format='%G? %an %s' origin/main..HEAD` | Terminal; capture private evidence in a scratch `.tmp` directory outside the versioned tree |
+| Python 3 | Parse vector JSON with the command in [vectors/v0](vectors/v0/README.md); strict canonical-byte/link checks use temporary validation scripts | Terminal and private scratch logs; scripts are not shipped tooling |
+| Codex CLI | Inspect a selected release with `codex --version`, `codex app-server --help`, `codex app-server generate-json-schema --experimental --out <scratch-schema-directory>` | Schema in the chosen scratch directory; always use a fresh empty HOME/CODEX_HOME, never an existing login |
+| systemd user tools (Linux) | Inspect containment with `systemctl --user show <probe-unit>`; a bounded probe can use `systemd-run --user --unit=<probe-unit> --property=KillMode=control-group --property=RuntimeMaxSec=5s /usr/bin/true` | User-manager state and private scratch evidence; stop only the probe's own unit |
 
 ## License
 
