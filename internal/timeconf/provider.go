@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"math"
+	"math/big"
 	"sync"
 	"time"
 )
@@ -23,10 +24,12 @@ type Clock interface {
 	Read(context.Context) (ClockPoint, error)
 }
 type Tracking struct {
-	ReferenceID, Address, Leap, Name                                                                                   string
-	Stratum                                                                                                            int
-	Reference                                                                                                          time.Time
+	ReferenceID, Address, Leap, Name string
+	Stratum                          int
+	Reference                        time.Time
+	// Float fields are diagnostics; parsed reports retain exact decimal authority.
 	SystemOffset, LastOffset, RMSOffset, Frequency, ResidualFrequency, Skew, RootDelay, RootDispersion, UpdateInterval float64
+	exact                                                                                                              *trackingNumbers
 }
 type Sources struct {
 	Count   int
@@ -115,13 +118,12 @@ func (p *Provider) trackingValid(e Evidence, now time.Time) bool {
 	if !e.Sources.AllNTS || e.Sources.Count < 1 || !selectedConfigured(e.Sources, t) || t.Leap != "Normal" || t.Stratum < 1 || t.Stratum > 15 || t.Reference.IsZero() || age < 0 || age >= p.policy.MaxSyncAge {
 		return false
 	}
-	for _, v := range []float64{t.SystemOffset, t.LastOffset, t.RMSOffset, t.Frequency, t.ResidualFrequency, t.Skew, t.RootDelay, t.RootDispersion, t.UpdateInterval} {
-		if !finite(v) {
-			return false
-		}
+	v, err := t.numbers()
+	if err != nil || !v.valid() {
+		return false
 	}
-	bound := p.policy.MaxOffset.Seconds()
-	if math.Abs(t.SystemOffset) > bound || math.Abs(t.LastOffset) > bound || t.RMSOffset < 0 || t.RMSOffset > bound || t.RootDelay < 0 || t.RootDispersion < 0 || t.Skew < 0 || math.Abs(t.Frequency) > 1e6 || math.Abs(t.ResidualFrequency) > 1e6 || t.Skew > 1e6 || t.RootDelay/2+t.RootDispersion > p.policy.MaxRootDistance.Seconds() {
+	bound := durationSeconds(p.policy.MaxOffset)
+	if new(big.Rat).Abs(v[systemOffset]).Cmp(bound) > 0 || new(big.Rat).Abs(v[lastOffset]).Cmp(bound) > 0 || v[rmsOffset].Cmp(bound) > 0 || v.rootDistance().Cmp(durationSeconds(p.policy.MaxRootDistance)) > 0 {
 		return false
 	}
 	if p.policy.Source == NTSAuthData {
@@ -162,8 +164,8 @@ func (p *Provider) Sample(ctx context.Context) (Sample, error) {
 		p.emit("evidence_unavailable")
 		return Sample{}, ErrUnavailable
 	}
-	delta := uncertainty(evidence.Tracking, after.Now)
-	if delta > p.policy.MaxUncertainty {
+	delta, deltaErr := uncertainty(evidence.Tracking, after.Now, p.policy.MaxUncertainty)
+	if deltaErr != nil {
 		p.emit("evidence_unavailable")
 		return Sample{}, ErrUnavailable
 	}
@@ -190,17 +192,6 @@ func (p *Provider) Sample(ctx context.Context) (Sample, error) {
 // never reuses a cached sample. Cross-process ordering also needs the previous
 // decision bound; see the consumer protocol in docs/time-confidence.md.
 func (p *Provider) StartSample(ctx context.Context) (Sample, error) { return p.Sample(ctx) }
-
-func uncertainty(t Tracking, now time.Time) time.Duration {
-	// The observed correction plus root distance bounds the sample under the NTP
-	// error model. Include last/RMS correction conservatively and grow dispersion
-	// since the reference by the measured frequency uncertainty (ppm).
-	offset := math.Max(math.Abs(t.SystemOffset), math.Max(math.Abs(t.LastOffset), t.RMSOffset))
-	seconds := offset + t.RootDelay/2 + t.RootDispersion + now.Sub(t.Reference).Seconds()*t.Skew/1e6
-	// Ceil rounds fractional nanoseconds upward without adding a nanosecond to
-	// an exact bound, which must remain valid at the inclusive uncertainty cap.
-	return time.Duration(math.Ceil(seconds * float64(time.Second)))
-}
 
 func selectedConfigured(s Sources, t Tracking) bool {
 	for _, entry := range s.Entries {

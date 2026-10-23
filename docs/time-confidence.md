@@ -170,9 +170,25 @@ max(abs(system_offset), abs(last_offset), rms_offset)
 + age_since_reference * skew_ppm / 1000000
 ```
 
-The conversion rounds fractional nanoseconds upward and preserves exact integer
-nanosecond bounds, including the inclusive uncertainty cap. This includes measured correction
-plus root distance and conservatively includes last/RMS correction and dispersion
+Tracking decimals are parsed directly into immutable exact rationals before
+any diagnostic float conversion. Offset absolute values, the root-delay half
+plus dispersion, frequency/skew limits, age × skew, and the uncertainty-cap
+comparison all use exact arithmetic. Reference timestamps and freshness use
+integer nanoseconds, including the exclusive authority cap. The uncertainty
+conversion rounds upward only once, to whole nanoseconds at the end, preserving
+exact bounds and every positive term. A report just above an integer cap is
+unavailable even when a float sum would erase its growth.
+
+Float tracking fields remain diagnostic copies. They cannot override the exact
+parsed report; a separately modified diagnostic refuses. Programmatic collectors
+that construct Tracking without a decimal report have their actual float values
+converted exactly to rationals, rather than performing float sums or products.
+The production collector always supplies the original decimal rationals. Decimal
+inputs are bounded to 256 characters and exponent magnitude 4096; unsupported
+syntax, excessive precision and nonfinite diagnostic results refuse.
+
+The bound includes measured correction plus root distance and conservatively
+includes last/RMS correction and dispersion
 growth. It is conditional on the selected source's correctness and the reported
 error estimates; authentication cannot make a false server's time true. The
 [chrony tracking documentation](https://chrony-project.org/doc/4.6/chronyc.html#tracking)
