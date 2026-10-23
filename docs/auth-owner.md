@@ -66,28 +66,39 @@ this process and every account watermark observed here. E MUST never decrease.
 Each account's durable decision time D is its persisted checkpoint watermark.
 Only trusted time may raise D; clock correction MUST NOT lower either floor.
 
-**Rule of action: use durable time only.** Material release and expiry refusal,
-admission, retry/proactive scheduling, writer timestamps and resolution MUST use
-D, never a later unpersisted sample. Before using a newer effective time, the
-owner MUST raise that account's watermark successfully. A failed or interrupted
-raise MUST refuse the action. After replacement, D is restored before admission;
-observations that have not affected an action need not survive the old process.
+**Evaluate at E.** Every authority decision MUST use E, including the sample
+observed in the final postcheck: material release and expiry refusal, admission,
+retry and proactive readiness, and the exclusive AuthorityUntil bound. A grant
+requires validity at E; a later trusted sample can only narrow the grant.
 
-A time admission MUST persist its initial effective time when it exceeds D.
-If completion observes a later time, it MUST perform one catch-up raise. It
-MUST NOT perform another catch-up in that admission. Every successful raise
-MUST retain the shared before/after confidence checks. The final postcheck
-MUST update E and require fresh, trusted, nonzero evidence whose exclusive
-AuthorityUntil covers E. It MUST NOT substitute its later Now for D in any
-numeric decision. A later valid sample is carried forward to the next time
-admission; there is no write-until-the-clock-stops loop. The write cost is zero
-when D already covers the observed floor, otherwise at most two checkpoint
-writes per time admission, in addition to the attempt's existing record writes.
+**Durable refusals.** An expiry refusal that depends on E > D MUST persist a
+watermark of at least that decision's E before returning the expiry verdict.
+Once D reaches the material's expiry, later corrections and replacement restarts
+MUST NOT revive it. Thus at most one additional refusal raise is needed for that
+material. If persistence or its confidence checks fail, the owner MUST return a
+confidence/store refusal and keep the account closed until successful durable
+revalidation; it MUST NOT release the material meanwhile. A later postcheck can
+only reinforce an already durable expiry refusal, not require chasing time with
+unbounded writes. Confidence refusal alone does not claim material expiry.
 
-**Non-revival.** Once material is refused as expired at D = T, that refusal
-MUST be supported by a successful durable watermark of at least T. The same
-material MUST never be served after any later correction or replacement restart.
-This is the sticky-watermark rule of [R-TIME](../spec/broker.md#151-service-user-and-time),
+**Durable stamps.** Writer creation/deadline timestamps and newly recorded
+resolution times MUST use D. An existing recorded resolution time remains sticky.
+Trusted clock correction MUST NOT lower E or D.
+
+**Bounded writes.** Each time admission MAY raise its watermark at most twice:
+the initial effective-time raise and one completion catch-up. Every write MUST
+retain the common before/after confidence checks. The final sample MUST update E
+and require fresh, trusted, nonzero evidence with E < AuthorityUntil. Exhausting
+the grant write budget may only narrow or refuse the result; it MUST NOT authorize
+material invalid at E. An expiry crossing after the final catch-up requires the
+separate refusal raise above. There is no write-until-the-clock-stops loop.
+
+**Write cost.** At most two catch-up writes per time admission, plus at most one
+refusal raise per material, in addition to existing attempt record writes. An
+admission needs no watermark write when D already covers its effective time.
+After replacement, D is restored before admission. Unacted process observations
+need not survive replacement; durable expiry refusals MUST survive it. This is
+the sticky-watermark rule of [R-TIME](../spec/broker.md#151-service-user-and-time),
 imported by the refresher contract. No reset of this evidence is implemented.
 
 Missing instants, provider errors, untrusted or stale evidence MUST refuse
@@ -100,13 +111,13 @@ in E even when the current confidence fails to cover it.
 
 | Admission | Time-authority call sites |
 |---|---|
-| Material snapshot | `Snapshot` → `snapshot` → `confidenceAt` → `timeAuthority.admission`; expiry uses `materialValid` and D |
+| Material snapshot | `Snapshot` → `snapshot` → `confidenceAt` → `timeAuthority.admission`; expiry uses `materialValid` at E and `materialAvailable` persists refusal |
 | Fresh-home lifecycle prerequisite | `AdmitFreshHome` → `confidenceAt` → `timeAuthority.admission` |
-| Refresh / retry decision | `Refresh` → `snapshot` and `confidenceAt`; `timeAuthority.retryReady` uses D |
+| Refresh / retry decision | `Refresh` → `snapshot` and `confidenceAt`; `timeAuthority.retryReady` uses E; retry returns revalidate through `materialAvailable` at that admission |
 | New writer | `attempt` → `confidenceAt`; `timeAuthority.stamp` uses D; intent completion fences start |
-| Proactive decision | `Due` → `snapshot` and `confidenceAt`; `timeAuthority.due` uses D; actual work calls `Refresh` |
+| Proactive decision | `Due` → `snapshot` and `confidenceAt`; `timeAuthority.due` uses E; latest admission revalidates material; actual work calls `Refresh` |
 | Replacement recovery | `recover` → `admissionTime` → `timeAuthority.sample`; invalid restoration remains closed before sampling |
-| Post-vendor / recovered resolution | `resolve` → `timeAuthority.resolution` uses prospective generation, bounded watermark persistence and D; recorded resolution time remains sticky |
+| Post-vendor / recovered resolution | `resolve` → `timeAuthority.resolution` uses prospective generation, bounded watermark persistence, expiry at E and stamps at D; recorded resolution time remains sticky |
 
 `Engine.clock` owns the sole `timeAuthority` for all accounts in the process.
 Only that type reads the injected `Confidence` provider, merges samples, compares
@@ -305,14 +316,14 @@ pending histories remain closed before time sampling; only valid restored
 watermarks enter a replacement's observed floor. Durable floors and expiry
 refusals are checked across restarts; unacted samples are process-local.
 `TestTimeAuthorityCompletionSequences` uses the same seeds to check the two-write
-bound and the durable-only final decision. `TestTimeAuthorityProcessFloor`
+grant bound, final-E expiry refusal and durable non-revival. `TestTimeAuthorityProcessFloor`
 checks that separate accounts share the observed floor. These finite sequences
 do not establish exhaustive schedule coverage or atomic asynchronous revocation.
 
 | Contract | Code | Tests |
 |---|---|---|
 | §4 stable locks, approved vendor, managed RPC and durable reload | `engine_linux.go`, `vendor_linux.go`, existing store locks | `TestStableHomeLock`, `TestIntentBeforeStartAndCommittedControl`, `TestDuplicateConfiguredVendorRefused` |
-| Durable time decisions and non-revival | `timeAuthority`, durable-only expiry/scheduling | `TestPostCommitClockCorrectionProbe`, `TestTimeAuthoritySequences`, `TestTimeAuthorityCompletionSequences`, `TestTimeAuthorityProcessFloor` |
+| Durable time decisions and non-revival | `timeAuthority`, effective-time expiry/scheduling and durable refusals | `TestPostCommitClockCorrectionProbe`, `TestTimeAuthoritySequences`, `TestTimeAuthorityCompletionSequences`, `TestTimeAuthorityProcessFloor` |
 | Completed persistence must revalidate before its successor | `commitThenRevalidate`, `commitCheckpoint`, `appendIntent`, `appendEvidence`, `durableMaterial` | `TestDurableEffectTimeBoundaryProbe`, `TestWatermarkCompletionAdmissionProbe`, `TestDurableStepTimeRevalidation`, `TestCommitTimeBoundary`, `TestMaterialDurabilityTimeRevalidation` |
 | §4 proactive window, unknown expiry, trusted time and watermark | `Due`, `confidenceAt`, `load` | `TestProactiveShortLifetime`, `TestStoreTimeAndFreshnessFences` |
 | §4 unchanged token and N=8/64 coalescing | `Refresh`, `resolve`, lease owner-error bridge | `TestUnchangedReportsRenewFailed`, `TestProbeUnchangedTokenMetadata`, `TestOwnerUnchangedRefusalPreserved`, `TestLeaseCoalescingCountsVendorUnits` |
