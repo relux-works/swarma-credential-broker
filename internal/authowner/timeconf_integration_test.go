@@ -34,7 +34,7 @@ func (c *confidenceInputs) Collect(context.Context, timeconf.Policy) (timeconf.E
 func providerFor(t *testing.T, f *authowner.ConfidenceFixture) (*timeconf.Provider, *confidenceInputs) {
 	t.Helper()
 	v := &confidenceInputs{now: f.Now(), elapsed: time.Hour}
-	p, err := timeconf.New(timeconf.Policy{Source: timeconf.NTSConfig, Chronyc: "/usr/bin/chronyc", SourceFiles: []string{"/etc/chrony/chrony.conf"}, MaxSyncAge: time.Minute, MaxOffset: time.Millisecond * 10, MaxRootDistance: time.Millisecond * 10, AuthorityWindow: time.Second * 30, StepTolerance: time.Millisecond, Timeout: time.Second, MaxOutputBytes: 4096, Resync: "operator"}, v, v, nil)
+	p, err := timeconf.New(timeconf.Policy{Source: timeconf.NTSConfig, Chronyc: "/usr/bin/chronyc", SourceFiles: []string{"/etc/chrony/chrony.conf"}, MaxSyncAge: time.Minute, MaxUncertainty: timeconf.PlatformMaxUncertainty, MaxOffset: time.Millisecond * 10, MaxRootDistance: time.Millisecond * 10, AuthorityWindow: time.Second * 30, StepTolerance: time.Millisecond, Timeout: time.Second, MaxOutputBytes: 4096, Resync: "operator"}, v, v, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

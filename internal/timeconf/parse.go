@@ -104,6 +104,7 @@ func ParseTracking(b []byte) (Tracking, error) {
 	if err != nil {
 		return Tracking{}, err
 	}
+	// Keep the finite update interval for diagnostics; it is not sync age.
 	fields := []*float64{&t.SystemOffset, &t.LastOffset, &t.RMSOffset, &t.Frequency, &t.ResidualFrequency, &t.Skew, &t.RootDelay, &t.RootDispersion, &t.UpdateInterval}
 	for i, field := range fields {
 		*field, err = number(v[i+4])
@@ -111,7 +112,7 @@ func ParseTracking(b []byte) (Tracking, error) {
 			return Tracking{}, err
 		}
 	}
-	if t.RMSOffset < 0 || t.Skew < 0 || t.RootDelay < 0 || t.RootDispersion < 0 || t.UpdateInterval <= 0 || math.Abs(t.Frequency) > 1e6 || math.Abs(t.ResidualFrequency) > 1e6 || t.Skew > 1e6 {
+	if t.RMSOffset < 0 || t.Skew < 0 || t.RootDelay < 0 || t.RootDispersion < 0 || math.Abs(t.Frequency) > 1e6 || math.Abs(t.ResidualFrequency) > 1e6 || t.Skew > 1e6 {
 		return Tracking{}, ErrUnavailable
 	}
 	t.Leap = v[13]

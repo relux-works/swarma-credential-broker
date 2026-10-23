@@ -14,15 +14,21 @@ import (
 )
 
 // Claim: broker static policy rejects a nonzero backward tolerance and invalid
-// enabled settings, with explicit zero/off and complete zero-threshold controls.
+// enabled settings, retaining shared age/uncertainty ceilings with explicit
+// zero/off and complete zero-threshold controls.
 func TestBrokerTimeConfidencePolicy(t *testing.T) {
 	e := testutil.New(t, lease.Options{})
 	p := e.Policy.Clone()
-	p.TimeConfidence = &timeconf.Policy{Source: timeconf.NTSConfig, Chronyc: "/usr/bin/chronyc", SourceFiles: []string{"/etc/chrony/chrony.conf"}, MaxSyncAge: time.Minute, MaxOffset: time.Millisecond, MaxRootDistance: time.Millisecond, AuthorityWindow: time.Second, StepTolerance: time.Millisecond, Timeout: time.Second, MaxOutputBytes: 4096, Resync: "operator"}
+	p.TimeConfidence = &timeconf.Policy{Source: timeconf.NTSConfig, Chronyc: "/usr/bin/chronyc", SourceFiles: []string{"/etc/chrony/chrony.conf"}, MaxSyncAge: timeconf.PlatformMaxSyncAge, MaxUncertainty: timeconf.PlatformMaxUncertainty, MaxOffset: time.Millisecond, MaxRootDistance: time.Millisecond, AuthorityWindow: time.Second, StepTolerance: time.Millisecond, Timeout: time.Second, MaxOutputBytes: 4096, Resync: "operator"}
 	if p.Validate(e.UID) != nil {
 		t.Fatal("valid zero threshold refused")
 	}
 	q := p.Clone()
+	q.TimeConfidence.MaxUncertainty += time.Nanosecond
+	if q.Validate(e.UID) == nil {
+		t.Fatal("broker uncertainty cap exceeds shared ceiling")
+	}
+	q = p.Clone()
 	q.TimeConfidence.BackwardTolerance = time.Nanosecond
 	if q.Validate(e.UID) == nil {
 		t.Fatal("nonzero broker threshold accepted")
@@ -45,7 +51,7 @@ func TestBrokerTimeConfidencePolicy(t *testing.T) {
 func TestBrokerTimePolicyCaseVariantMembers(t *testing.T) {
 	e := testutil.New(t, lease.Options{})
 	p := e.Policy.Clone()
-	p.TimeConfidence = &timeconf.Policy{Source: timeconf.NTSConfig, Chronyc: "/usr/bin/chronyc", SourceFiles: []string{"/etc/chrony/chrony.conf"}, MaxSyncAge: time.Minute, MaxOffset: time.Millisecond, MaxRootDistance: time.Millisecond, AuthorityWindow: time.Second, StepTolerance: time.Millisecond, Timeout: time.Second, MaxOutputBytes: 4096, Resync: "operator"}
+	p.TimeConfidence = &timeconf.Policy{Source: timeconf.NTSConfig, Chronyc: "/usr/bin/chronyc", SourceFiles: []string{"/etc/chrony/chrony.conf"}, MaxSyncAge: timeconf.PlatformMaxSyncAge, MaxUncertainty: timeconf.PlatformMaxUncertainty, MaxOffset: time.Millisecond, MaxRootDistance: time.Millisecond, AuthorityWindow: time.Second, StepTolerance: time.Millisecond, Timeout: time.Second, MaxOutputBytes: 4096, Resync: "operator"}
 	dir := t.TempDir()
 	if os.Chmod(dir, 0700) != nil {
 		t.Fatal("chmod failed")

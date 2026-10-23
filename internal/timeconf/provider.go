@@ -110,7 +110,9 @@ func validPoint(v ClockPoint) bool { return !v.Now.IsZero() && v.Boot != "" && v
 func finite(v float64) bool        { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 func (p *Provider) trackingValid(e Evidence, now time.Time) bool {
 	t := e.Tracking
-	if !e.Sources.AllNTS || e.Sources.Count < 1 || !selectedConfigured(e.Sources, t) || t.Leap != "Normal" || t.Stratum < 1 || t.Stratum > 15 || t.Reference.IsZero() || t.Reference.After(now) || !now.Before(t.Reference.Add(p.policy.MaxSyncAge)) {
+	// Sync age comes from this report's reference, never its averaged update interval.
+	age := now.Sub(t.Reference)
+	if !e.Sources.AllNTS || e.Sources.Count < 1 || !selectedConfigured(e.Sources, t) || t.Leap != "Normal" || t.Stratum < 1 || t.Stratum > 15 || t.Reference.IsZero() || age < 0 || age >= p.policy.MaxSyncAge {
 		return false
 	}
 	for _, v := range []float64{t.SystemOffset, t.LastOffset, t.RMSOffset, t.Frequency, t.ResidualFrequency, t.Skew, t.RootDelay, t.RootDispersion, t.UpdateInterval} {
@@ -119,7 +121,7 @@ func (p *Provider) trackingValid(e Evidence, now time.Time) bool {
 		}
 	}
 	bound := p.policy.MaxOffset.Seconds()
-	if math.Abs(t.SystemOffset) > bound || math.Abs(t.LastOffset) > bound || t.RMSOffset < 0 || t.RMSOffset > bound || t.RootDelay < 0 || t.RootDispersion < 0 || t.Skew < 0 || t.UpdateInterval <= 0 || t.UpdateInterval > p.policy.MaxSyncAge.Seconds() || math.Abs(t.Frequency) > 1e6 || math.Abs(t.ResidualFrequency) > 1e6 || t.Skew > 1e6 || t.RootDelay/2+t.RootDispersion > p.policy.MaxRootDistance.Seconds() {
+	if math.Abs(t.SystemOffset) > bound || math.Abs(t.LastOffset) > bound || t.RMSOffset < 0 || t.RMSOffset > bound || t.RootDelay < 0 || t.RootDispersion < 0 || t.Skew < 0 || math.Abs(t.Frequency) > 1e6 || math.Abs(t.ResidualFrequency) > 1e6 || t.Skew > 1e6 || t.RootDelay/2+t.RootDispersion > p.policy.MaxRootDistance.Seconds() {
 		return false
 	}
 	if p.policy.Source == NTSAuthData {
@@ -160,6 +162,11 @@ func (p *Provider) Sample(ctx context.Context) (Sample, error) {
 		p.emit("evidence_unavailable")
 		return Sample{}, ErrUnavailable
 	}
+	delta := uncertainty(evidence.Tracking, after.Now)
+	if delta > p.policy.MaxUncertainty {
+		p.emit("evidence_unavailable")
+		return Sample{}, ErrUnavailable
+	}
 	if p.held {
 		if p.policy.Resync != "new-authenticated-sync" || step || stepAfter || after.Elapsed <= p.holdElapsed || !evidence.Tracking.Reference.After(p.holdReference) || !evidence.Tracking.Reference.After(p.holdWall) {
 			return Sample{}, ErrUnavailable
@@ -176,7 +183,7 @@ func (p *Provider) Sample(ctx context.Context) (Sample, error) {
 	if !after.Now.Before(until) {
 		return Sample{}, ErrUnavailable
 	}
-	return Sample{Now: after.Now, AuthorityUntil: until, Trusted: true, Fresh: true, Uncertainty: uncertainty(evidence.Tracking, after.Now), Boot: after.Boot}, nil
+	return Sample{Now: after.Now, AuthorityUntil: until, Trusted: true, Fresh: true, Uncertainty: delta, Boot: after.Boot}, nil
 }
 
 // StartSample performs a new observation before any process time decision. It
@@ -190,7 +197,9 @@ func uncertainty(t Tracking, now time.Time) time.Duration {
 	// since the reference by the measured frequency uncertainty (ppm).
 	offset := math.Max(math.Abs(t.SystemOffset), math.Max(math.Abs(t.LastOffset), t.RMSOffset))
 	seconds := offset + t.RootDelay/2 + t.RootDispersion + now.Sub(t.Reference).Seconds()*t.Skew/1e6
-	return time.Duration(math.Ceil(math.Nextafter(seconds*float64(time.Second), math.Inf(1))))
+	// Ceil rounds fractional nanoseconds upward without adding a nanosecond to
+	// an exact bound, which must remain valid at the inclusive uncertainty cap.
+	return time.Duration(math.Ceil(seconds * float64(time.Second)))
 }
 
 func selectedConfigured(s Sources, t Tracking) bool {

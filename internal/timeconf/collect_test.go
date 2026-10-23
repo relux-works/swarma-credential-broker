@@ -92,7 +92,7 @@ func executableFixture(t *testing.T) string {
 // Claim: every CSV column is checked, and truncated/extra/nonfinite/malformed
 // reports refuse instead of treating an otherwise valid prefix as confidence.
 func TestTrackingParserNegativeAndControl(t *testing.T) {
-	bad := map[int]string{0: "00000000", 1: "not/an/address", 2: "16", 3: "NaN", 4: "NaN", 5: "Inf", 6: "-1", 7: "1000001", 8: "-1000001", 9: "-1", 10: "-1", 11: "-1", 12: "0", 13: "unexpected"}
+	bad := map[int]string{0: "00000000", 1: "not/an/address", 2: "16", 3: "NaN", 4: "NaN", 5: "Inf", 6: "-1", 7: "1000001", 8: "-1000001", 9: "-1", 10: "-1", 11: "-1", 12: "NaN", 13: "unexpected"}
 	for index, value := range bad {
 		t.Run(fmt.Sprint(index), func(t *testing.T) {
 			v := strings.Split(strings.TrimSpace(goodCSV), ",")
@@ -200,7 +200,7 @@ func TestProtectedPolicyAndConfiguration(t *testing.T) {
 	if _, err := DecodePolicy([]byte(`{"source":"off"}`)); err != nil {
 		t.Fatal("off policy refused")
 	}
-	for _, field := range []string{"MaxSyncAge", "MaxOffset", "MaxRootDistance", "AuthorityWindow", "StepTolerance", "Timeout", "MaxOutputBytes"} {
+	for _, field := range []string{"MaxSyncAge", "MaxUncertainty", "MaxOffset", "MaxRootDistance", "AuthorityWindow", "StepTolerance", "Timeout", "MaxOutputBytes"} {
 		q := p
 		reflect.ValueOf(&q).Elem().FieldByName(field).SetInt(0)
 		if q.Validate() == nil {
@@ -339,7 +339,7 @@ func TestServicePolicyRestrictions(t *testing.T) {
 		_, err = LoadServicePolicy(path, uint32(os.Geteuid()), shared)
 		return err
 	}
-	for _, field := range []string{"MaxSyncAge", "MaxOffset", "MaxRootDistance", "AuthorityWindow", "StepTolerance", "BackwardTolerance", "Timeout", "MaxOutputBytes"} {
+	for _, field := range []string{"MaxSyncAge", "MaxUncertainty", "MaxOffset", "MaxRootDistance", "AuthorityWindow", "StepTolerance", "BackwardTolerance", "Timeout", "MaxOutputBytes"} {
 		t.Run(field, func(t *testing.T) {
 			q := shared
 			v := reflect.ValueOf(&q).Elem().FieldByName(field)
@@ -355,6 +355,7 @@ func TestServicePolicyRestrictions(t *testing.T) {
 	q := shared
 	q.BackwardTolerance = 0
 	q.MaxOffset /= 2
+	q.MaxUncertainty /= 2
 	q.Resync = "operator"
 	if load(q) != nil {
 		t.Fatal("stricter control refused")
@@ -475,3 +476,77 @@ func TestSystemCollectorAuthenticationMode(t *testing.T) {
 	}
 }
 func policyWithSource(p Policy, s Source) Policy { p.Source = s; return p }
+
+// Claim: the explicit uncertainty cap survives protected shared/service policy
+// loading, rejects omission, malformed values and loosening, and permits a
+// smaller service cap. No fallback infers the cap from measured error limits.
+func TestUncertaintyPolicyContract(t *testing.T) {
+	shared := platformTestPolicy()
+	b, err := json.Marshal(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := `"max_uncertainty_ns":1500000000`
+	if !bytes.Contains(b, []byte(canonical)) {
+		t.Fatal("shared cap not encoded explicitly")
+	}
+	for name, replacement := range map[string]string{
+		"zero":      `"max_uncertainty_ns":0`,
+		"negative":  `"max_uncertainty_ns":-1`,
+		"above":     `"max_uncertainty_ns":1500000001`,
+		"null":      `"max_uncertainty_ns":null`,
+		"fraction":  `"max_uncertainty_ns":1.5`,
+		"alias":     `"MAX_UNCERTAINTY_NS":1500000000`,
+		"duplicate": canonical + `,` + canonical,
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw := bytes.Replace(b, []byte(canonical), []byte(replacement), 1)
+			if _, err := DecodePolicy(raw); !errors.Is(err, ErrUnavailable) {
+				t.Fatal("invalid uncertainty cap accepted", err)
+			}
+		})
+	}
+	if _, err := DecodePolicy(bytes.Replace(b, []byte(canonical+","), nil, 1)); !errors.Is(err, ErrUnavailable) {
+		t.Fatal("missing uncertainty cap accepted", err)
+	}
+	path := filepath.Join(protectedTemp(t), "confidence-policy.json")
+	if err := os.WriteFile(path, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadPolicy(path, uint32(os.Geteuid()))
+	if err != nil || loaded.MaxUncertainty != 1500*time.Millisecond || loaded.MaxSyncAge != 2048*time.Second {
+		t.Fatal("shared bounds changed while loading", err)
+	}
+	q := loaded
+	q.MaxUncertainty = time.Second
+	raw, err := json.Marshal(q)
+	if err != nil || os.WriteFile(path, raw, 0600) != nil {
+		t.Fatal("service fixture write failed")
+	}
+	service, err := LoadServicePolicy(path, uint32(os.Geteuid()), loaded)
+	if err != nil || service.MaxUncertainty != time.Second {
+		t.Fatal("stricter cap refused", err)
+	}
+	if _, err := ServicePolicy(service, loaded); !errors.Is(err, ErrUnavailable) {
+		t.Fatal("service loosened its uncertainty cap", err)
+	}
+	if _, err := DecodePolicy([]byte(`{"source":"off","max_uncertainty_ns":1}`)); !errors.Is(err, ErrUnavailable) {
+		t.Fatal("off policy retained an authority bound", err)
+	}
+}
+
+// Claim: reference epochs reject nonfinite, exponent and out-of-range values;
+// the nearby valid report preserves all nine fractional timestamp digits.
+func TestReferenceTimestampParserBoundaries(t *testing.T) {
+	for _, reference := range []string{"NaN", "Inf", "+Inf", "-Inf", "1e1000", "0", "-1", "253402300800", "1893553444.0000000001"} {
+		report := strings.Replace(goodCSV, "1893553444.000000000", reference, 1)
+		if _, err := ParseTracking([]byte(report)); !errors.Is(err, ErrUnavailable) {
+			t.Fatal("invalid reference timestamp accepted", err)
+		}
+	}
+	report := strings.Replace(goodCSV, "1893553444.000000000", "1893553444.999999999", 1)
+	v, err := ParseTracking([]byte(report))
+	if err != nil || v.Reference.Unix() != 1893553444 || v.Reference.Nanosecond() != 999999999 {
+		t.Fatal("nanosecond reference lost", err)
+	}
+}
