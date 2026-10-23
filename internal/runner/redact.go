@@ -15,7 +15,12 @@ type textStream struct {
 	pending []byte
 }
 
-func (s *textStream) addSecret(token []byte) { s.secrets = append(s.secrets, bytes.Clone(token)) }
+func (s *textStream) addSecret(token []byte) {
+	s.secrets = append(s.secrets, bytes.Clone(token))
+	// rejected_sha256 uses lowercase hex; protect its uppercase spelling too.
+	hash := []byte(digest(token))
+	s.secrets = append(s.secrets, hash, bytes.ToUpper(hash))
+}
 func (s *textStream) redact(b []byte) []byte {
 	out := bytes.Clone(b)
 	for _, secret := range s.secrets {
@@ -85,8 +90,13 @@ func (w contextWriter) Write(b []byte) (int, error) {
 		if has {
 			f.SetWriteDeadline(deadline)
 		}
-		stop := context.AfterFunc(w.ctx, func() { f.SetWriteDeadline(time.Now()) })
-		defer stop()
+		stop := wakeOnCancel(w.ctx, func() { f.SetWriteDeadline(time.Now()) })
+		defer func() {
+			stop()
+			// The caller retains this descriptor; do not leave a cancelled
+			// deadline installed on its next use.
+			f.SetWriteDeadline(time.Time{})
+		}()
 	}
 	return w.out.Write(b)
 }

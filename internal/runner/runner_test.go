@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,11 +35,15 @@ func TestMain(m *testing.M) {
 	}
 	fakePath = filepath.Join(buildDir, "fake-app-server")
 	supervisorPath = filepath.Join(buildDir, "runner")
-	for _, b := range []struct{ out, pkg string }{{fakePath, "./testdata/appserver"}, {supervisorPath, "../cmd/swarma-credential-broker"}} {
-		cmd := exec.Command("go", "build", "-p=2", "-o", b.out, b.pkg)
+	goTool := os.Getenv("GO")
+	if goTool == "" {
+		goTool = filepath.Join(runtime.GOROOT(), "bin", "go")
+	}
+	for _, b := range []struct{ out, pkg string }{{fakePath, "./testdata/appserver"}, {supervisorPath, "../../cmd/swarma-credential-broker"}} {
+		cmd := exec.Command(goTool, "build", "-p=2", "-o", b.out, b.pkg)
 		data, e := cmd.CombinedOutput()
 		if e != nil {
-			fmt.Fprintln(os.Stderr, string(data))
+			fmt.Fprintf(os.Stderr, "helper build %s: %v\n%s", b.pkg, e, data)
 			os.RemoveAll(buildDir)
 			os.Exit(1)
 		}
@@ -745,7 +750,8 @@ func TestExitDominance(t *testing.T) {
 	}
 }
 
-// Canary material may appear in fake vendor text/stderr, but never escapes
+// Raw canary tokens and their lower/upper hex SHA-256 forms may appear in fake
+// vendor text/stderr, but never escape
 // runner output, owned files, the child's argv/environment or inherited FDs.
 func TestCanaryNoLeak(t *testing.T) {
 	f := newFixture(t, map[string]any{"RefreshCount": 2, "Echo": true})
@@ -756,7 +762,7 @@ func TestCanaryNoLeak(t *testing.T) {
 		for _, name := range []string{"environ", "cmdline"} {
 			data, e := os.ReadFile(fmt.Sprintf("/proc/%d/%s", pid, name))
 			must(t, e)
-			for _, token := range []string{canaryA, canaryB, canaryC, "must-not-inherit"} {
+			for _, token := range append(canaryMaterials(), "must-not-inherit") {
 				if bytes.Contains(data, []byte(token)) {
 					t.Fatal("inherited material")
 				}
@@ -781,7 +787,7 @@ func TestCanaryNoLeak(t *testing.T) {
 		}
 	}
 	requireStatus(t, f.run(), 0, f.err.String())
-	for _, token := range []string{canaryA, canaryB, canaryC} {
+	for _, token := range canaryMaterials() {
 		if strings.Contains(f.out.String()+f.err.String(), token) {
 			t.Fatal("stream leak")
 		}

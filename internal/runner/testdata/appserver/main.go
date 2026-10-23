@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 type scenario struct {
 	InitFail, LoginFail, Hang, Spawn, Echo, PreviousMismatch, Duplicate, WrongTurn, Escape, RetryAfterError bool
+	HashEcho, StopReadAfterThread                                                                           bool
 	RefreshCount                                                                                            int
 	Status                                                                                                  string
 	Approvals                                                                                               []string
@@ -97,6 +99,7 @@ func main() {
 		os.WriteFile(filepath.Join(home, "child-pid"), []byte(strconv.Itoa(p.Process.Pid)), 0600)
 	}
 	var token string
+	var tokens []string
 	var initialized, notified bool
 	remaining := s.RefreshCount
 	approval := 0
@@ -111,15 +114,28 @@ func main() {
 		}
 		text := "answer"
 		if s.Echo {
-			text = "safe " + token + " tail"
-			fmt.Fprintln(os.Stderr, token)
+			text = "safe "
+			for _, value := range tokens {
+				hash := sha256.Sum256([]byte(value))
+				text += fmt.Sprintf("%s %x %X ", value, hash, hash)
+			}
+			text += "tail"
+			fmt.Fprintln(os.Stderr, text)
+		}
+		if s.HashEcho {
+			hash := sha256.Sum256([]byte(token))
+			text = fmt.Sprintf("safe %x %X tail", hash, hash)
 		}
 		thread := "thread"
 		if s.WrongTurn {
 			thread = "other"
 		}
-		// Deliberately split secret-bearing output across RPC boundaries.
-		for _, part := range []string{text[:len(text)/2], text[len(text)/2:]} {
+		// Hash-echo fragments every byte, so neither hash fits in one delta.
+		parts := []string{text[:len(text)/2], text[len(text)/2:]}
+		if s.HashEcho {
+			parts = strings.Split(text, "")
+		}
+		for _, part := range parts {
 			send(map[string]any{"method": "item/agentMessage/delta", "params": map[string]any{"threadId": thread, "turnId": "turn", "itemId": "message", "delta": part}})
 		}
 		item := map[string]any{"id": "message", "type": "agentMessage", "phase": "final_answer", "text": text}
@@ -169,6 +185,7 @@ func main() {
 					os.Exit(1)
 				}
 				token = payload.AccessToken
+				tokens = append(tokens, token)
 			}
 			if len(m.Error) == 0 || strings.Contains(string(m.ID), "approval-") || s.RetryAfterError {
 				next()
@@ -203,6 +220,7 @@ func main() {
 			fail = s.LoginFail || !notified || p.Type != "chatgptAuthTokens" || p.Account != "vendor-account"
 			if !fail {
 				token = p.Token
+				tokens = append(tokens, token)
 				response(m.ID, map[string]any{"type": "chatgptAuthTokens"})
 				continue
 			}
@@ -212,6 +230,14 @@ func main() {
 			}
 			json.Unmarshal(m.Params, &p)
 			response(m.ID, map[string]any{"thread": map[string]any{"id": "thread"}, "model": p.Model})
+			if s.StopReadAfterThread {
+				if os.WriteFile(filepath.Join(home, "stopped-reading"), []byte("ready"), 0600) != nil {
+					os.Exit(1)
+				}
+				for {
+					time.Sleep(time.Hour)
+				}
+			}
 			continue
 		case "turn/start":
 			response(m.ID, map[string]any{"turn": map[string]any{"id": "turn", "status": "inProgress", "items": []any{}}})

@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/relux-works/swarma-credential-broker/runner"
+	"github.com/relux-works/swarma-credential-broker/internal/runner"
 )
 
 func main() {

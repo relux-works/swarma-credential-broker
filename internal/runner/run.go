@@ -220,7 +220,7 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 		if e != nil {
 			return nil, refuse("external_token_init_failed", 69)
 		}
-		client = newRPC(proc)
+		client = newRPC(ctx, proc)
 		session.rpc = client
 		return session.drive(prompt, o)
 	}
@@ -590,7 +590,7 @@ func validOpaqueID(s string) bool {
 		return false
 	}
 	for _, c := range s {
-		if c < 33 || c > 126 {
+		if c > 127 {
 			return false
 		}
 	}

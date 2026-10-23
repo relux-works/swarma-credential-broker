@@ -1,6 +1,6 @@
 # External-token runner integration
 
-The Linux `runner` package implements the one-turn lifecycle in
+The Linux `internal/runner` package implements the one-turn lifecycle in
 [profile §6](../spec/v0-codex-refresher.md#6-external-token-delivery-and-one-shot-runner).
 The command dispatches `run-codex`; production policy loading and the broker wire
 adapter are separate integration work. The shipped command therefore refuses
@@ -81,8 +81,11 @@ A symlink/nonregular destination, unavailable directory or changed destination
 cannot be published. Only a matching completed turn plus successful cleanup and
 release permits a mode-0600 atomic replacement. Errors leave existing output
 unchanged and remove staging files. Stdout contains assistant deltas only;
-known token bytes are redacted across delta boundaries and in the final file.
-Vendor stderr, raw frames and vendor error messages are discarded. File-backed
+known token bytes and their lowercase/uppercase hexadecimal SHA-256 forms are
+redacted across delta boundaries and in the final file. The lowercase form is
+the digest sent as `rejected_sha256`; no other token-digest encoding is sent.
+Protection retains every initial and renewed token until material is erased.
+Vendor stderr, raw frames and vendor error messages are discarded. Pipe-backed
 stdout observes context cancellation; an embedding writer must itself provide
 bounded writes. Owned token/wire buffers are cleared. Go's runtime and JSON
 encoding can create temporary immutable copies, so physical memory erasure is
@@ -136,7 +139,7 @@ deadline) and 130 (handled signal after cleanup).
 
 ## Validation boundaries
 
-`runner/testdata/appserver` is a Go stdio fake, built by the runner tests together
+`internal/runner/testdata/appserver` is a Go stdio fake, built by the runner tests together
 with the command. It scripts initialization/login refusal, completed/failed turns,
 refreshes, approvals, mismatches, and SIGTERM-ignoring descendants. Tests use an
 in-process fake broker, privately qualified fake executable and synthetic tokens.
@@ -148,3 +151,33 @@ runner inference against a fake backend requires overrides the production runner
 must refuse. Separate empty-home binary probes can establish protocol behavior;
 they cannot make the production runner qualified or stand in for approved live
 account tests.
+
+## Cancellation and integration limits
+
+RPC pipe writes install a deadline and a cancellation callback that expires it
+immediately. The callback is joined before another send, so cancellation cannot
+expire a later cleanup interrupt. Cancellation also expires the RPC scanner's
+read deadline; receive waits select on the context. The process stop path closes
+both pipes and confirms the guard and descendants absent. Stdout pipe writes use
+the same joined cancellation callback and clear the borrowed write deadline.
+
+Broker calls, connection establishment and authority loading receive contexts.
+Their trusted adapters must honor them; an arbitrary blocking implementation
+cannot be forcibly interrupted by this package. Renewal additionally has its
+existing asynchronous cutoff, with Close and a bounded wait during cleanup.
+Prompt acquisition returns on parent cancellation before any lease/process
+starts; embedders should supply cancellable readers so an abandoned prompt read
+can also end. Diagnostics use fixed metadata and an embedding writer must have
+bounded writes.
+
+Output staging and publication use regular files, with publication after process
+teardown and lease release. Regular-file writes, fsync and filesystem metadata
+calls have no portable Go cancellation mechanism; a stalled filesystem can delay
+command return. Deadline handling for pipes does not establish a storage-latency
+guarantee. Existing atomic-publication and failure-preservation checks still
+apply.
+
+The package is internal to this module; no external Go API is promised. Helper
+tests use `GO` when explicitly supplied, otherwise `runtime.GOROOT()/bin/go`,
+and assert both built helpers have the running test binary's Go version. For a
+toolchain with no embedded GOROOT, set `GO` to the absolute selected Go executable.

@@ -35,9 +35,11 @@ type rpc struct {
 	queue    []message
 }
 
-func newRPC(p *process) *rpc {
+func newRPC(ctx context.Context, p *process) *rpc {
 	r := &rpc{in: p.in, messages: make(chan incoming, 32), closed: make(chan struct{})}
 	go func() {
+		stop := wakeOnCancel(ctx, func() { p.out.SetReadDeadline(time.Now()) })
+		defer stop()
 		defer close(r.messages)
 		scanner := bufio.NewScanner(p.out)
 		scanner.Buffer(make([]byte, 4096), maxRPC)
@@ -73,7 +75,7 @@ func (r *rpc) send(ctx context.Context, v any) error {
 	if err != nil {
 		return err
 	}
-	defer clear(data)
+	defer func() { clear(data) }()
 	data = append(data, '\n')
 	deadline, ok := ctx.Deadline()
 	if !ok {
@@ -82,7 +84,14 @@ func (r *rpc) send(ctx context.Context, v any) error {
 	if err = r.in.SetWriteDeadline(deadline); err != nil {
 		return err
 	}
+	// A deadline alone cannot wake a write when cancellation precedes it.
+	// Join the cancellation callback before another send installs its deadline.
+	stop := wakeOnCancel(ctx, func() { r.in.SetWriteDeadline(time.Now()) })
+	defer stop()
 	_, err = r.in.Write(data)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return err
 }
 func (r *rpc) notify(ctx context.Context, method string, params any) error {
@@ -94,6 +103,9 @@ func (r *rpc) request(ctx context.Context, method string, params any) (json.RawM
 	return id, r.send(ctx, map[string]any{"id": id, "method": method, "params": params})
 }
 func (r *rpc) receive(ctx context.Context) (message, error) {
+	if err := ctx.Err(); err != nil {
+		return message{}, err
+	}
 	select {
 	case <-ctx.Done():
 		return message{}, ctx.Err()
@@ -131,5 +143,17 @@ func (r *rpc) call(ctx context.Context, method string, params any, callback func
 			return nil, errors.New("rpc refused")
 		}
 		return m.Result, nil
+	}
+}
+
+// wakeOnCancel interrupts owned pipe I/O and joins a callback already running.
+// Joining prevents an old cancellation from expiring a later cleanup write.
+func wakeOnCancel(ctx context.Context, wake func()) func() {
+	done := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { wake(); close(done) })
+	return func() {
+		if !stop() {
+			<-done
+		}
 	}
 }
