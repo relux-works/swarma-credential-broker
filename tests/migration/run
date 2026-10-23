@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# Run only this tool's fixture tests. Scratch stays outside the checkout.
+set -u
+set -o pipefail
+repo=$(cd "${BASH_SOURCE[0]%/*}/../.." && pwd)
+script=$repo/scripts/migrate-service-user
+fixture=$repo/tests/migration/fixture.py
+scratch=${1:?usage: tests/migration/run /absolute/scratch-directory}
+mkdir -p "$scratch" || exit 1
+scratch=$(cd "$scratch" && pwd)
+printf '%s\n' "$BASHPID" > "$scratch/runner.pid"
+real_path=$PATH
+passed=0 failed=0 case_id=0
+new_fixture() {
+    export MIGRATION_FIXTURE=$scratch/case-$case_id
+    mkdir "$MIGRATION_FIXTURE" || return 1
+    python3 "$fixture" init || return 1
+}
+ctl() { python3 "$fixture" "$@"; }
+invoke() {
+    local tool=${3:-$script}
+    PATH="$MIGRATION_FIXTURE/bin:$real_path" bash "$tool" "$1" "$MIGRATION_FIXTURE/config" > "$MIGRATION_FIXTURE/stdout" 2> "$MIGRATION_FIXTURE/stderr"
+    status=$?
+    if [[ $status != "$2" ]]; then
+        printf 'expected exit %s, got %s\n' "$2" "$status" >&2
+        cat "$MIGRATION_FIXTURE/stderr" >&2
+        return 1
+    fi
+}
+prepare_migration() { invoke close-admission 0 && ctl confirm; }
+check() { ctl assert "$1"; }
+run_test() {
+    local name=$1; shift
+    [[ $name == ${MIGRATION_TEST_FILTER:-*} ]] || return 0
+    case_id=$((case_id + 1))
+    if ( "$@" ); then printf 'PASS %s\n' "$name"; passed=$((passed + 1))
+    else printf 'FAIL %s\n' "$name"; failed=$((failed + 1)); fi
+}
+
+# Negative observations return plausible values with a nonzero status. Each
+# class is paired with the unmodified observation in its neighboring control.
+observation_failure() {
+    local command=$1 match=${2:-} output=${3:-} nth=${4:-1}
+    new_fixture || return 1
+    local fault
+    fault=$(python3 -c 'import json,sys; print(json.dumps(dict(command=sys.argv[1],mode="expected",contains=sys.argv[2],nth=int(sys.argv[3]),status=1)))' "$command" "$match" "$nth")
+    if [[ -n $output ]]; then
+        fault=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d.update(mode="before", output=sys.argv[2]); print(json.dumps(d))' "$fault" "$output")
+    fi
+    ctl fault "$fault" || return 1
+    invoke close-admission 69 && check fault-used && check no-mutation
+}
+positive_close() { new_fixture && invoke close-admission 0 && check closed && check no-migration; }
+for command in id getent stat find sha256sum flock platform:inventory; do
+    run_test "ObservationRejectsFailed-$command" observation_failure "$command"
+    run_test "ObservationControl-$command" positive_close
+done
+# cat reads only protected noncredential config/evidence. Driver closed-state
+# reads happen after fencing; their failure must not claim verified closure.
+cat_observation() { observation_failure cat; }
+run_test ObservationRejectsFailed-config-read cat_observation
+run_test ObservationControl-config-read positive_close
+
+# A mountpoint command failure is distinct from its documented non-mount exit
+# 32, even when no output resembles the ordinary successful absence result.
+mount_observation() {
+    new_fixture || return 1
+    ctl fault '{"command":"mountpoint","mode":"before","status":1,"output":""}' || return 1
+    invoke close-admission 69 && check fault-used && check no-mutation
+}
+run_test MountpointObservationFailureIsUnknown mount_observation
+run_test MountpointObservationControl positive_close
+
+# Raw command diagnostics/output may contain material. Even an adversarial
+# failing observation cannot echo it through the tool's fixed diagnostics.
+canary_diagnostic() {
+    new_fixture || return 1
+    ctl fault '{"command":"id","mode":"before","status":1,"output":"SYNTHETIC_CREDENTIAL_DO_NOT_READ_7b329"}' || return 1
+    invoke close-admission 69 && check fault-used && check no-mutation
+}
+run_test CanaryObservationNeverPrinted canary_diagnostic
+run_test CanaryObservationControl positive_close
+
+# Only documented exit 2 is absence; errors 1/3 cannot prove a free name.
+getent_failure() {
+    new_fixture || return 1
+    ctl fault '{"command":"getent","contains":"passwd service","mode":"before","status":'"$1"',"output":""}' || return 1
+    invoke close-admission 69 && check fault-used && check no-mutation
+}
+run_test GetentExit1IsUnknown getent_failure 1
+run_test GetentExit2AbsenceControl positive_close
+run_test GetentExit3IsUnknown getent_failure 3
+
+# Every pre-existing resource, foreign filesystem, link and mount blocks before
+# mutations; the successful adjacent fixture has none of those conditions.
+preflight_rejects() { new_fixture && ctl scenario "$1" && invoke close-admission 69 && check no-mutation; }
+for scenario in user group home destination device symlink mount hardlink; do
+    run_test "PreflightRejects-$scenario" preflight_rejects "$scenario"
+    run_test "PreflightControl-$scenario" positive_close
+done
+
+# Confirmation cannot stand in for current complete original-writer evidence.
+confirmation_failure() {
+    new_fixture && prepare_migration || return 1
+    case $1 in missing) rm "$MIGRATION_FIXTURE/state/confirmation" ;; *) ctl scenario "$1" || return 1 ;; esac
+    invoke migrate 69 && check no-migration && check closed
+}
+positive_migration() { new_fixture && prepare_migration && invoke migrate 0 && check success; }
+for scenario in missing stale stale-store evidence; do
+    run_test "ConfirmationRejects-$scenario" confirmation_failure "$scenario"
+    run_test "ConfirmationControl-$scenario" positive_migration
+done
+
+# A rename's failure status or TERM before bookkeeping does not mean no effect.
+# Captured inode/device and absence allow restoration without touching others.
+partial_rename() {
+    new_fixture && prepare_migration || return 1
+    ctl fault '{"command":"mv","mode":"'"$1"'"}' || return 1
+    invoke migrate "$2" && check fault-used && check restored && check closed
+}
+run_test RenameErrorAfterEffectRestores partial_rename after 75
+run_test RenameErrorControl positive_migration
+run_test TermBetweenRenameAndBookkeepingRestores partial_rename term 143
+run_test TermControl positive_migration
+
+# A partial creation lacks a captured ownership identity; it must be preserved
+# with unknown recovery, rather than silently adopted and deleted.
+partial_creation() {
+    new_fixture && prepare_migration || return 1
+    ctl fault '{"command":"groupadd","mode":"'"$1"'"}' || return 1
+    invoke migrate "$2" && check fault-used && check partial-group && check unknown && check closed
+}
+run_test PartialGroupCreationPreserved partial_creation after 75
+run_test PartialGroupControl positive_migration
+run_test TermAfterGroupCreationPreserved partial_creation term 143
+run_test TermAfterGroupControl positive_migration
+
+# A reappearing source is unrelated to the captured store. Rollback must keep
+# both paths and report unknown, never overwrite the reappearing directory.
+reappearing_source() {
+    new_fixture && prepare_migration || return 1
+    ctl fault '{"command":"mv","mode":"after","reappear":true}' || return 1
+    invoke migrate 75 && check fault-used && check reappeared && check unknown && check closed
+}
+run_test ReappearingSourceNeverOverwritten reappearing_source
+run_test ReappearingSourceControl positive_migration
+
+# Rollback cannot remove a previously captured home with changed ownership.
+foreign_home() {
+    new_fixture && prepare_migration || return 1
+    ctl fault '{"command":"mv","mode":"after","replace_home":true}' || return 1
+    invoke migrate 75 && check fault-used && check unknown && check closed
+    python3 - <<'PYHOME'
+import json,os,pathlib
+root=pathlib.Path(os.environ['MIGRATION_FIXTURE'])
+db=json.loads((root/'fixture.json').read_text())
+assert (root/'parent/new').is_dir()
+assert not any(x[0]=='rmdir' for x in db['calls'])
+PYHOME
+}
+run_test ChangedHomeOwnershipNeverRemoved foreign_home
+run_test ChangedHomeOwnershipControl positive_migration
+
+# Failed rollback guards with expected metadata must not authorize deletion or
+# a verified-cleanup claim. Test the actual rollback stat/getent/manager reads.
+rollback_observation() {
+    new_fixture && prepare_migration || return 1
+    ctl fault '{"command":"mv","mode":"after"}' || return 1
+    # Insert a persistent status failure only after the original rename. The
+    # fixture's after_command predicate activates it in the recovery path.
+    ctl fault '{"command":"'"$1"'","mode":"expected","after_command":"mv","contains":"'"${2:-}"'"}' || return 1
+    invoke migrate 75 && check fault-used && check unknown && check closed
+}
+run_test RollbackStatFailureIsUnknown rollback_observation stat
+run_test RollbackStatControl partial_rename after 75
+run_test RollbackGetentFailureIsUnknown rollback_observation getent 'passwd service'
+run_test RollbackGetentControl partial_rename after 75
+run_test RollbackManagerFailureIsUnknown rollback_observation platform:closed
+run_test RollbackManagerControl partial_rename after 75
+
+# Normalization errors restore original modes/owner before the safe rename.
+normalization_error() {
+    new_fixture && prepare_migration || return 1
+    ctl fault '{"command":"'"$1"'","mode":"after"}' || return 1
+    invoke migrate 75 && check fault-used && check restored && check closed
+}
+run_test PartialChownRestoresMetadata normalization_error chown
+run_test PartialChownControl positive_migration
+run_test PartialChmodRestoresMetadata normalization_error chmod
+run_test PartialChmodControl positive_migration
+
+# Readiness failure prevents reopening; even open-new failing after its effect
+# must re-close both admissions and preserve deployed state for site recovery.
+deployment_error() {
+    new_fixture && prepare_migration || return 1
+    ctl fault '{"command":"platform:'"$1"'","mode":"'"$2"'"}' || return 1
+    invoke migrate 75 && check fault-used && check unknown && check closed
+    if [[ $1 != open-new && $1 != final ]]; then check no-open; fi
+}
+for scenario in install-and-repin installed prestart start-new readiness open-new final; do
+    run_test "DeploymentFailureStaysClosed-$scenario" deployment_error "$scenario" expected
+    run_test "DeploymentControl-$scenario" positive_migration
+done
+
+# Failure to durably record intent prevents the corresponding target mutation.
+journal_failure() {
+    new_fixture || return 1
+    ctl fault '{"command":"sync","mode":"before","status":1}' || return 1
+    invoke close-admission 75 && check fault-used && check no-mutation
+}
+run_test JournalDurabilityFailureBlocksMutation journal_failure
+run_test JournalDurabilityControl positive_close
+
+# Instrument control changes only the generic observation status check, leaving
+# every value comparison and product test intact. This same root-observation
+# regression must fail: accepting plausible output from id exit 1 is forbidden.
+narrowing_control() {
+    local mutant=$scratch/status-mutant
+    python3 - "$script" "$mutant" <<'PY'
+import pathlib,sys
+s=pathlib.Path(sys.argv[1]).read_text()
+a=s.index('    # OBSERVATION_STATUS_BEGIN:')
+b=s.index('    # OBSERVATION_STATUS_END',a)
+pathlib.Path(sys.argv[2]).write_text(s[:a]+s[b:])
+PY
+    new_fixture || return 1
+    ctl fault '{"command":"id","mode":"expected","status":1}' || return 1
+    # Run the exact same rejection assertion as ObservationRejectsFailed-id.
+    invoke close-admission 69 "$mutant" > "$scratch/mutant-observation.log" 2>&1
+    local red=$?
+    printf 'mutant regression exit=%s (expected 1)\n' "$red" > "$scratch/mutant-result.txt"
+    [[ $red == 1 ]] || return 1
+    check fault-used || return 1
+    # Narrow the result to an unsafe admission mutation, not a setup failure.
+    [[ $status == 0 ]] && check closed
+}
+run_test ObservationStatusNarrowingControl narrowing_control
+printf 'passed=%s failed=%s\n' "$passed" "$failed"
+(( failed == 0 ))

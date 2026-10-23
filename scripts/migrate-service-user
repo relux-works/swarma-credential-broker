@@ -1,0 +1,442 @@
+#!/usr/bin/env bash
+# Offline, fail-closed migration. Never source configuration or inspect store bytes.
+set -u
+set -o pipefail
+export LC_ALL=C
+umask 077
+# Preserve the diagnostic channel when a signal arrives inside a redirected
+# mutating function; raw child stdout/stderr still goes to /dev/null.
+exec 8>&2
+
+# The only external-command boundary. A fixture PATH replaces commands without
+# changing this script; production PATH and the platform driver must be trusted.
+command_layer() { command "$@"; }
+OBS= OBS_STATUS=0
+observe() {
+    OBS=$(command_layer "$@" 2>/dev/null)
+    OBS_STATUS=$?
+    # OBSERVATION_STATUS_BEGIN: the narrowing control removes only this block.
+    if (( OBS_STATUS != 0 )); then return 1; fi
+    # OBSERVATION_STATUS_END
+    return 0
+}
+lookup() {
+    OBS=$(command_layer getent "$@" 2>/dev/null)
+    OBS_STATUS=$?
+    # Exit 2 alone documents absence; no comparison can hide another failure.
+    if (( OBS_STATUS != 0 && OBS_STATUS != 2 )); then return 1; fi
+    return 0
+}
+say() { printf '%s\n' "$1" >&8; }
+refuse() { say 'refused: preflight or evidence unavailable'; exit 69; }
+unknown() { say 'halted: recovery incomplete/unknown; keep admission closed'; exit 75; }
+usage() { say 'usage: migrate-service-user {close-admission|migrate} /absolute/config'; exit 64; }
+(( $# == 2 )) || usage
+phase=$1 config=$2
+case $phase in close-admission|migrate) ;; *) usage ;; esac
+safe_path() { [[ $1 =~ ^/[A-Za-z0-9_./-]+$ && $1 != */ && $1 != *//* && $1 != */./* && $1 != */../* && $1 != */.. && $1 != */. ]]; }
+safe_path "$config" || usage
+observe id -u || refuse
+[[ $OBS == 0 ]] || refuse
+
+# GNU stat never follows a final symlink here. Every path component is checked.
+STAT= DEV= INO= UID_= GID_= MODE= LINKS= TYPE= SIZE= MTIME= CTIME=
+stat_path() {
+    observe stat -c '%d:%i:%u:%g:%a:%h:%f:%s:%Y:%Z' -- "$1" || return 1
+    STAT=$OBS
+    [[ $STAT =~ ^[0-9]+:[0-9]+:[0-9]+:[0-9]+:[0-7]{3,4}:[0-9]+:[0-9a-f]+:[0-9]+:-?[0-9]+:-?[0-9]+$ ]] || return 1
+    local hex
+    IFS=: read -r DEV INO UID_ GID_ MODE LINKS hex SIZE MTIME CTIME <<< "$STAT"
+    TYPE=$((16#$hex & 0170000))
+}
+protected_file() {
+    stat_path "$1" || return 1
+    [[ $TYPE == 32768 && $UID_ == 0 && $LINKS == 1 ]] || return 1
+    (( (8#$MODE & 0077) == 0 ))
+}
+# / may be a mount; other ancestors must not be mount points. A site with
+# additional trusted mounts needs a reviewed extension, never a silent waiver.
+not_mount() {
+    OBS=$(command_layer mountpoint -q -- "$1" 2>/dev/null)
+    OBS_STATUS=$?
+    case $OBS_STATUS in 32) return 0 ;; *) return 1 ;; esac
+}
+ancestors() {
+    local p=$1 allowed=$2
+    while :; do
+        stat_path "$p" || return 1
+        [[ $TYPE == 16384 && ( $UID_ == 0 || $UID_ == "$allowed" ) ]] || return 1
+        (( (8#$MODE & 0022) == 0 )) || return 1
+        if [[ $p == / ]]; then break; fi
+        not_mount "$p" || return 1
+        p=${p%/*}; [[ -n $p ]] || p=/
+    done
+}
+ancestors "${config%/*}" 0 || refuse
+protected_file "$config" || refuse
+observe cat -- "$config" || refuse
+config_text=$OBS
+declare -A cfg=()
+while IFS='=' read -r key value; do
+    [[ -z $key || $key == \#* ]] && continue
+    case $key in old_user|old_uid|old_gid|user|uid|group|gid|home|parent|source|destination|state|driver|shell) ;; *) refuse ;; esac
+    [[ -n $value && -z ${cfg[$key]+x} ]] || refuse
+    cfg[$key]=$value
+done <<< "$config_text"
+for key in old_user old_uid old_gid user uid group gid home parent source destination state driver shell; do
+    [[ -n ${cfg[$key]:-} ]] || refuse
+done
+for key in old_user user group; do [[ ${cfg[$key]} =~ ^[a-z_][a-z0-9_-]{0,30}$ ]] || refuse; done
+for key in old_uid old_gid uid gid; do [[ ${cfg[$key]} =~ ^[1-9][0-9]{0,8}$ ]] || refuse; done
+[[ ${cfg[uid]} != "${cfg[old_uid]}" && ${cfg[gid]} != "${cfg[old_gid]}" ]] || refuse
+for key in home parent source destination state driver shell; do safe_path "${cfg[$key]}" || refuse; done
+old_user=${cfg[old_user]} old_uid=${cfg[old_uid]} old_gid=${cfg[old_gid]}
+new_user=${cfg[user]} new_uid=${cfg[uid]} new_group=${cfg[group]} new_gid=${cfg[gid]}
+home=${cfg[home]} parent=${cfg[parent]} source_store=${cfg[source]} destination=${cfg[destination]}
+state=${cfg[state]} driver=${cfg[driver]} login_shell=${cfg[shell]}
+[[ ${home%/*} == "$parent" && ${destination%/*} == "$home" ]] || refuse
+[[ $source_store != "$parent" && $source_store != "$parent/"* && $source_store != "$state" && $source_store != "$state/"* && $state != "$source_store/"* ]] || refuse
+ancestors "$parent" 0 || refuse
+stat_path "$parent" || refuse
+[[ $UID_ == 0 && $MODE == 755 ]] || refuse
+parent_id=$DEV:$INO
+ancestors "$state" 0 || refuse
+stat_path "$state" || refuse
+[[ $UID_ == 0 && $MODE == 700 ]] || refuse
+state_id=$DEV:$INO
+protected_file "$state/lock" || refuse
+for executable in "$driver" "$login_shell"; do
+    ancestors "${executable%/*}" 0 || refuse
+    stat_path "$executable" || refuse
+    [[ $TYPE == 32768 && $UID_ == 0 && $LINKS == 1 ]] || refuse
+    (( (8#$MODE & 0022) == 0 && (8#$MODE & 0111) != 0 )) || refuse
+done
+[[ ${login_shell##*/} == nologin ]] || refuse
+# The already-prepared lock is never created or truncated by the tool.
+{ exec 9<> "$state/lock"; } 2>/dev/null || refuse
+observe flock -n 9 || refuse
+observe sha256sum -- "$config" || refuse
+config_digest=${OBS%% *}
+[[ $config_digest =~ ^[a-f0-9]{64}$ ]] || refuse
+observe "$driver" inventory "$config" || refuse
+[[ $OBS =~ ^inventory:([a-f0-9]{64}):serialized:([a-f0-9]{64})$ ]] || refuse
+inventory=${BASH_REMATCH[1]} serialization=${BASH_REMATCH[2]}
+serialized() {
+    observe "$driver" inventory "$config" || return 1
+    [[ $OBS == "inventory:$inventory:serialized:$serialization" ]]
+}
+closed() {
+    observe "$driver" closed "$config" || return 1
+    [[ $OBS == "closed:$inventory:old-inactive:old-disabled:new-disabled" ]]
+}
+# Successful enumeration of the parent, rather than stat's ambiguous exit 1,
+# establishes absence. GNU find reports an inaccessible parent as failure.
+absent() {
+    observe find "${1%/*}" -mindepth 1 -maxdepth 1 -name "${1##*/}" -printf '%f' || return 1
+    if [[ -z $OBS ]]; then return 0; fi
+    return 2
+}
+lookup passwd "$old_user" || refuse
+[[ $OBS_STATUS == 0 && $OBS == "$old_user:x:$old_uid:$old_gid:"* ]] || refuse
+old_record=$OBS
+# Both name and numeric-ID namespaces must be free before the first mutation.
+for tuple in "passwd:$new_user" "passwd:$new_uid" "group:$new_group" "group:$new_gid"; do
+    lookup "${tuple%%:*}" "${tuple#*:}" || refuse
+    [[ $OBS_STATUS == 2 && -z $OBS ]] || refuse
+done
+absent "$home" || refuse
+# Destination is a direct child of the proven-absent home, hence absent too.
+ancestors "${source_store%/*}" "$old_uid" || refuse
+stat_path "$source_store" || refuse
+[[ $TYPE == 16384 && $UID_ == "$old_uid" && $GID_ == "$old_gid" && $MODE == 700 ]] || refuse
+source_id=$DEV:$INO source_dev=$DEV
+[[ $source_dev == "${parent_id%%:*}" ]] || refuse
+not_mount "$source_store" || refuse
+
+# Only metadata is enumerated, including retained attempt/outcome records. A
+# count control rejects newline-bearing names before any per-path operation.
+observe find "$source_store" -xdev -printf . || refuse
+entry_count=${#OBS}
+observe find "$source_store" -xdev -printf '%P\n' || refuse
+listing=$OBS
+paths=() original=() ids=()
+while IFS= read -r relative; do
+    [[ -z $relative || ( $relative =~ ^[A-Za-z0-9._/-]+$ && $relative != /* && $relative != */../* ) ]] || refuse
+    for seen in "${paths[@]}"; do [[ $relative != "$seen" ]] || refuse; done
+    path=$source_store${relative:+/$relative}
+    stat_path "$path" || refuse
+    [[ $DEV == "$source_dev" && $UID_ == "$old_uid" && $GID_ == "$old_gid" ]] || refuse
+    case $TYPE in 16384) [[ $MODE == 700 ]] || refuse ;; 32768) [[ $LINKS == 1 && $MODE == 600 ]] || refuse ;; *) refuse ;; esac
+    not_mount "$path" || refuse
+    paths+=("$relative"); original+=("$STAT"); ids+=("$DEV:$INO")
+done <<< "$listing"
+(( ${#paths[@]} == entry_count )) || refuse
+metadata="config=$config_digest
+inventory=$inventory
+serialization=$serialization
+parent=$parent_id
+state=$state_id
+old=$old_record
+source=$source_id"
+for i in "${!paths[@]}"; do metadata+=$'\n'"entry=${paths[$i]}:${original[$i]}"; done
+# This hashes the in-memory metadata transcript, never any store file.
+OBS=$(printf '%s\n' "$metadata" | command_layer sha256sum 2>/dev/null)
+OBS_STATUS=$?
+if (( OBS_STATUS != 0 )); then refuse; fi
+fingerprint=${OBS%% *}
+[[ $fingerprint =~ ^[a-f0-9]{64}$ ]] || refuse
+
+journal=$state/journal
+active=0 recovering=0 deployment=0 move_intent=0 home_intent=0 user_intent=0 group_intent=0
+home_id= user_record= group_record=
+# Journal writes are the write-ahead mechanism, not target mutations. Flush
+# both file and directory; inability to persist prevents the target command.
+append() {
+    { printf '%s\n' "$1" >> "$journal"; } 2>/dev/null || return 1
+    command_layer sync -f "$journal" >/dev/null 2>&1 || return 1
+    command_layer sync -f "$state" >/dev/null 2>&1 || return 1
+}
+intent() { append "intent:$1"; }
+mutate() {
+    local operation=$1; shift
+    intent "$operation" || return 1
+    command_layer "$@" >/dev/null 2>&1
+}
+write_record() {
+    local target=$1 text=$2
+    intent "record:${target##*/}" || return 1
+    # noclobber avoids replacing an unexpected record. A partial record remains
+    # recovery evidence; it never constitutes a successful checkpoint.
+    (set -o noclobber; printf '%s\n' "$text" > "$target") 2>/dev/null || return 1
+    command_layer sync -f "$target" >/dev/null 2>&1 || return 1
+    command_layer sync -f "$state" >/dev/null 2>&1 || return 1
+}
+guard_id() { stat_path "$1" && [[ $DEV:$INO == "$2" ]]; }
+verify_tree() {
+    local root=$1 owner=$2 group=$3 original_modes=$4 i p expected
+    for i in "${!paths[@]}"; do
+        p=$root${paths[$i]:+/${paths[$i]}}
+        guard_id "$p" "${ids[$i]}" || return 1
+        [[ $UID_ == "$owner" && $GID_ == "$group" ]] || return 1
+        if [[ $original_modes == yes ]]; then
+            IFS=: read -r _ _ _ _ expected _ <<< "${original[$i]}"
+        elif [[ $TYPE == 16384 ]]; then expected=700; else expected=600; fi
+        [[ $MODE == "$expected" ]] || return 1
+        [[ $TYPE == 16384 || ( $TYPE == 32768 && $LINKS == 1 ) ]] || return 1
+        not_mount "$p" || return 1
+    done
+    observe find "$root" -xdev -printf . || return 1
+    (( ${#OBS} == ${#paths[@]} ))
+}
+restore_metadata() {
+    local root=$1 i p uid gid mode
+    for i in "${!paths[@]}"; do
+        p=$root${paths[$i]:+/${paths[$i]}}
+        guard_id "$p" "${ids[$i]}" || return 1
+        [[ $TYPE == 16384 || ( $TYPE == 32768 && $LINKS == 1 ) ]] || return 1
+        not_mount "$p" || return 1
+        IFS=: read -r _ _ uid gid mode _ <<< "${original[$i]}"
+        mutate "restore-owner:$i" chown -- "$uid:$gid" "$p" || return 1
+        guard_id "$p" "${ids[$i]}" || return 1
+        mutate "restore-mode:$i" chmod -- "$mode" "$p" || return 1
+    done
+    verify_tree "$root" "$old_uid" "$old_gid" yes
+}
+cleanup_resources() {
+    # An identity not captured after creation is unknown, even if the name and
+    # requested numeric ID match. Never adopt a partial creation for deletion.
+    if (( home_intent )); then
+        if [[ -z $home_id ]]; then absent "$home" || return 1
+        else
+            guard_id "$home" "$home_id" || return 1
+            [[ $TYPE == 16384 && ( $UID_ == 0 || $UID_ == "$new_uid" ) ]] || return 1
+            mutate remove-home rmdir -- "$home" || return 1
+            absent "$home" || return 1
+        fi
+    fi
+    if (( user_intent )); then
+        lookup passwd "$new_user" || return 1
+        if [[ -z $user_record ]]; then [[ $OBS_STATUS == 2 && -z $OBS ]] || return 1
+        else
+            [[ $OBS_STATUS == 0 && $OBS == "$user_record" ]] || return 1
+            mutate remove-user userdel -- "$new_user" || return 1
+            lookup passwd "$new_user" || return 1
+            [[ $OBS_STATUS == 2 && -z $OBS ]] || return 1
+            lookup passwd "$new_uid" || return 1
+            [[ $OBS_STATUS == 2 && -z $OBS ]] || return 1
+        fi
+    fi
+    if (( group_intent )); then
+        lookup group "$new_group" || return 1
+        if [[ -z $group_record ]]; then [[ $OBS_STATUS == 2 && -z $OBS ]] || return 1
+        else
+            [[ $OBS_STATUS == 0 && $OBS == "$group_record" ]] || return 1
+            mutate remove-group groupdel -- "$new_group" || return 1
+            lookup group "$new_group" || return 1
+            [[ $OBS_STATUS == 2 && -z $OBS ]] || return 1
+            lookup group "$new_gid" || return 1
+            [[ $OBS_STATUS == 2 && -z $OBS ]] || return 1
+        fi
+    fi
+}
+recover() {
+    (( active && recovering == 0 )) || return 1
+    recovering=1
+    # A second signal must not run competing cleanup. SIGKILL is recovered by
+    # an administrator using the durable transcript, never by automatic resume.
+    trap '' INT TERM HUP
+    append recovery-start || return 1
+    mutate recovery-close "$driver" close "$config" || return 1
+    closed || return 1
+    serialized || return 1
+    (( deployment == 0 )) || return 1
+    if (( move_intent )); then
+        local absence_status
+        absent "$source_store"; absence_status=$?
+        if (( absence_status == 0 )); then
+            guard_id "$destination" "$source_id" || return 1
+            restore_metadata "$destination" || return 1
+            # Check immediately before mv; serialization is a required external
+            # maintenance fence. --no-clobber is a second refusal of overwrite.
+            absent "$source_store" || return 1
+            mutate restore-store mv -T --no-copy --no-clobber -- "$destination" "$source_store" || return 1
+            absent "$destination" || return 1
+            guard_id "$source_store" "$source_id" || return 1
+        elif (( absence_status == 2 )); then
+            # A reappearing source cannot authorize a restore.
+            guard_id "$source_store" "$source_id" || return 1
+            absent "$destination" || return 1
+        else return 1
+        fi
+    fi
+    verify_tree "$source_store" "$old_uid" "$old_gid" yes || return 1
+    cleanup_resources || return 1
+    closed || return 1
+    absent "$home" || return 1
+    for tuple in "passwd:$new_user" "passwd:$new_uid" "group:$new_group" "group:$new_gid"; do
+        lookup "${tuple%%:*}" "${tuple#*:}" || return 1
+        [[ $OBS_STATUS == 2 && -z $OBS ]] || return 1
+    done
+    append 'recovery:verified-target-cleanup:admission-closed' || return 1
+}
+failed() {
+    local code=${1:-75}
+    if recover; then say 'halted: verified target cleanup; admission remains closed'
+    else say 'halted: recovery incomplete/unknown; keep admission closed'; fi
+    trap - EXIT
+    exit "$code"
+}
+trap 'failed 143' TERM HUP
+trap 'failed 130' INT
+trap 'if (( active )); then failed 75; fi' EXIT
+
+if [[ $phase == close-admission ]]; then
+    absent "$journal" || refuse
+    absent "$state/preflight" || refuse
+    absent "$state/closed" || refuse
+    absent "$state/confirmation" || refuse
+    # All absence/metadata checks above precede the first target mutation.
+    (set -o noclobber; : > "$journal") 2>/dev/null || refuse
+    append "preflight:$fingerprint" || unknown
+    write_record "$state/preflight" "$metadata" || unknown
+    active=1
+    mutate close-admission "$driver" close "$config" || failed
+    closed || failed
+    write_record "$state/closed" "closed:$config_digest:$inventory:$serialization:$source_id:$fingerprint" || failed
+    append close-admission-verified || failed
+    active=0
+    say 'admission closed; separate operator reconciliation and confirmation required'
+    exit 0
+fi
+
+# Migration never reuses confirmation text as writer evidence. The site verifier
+# must independently inspect retained original-manager §5 records and current
+# absence/outcomes and return a digest bound to that full observation.
+protected_file "$journal" || refuse
+protected_file "$state/preflight" || refuse
+observe cat -- "$state/preflight" || refuse
+[[ $OBS == "$metadata" ]] || refuse
+protected_file "$state/closed" || refuse
+observe cat -- "$state/closed" || refuse
+[[ $OBS == "closed:$config_digest:$inventory:$serialization:$source_id:$fingerprint" ]] || refuse
+closed || refuse
+serialized || refuse
+observe "$driver" evidence "$config" || refuse
+[[ $OBS =~ ^reconciled:([a-f0-9]{64}):original-manager:complete-absence:durable-outcomes$ ]] || refuse
+evidence=${BASH_REMATCH[1]}
+protected_file "$state/confirmation" || refuse
+observe cat -- "$state/confirmation" || refuse
+[[ $OBS == "I_HAVE_RECONCILED_ALL_WRITERS_AND_DURABLE_OUTCOMES:$fingerprint:$evidence" ]] || refuse
+absent "$state/migration-started" || refuse
+write_record "$state/migration-started" "migration:$fingerprint:$evidence" || unknown
+active=1
+serialized || failed
+closed || failed
+group_intent=1
+mutate create-group groupadd --system --gid "$new_gid" -- "$new_group" || failed
+lookup group "$new_group" || failed
+[[ $OBS_STATUS == 0 && $OBS == "$new_group:x:$new_gid:" ]] || failed
+group_record=$OBS
+append "identity:group:$group_record" || failed
+user_intent=1
+mutate create-user useradd --system --uid "$new_uid" --gid "$new_gid" --home-dir "$home" --no-create-home --shell "$login_shell" -- "$new_user" || failed
+lookup passwd "$new_user" || failed
+[[ $OBS_STATUS == 0 && $OBS == "$new_user:x:$new_uid:$new_gid:"*":$home:$login_shell" ]] || failed
+user_record=$OBS
+append "identity:user:$user_record" || failed
+home_intent=1
+mutate create-home mkdir -m 0700 -- "$home" || failed
+stat_path "$home" || failed
+[[ $TYPE == 16384 && $UID_ == 0 && $MODE == 700 && $DEV == "$source_dev" ]] || failed
+home_id=$DEV:$INO
+append "identity:home:$home_id" || failed
+guard_id "$parent" "$parent_id" || failed
+absent "$destination" || failed
+guard_id "$source_store" "$source_id" || failed
+verify_tree "$source_store" "$old_uid" "$old_gid" yes || failed
+serialized || failed
+closed || failed
+move_intent=1
+# --no-copy is mandatory; preflight additionally requires the same device.
+mutate move-store mv -T --no-copy --no-clobber -- "$source_store" "$destination" || failed
+absent "$source_store" || failed
+guard_id "$destination" "$source_id" || failed
+for i in "${!paths[@]}"; do
+    path=$destination${paths[$i]:+/${paths[$i]}}
+    guard_id "$path" "${ids[$i]}" || failed
+    [[ $TYPE == 16384 || ( $TYPE == 32768 && $LINKS == 1 ) ]] || failed
+    not_mount "$path" || failed
+    if [[ $TYPE == 16384 ]]; then mode=0700; else mode=0600; fi
+    mutate "normalize-owner:$i" chown -- "$new_uid:$new_gid" "$path" || failed
+    guard_id "$path" "${ids[$i]}" || failed
+    mutate "normalize-mode:$i" chmod -- "$mode" "$path" || failed
+done
+guard_id "$home" "$home_id" || failed
+mutate home-owner chown -- "$new_uid:$new_gid" "$home" || failed
+guard_id "$home" "$home_id" || failed
+[[ $UID_ == "$new_uid" && $GID_ == "$new_gid" && $MODE == 700 ]] || failed
+verify_tree "$destination" "$new_uid" "$new_gid" no || failed
+observe "$driver" evidence "$config" || failed
+[[ $OBS == "reconciled:$evidence:original-manager:complete-absence:durable-outcomes" ]] || failed
+closed || failed
+serialized || failed
+# Once deployment begins, generic rollback cannot safely undo site resources.
+# Re-close both admissions, preserve all state, and require explicit recovery.
+deployment=1
+mutate install-and-repin "$driver" install-and-repin "$config" || failed
+observe "$driver" installed "$config" || failed
+[[ $OBS == "installed:$inventory:uid=$new_uid:leases-invalidated:clients-repinned" ]] || failed
+closed || failed
+observe "$driver" prestart "$config" || failed
+[[ $OBS == "ready:$inventory:containment:store-outcomes:policy:qualification:admission-closed" ]] || failed
+mutate start-new "$driver" start-new "$config" || failed
+observe "$driver" readiness "$config" || failed
+[[ $OBS == "ready:$inventory:new-active:old-disabled:admission-closed" ]] || failed
+verify_tree "$destination" "$new_uid" "$new_gid" no || failed
+mutate open-new "$driver" open-new "$config" || failed
+observe "$driver" final "$config" || failed
+[[ $OBS == "active:$inventory:new-open:old-disabled" ]] || failed
+append migration-verified || failed
+write_record "$state/result" "verified:$fingerprint:$evidence" || failed
+active=0
+say 'migration verified; old activation remains disabled'
