@@ -1,0 +1,106 @@
+package wire
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
+	"io"
+	"testing"
+)
+
+// Claim: malformed encodings cannot pass CCJ-1; adjacent Unicode/control objects round-trip canonically.
+func TestCanonicalRejections(t *testing.T) {
+	for name, raw := range map[string]string{"duplicate": `{"a":1,"a":2}`, "fraction": `{"a":1.0}`, "unsafe": `{"a":9007199254740992}`, "negative-zero": `{"a":-0}`, "surrogate": `{"a":"\ud800"}`, "low-surrogate": `{"a":"\udc00"}`, "order": `{"b":1,"a":2}`, "whitespace": `{ "a":1}`, "newline": "{}\n", "signature": `{"sig":null}`, "non-object": `[]`, "invalid-utf8": string([]byte{'{', '"', 'a', '"', ':', '"', 0xff, '"', '}'})} {
+		t.Run(name, func(t *testing.T) {
+			if _, e := Parse([]byte(raw)); e == nil {
+				t.Fatal("invalid canonical object accepted")
+			}
+		})
+	}
+	for _, raw := range []string{`{}`, `{"a":[true,null,0,-12],"b":"plain"}`, "{\"a\":\"\u2028😀\",\"b\":\"\\u0000\\n\"}"} {
+		m, e := Parse([]byte(raw))
+		if e != nil {
+			t.Fatal("valid object rejected")
+		}
+		b, e := Encode(m)
+		if e != nil || !bytes.Equal(b, []byte(raw)) {
+			t.Fatal("canonical round trip changed bytes")
+		}
+	}
+}
+
+type observedReader struct {
+	r io.Reader
+	n int
+}
+
+func (r *observedReader) Read(p []byte) (int, error) { n, e := r.r.Read(p); r.n += n; return n, e }
+
+// Claim: an oversized prefix consumes only four bytes; zero/truncated/malformed frames fail beside a valid frame.
+func TestFrameBounds(t *testing.T) {
+	var h [4]byte
+	binary.BigEndian.PutUint32(h[:], MaxPayload+1)
+	r := &observedReader{r: bytes.NewReader(append(h[:], bytes.Repeat([]byte("x"), 100)...))}
+	if _, e := Read(r); !errors.Is(e, ErrTooLarge) || r.n != 4 {
+		t.Fatal("oversize read body or wrong error")
+	}
+	for _, b := range [][]byte{{}, {0, 1}, {0, 0, 0, 0}, {0, 0, 0, 3, '{', '}'}, {0, 0, 0, 2, '[', ']'}} {
+		if _, e := Read(bytes.NewReader(b)); e == nil {
+			t.Fatal("invalid frame accepted")
+		}
+	}
+	var b bytes.Buffer
+	if Write(&b, map[string]any{"ok": true}) != nil {
+		t.Fatal("write failed")
+	}
+	if _, e := Read(&b); e != nil {
+		t.Fatal("valid frame rejected")
+	}
+}
+
+// Claim: request schemas reject missing or extra fields, including nested members.
+func TestClosedSchema(t *testing.T) {
+	for _, raw := range []string{`{"method":"status","params":{}}`, `{"method":"status","params":{},"request_id":"a","extra":0}`} {
+		var r Request
+		if Decode([]byte(raw), &r) == nil {
+			t.Fatal("invalid schema accepted")
+		}
+	}
+	var r Request
+	if Decode([]byte(`{"method":"status","params":{},"request_id":"a"}`), &r) != nil {
+		t.Fatal("valid request rejected")
+	}
+}
+
+// Claim: closed schemas reject case aliases, duplicate members and missing nested requirements even when a nearby valid envelope decodes.
+func TestSchemaAliases(t *testing.T) {
+	for _, raw := range []string{`{"METHOD":"hello","method":"status","params":{},"request_id":"a"}`, `{"method":"status","method":"hello","params":{},"request_id":"a"}`, `{"method":"status","params":{},"request_id":null}`} {
+		var r Request
+		if Decode([]byte(raw), &r) == nil {
+			t.Fatal("schema alias accepted")
+		}
+	}
+	var r Request
+	if Decode([]byte(`{"method":"status","params":{},"request_id":"a"}`), &r) != nil {
+		t.Fatal("valid schema refused")
+	}
+}
+
+// Claim: unexpected refusal codes cannot reflect opaque material; a specified refusal retains its exact code and empty details.
+func TestRefusalRedaction(t *testing.T) {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		t.Fatal("random fixture unavailable")
+	}
+	canary := hex.EncodeToString(raw[:])
+	b, err := Encode(Refuse(canary))
+	if err != nil || bytes.Contains(b, []byte(canary[:12])) {
+		t.Fatal("refusal reflected material")
+	}
+	valid := Refuse("renew_timeout")
+	if valid.Code != "renew_timeout" || len(valid.Details) != 0 {
+		t.Fatal("valid refusal changed")
+	}
+}

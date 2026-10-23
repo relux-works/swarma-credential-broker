@@ -13,6 +13,9 @@ func main() {
 	if handled, code := runner.SupervisorMain(os.Args[1:]); handled {
 		os.Exit(code)
 	}
+	if len(os.Args) > 1 && (os.Args[1] == "daemon" || os.Args[1] == "status") {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if len(os.Args) < 2 || os.Args[1] != "run-codex" {

@@ -21,3 +21,20 @@ is satisfied. Complete containment/durable recovery, approved live-account
 cases, safe old-login retirement during [cutover](spec/v0-codex-refresher.md#31-cutover-from-a-shared-native-login),
 and optional thread resume remain evidence gates. The full broker's
 [publication gates](spec/broker.md#18-open-questions) remain open for other deployments.
+
+The daemon core intentionally ships with an unavailable owner adapter. Activation
+still requires exact-release qualification, durable attempt recovery and time
+watermarking, writer containment, approved live-account cases, safe old-login
+retirement and any optional thread-resume evidence. The core's fake-owner tests
+provide no real vendor or lifecycle qualification credit.
+
+Implementation integration questions:
+
+- Which protected owner-store layout and startup reconciliation entry point will
+  the contained owner use alongside the lease metadata? Its adapter must provide
+  independent freshness and the conservative authorization clock before issuance.
+- Which configured accounts and intended socket access will supply genuine
+  foreign-UID qualification? The optional gate returns PENDING until that fixture
+  can run; same-UID kernel coverage does not close this row.
+- Which release evidence will establish safe transient backoff and unknown-expiry
+  handling? The core rejects unknown expiry and delegates retries to the owner.

@@ -4,7 +4,7 @@ The credential broker is **Merovingian** in the platform's codenames.
 
 A credential broker for agent systems. It runs under its own OS user, holds subscription and API credentials in its own store, and leases them to authorised agent launches over a Unix socket whose peer it identifies through the kernel (`getpeereid` / `SO_PEERCRED`).
 
-**Status: implementation in progress.** The Linux [external-token runner](docs/runner.md) is implemented behind protected-policy and broker-client interfaces; production transport and qualification integration remain pending. A tested offline migration script is available for review; real deployment requires the site integrations and qualification described in [the migration guide](docs/service-user-migration.md). The specification is [`spec/broker.md`](spec/broker.md); diagrams are in [`diagrams/`](diagrams/). The proposed [Codex refresher v0 profile](spec/v0-codex-refresher.md) extracts the auth owner and external-token runner ahead of slice 0, with accepted interim rulings and pending release qualification.
+**Status: experimental Linux daemon core and runner.** The daemon covers protected static policy, metadata storage, kernel peer admission, the refresher transport subset and lease bookkeeping. The Linux [external-token runner](docs/runner.md) is implemented behind protected-policy and broker-client interfaces. The shipped owner adapter refuses issuance; the real contained auth owner, production runner transport and release qualification remain pending. A tested offline migration script is available for review; real deployment requires the site integrations and qualification described in [the migration guide](docs/service-user-migration.md). The broader broker remains a design. The specification is [`spec/broker.md`](spec/broker.md); diagrams are in [`diagrams/`](diagrams/). The proposed [Codex refresher v0 profile](spec/v0-codex-refresher.md) extracts the auth owner and external-token runner ahead of slice 0, with accepted interim rulings and pending release qualification. The remaining activation gates still apply.
 
 ## What it is for
 
@@ -54,11 +54,16 @@ The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at
 ## Tools
 
 This repository contains specifications, PlantUML sources, declarative JSON
-vectors, a Linux Go runner with fixture tests, and a
+vectors, a Linux Go daemon and runner with fixture tests, and a
 [service-user migration script](docs/service-user-migration.md). The standalone
 runner command refuses execution until protected policy and broker transport
 are integrated. Only isolated fixture tests are supplied for the migration tool;
 real installation and writer-lifecycle qualification remain pending.
+The daemon uses Go 1.25 or later and only the standard library.
+Development checks use Go 1.26.10 through `CURATOR_GO`, with `GOTOOLCHAIN=local`;
+preserve the configured `GOCACHE` and `GOPATH`. All tests use random synthetic
+tokens and local fixtures. They never start a vendor executable or use a
+logged-in home.
 
 | Tool | Purpose and command | Outputs |
 |---|---|---|
@@ -74,6 +79,108 @@ real installation and writer-lifecycle qualification remain pending.
 | Python 3 | Parse vector JSON with the command in [vectors/v0](vectors/v0/README.md); strict canonical-byte/link checks use temporary validation scripts | Terminal and private scratch logs; scripts are not shipped tooling |
 | Codex CLI | Inspect a selected release with `codex --version`, `codex app-server --help`, `codex app-server generate-json-schema --experimental --out <scratch-schema-directory>` | Schema in the chosen scratch directory; always use a fresh empty HOME/CODEX_HOME, never an existing login |
 | systemd user tools (Linux) | Inspect containment with `systemctl --user show <probe-unit>`; a bounded probe can use `systemd-run --user --unit=<probe-unit> --property=KillMode=control-group --property=RuntimeMaxSec=5s /usr/bin/true` | User-manager state and private scratch evidence; stop only the probe's own unit |
+| Go | Build with `"$CURATOR_GO" build -o "$TMPDIR/swarma-credential-broker" ./cmd/swarma-credential-broker`; vet with `"$CURATOR_GO" vet ./...`; format-check with `"$("$CURATOR_GO" env GOROOT)/bin/gofmt" -l .` | Binary and captured logs in the selected private scratch directory; format-check output must be empty |
+
+Create scratch space outside the versioned tree, then run these package-scoped
+checks. The default eight-second deadline is exercised separately; `-short`
+excludes only that longer test. The optional peer qualification is a separate
+binary whose PENDING exit cannot be mistaken for a green package test.
+
+```sh
+mkdir -p ../.tmp/daemon-core
+export TMPDIR="$(cd ../.tmp/daemon-core && pwd)"
+export GOTOOLCHAIN=local
+"$CURATOR_GO" build -o "$TMPDIR/swarma-credential-broker" ./cmd/swarma-credential-broker
+"$CURATOR_GO" vet ./...
+"$("$CURATOR_GO" env GOROOT)/bin/gofmt" -l .
+"$CURATOR_GO" test -short -count=1 -timeout=180s ./internal/wire ./internal/policy ./internal/store ./internal/owner ./internal/lease ./internal/server ./cmd/swarma-credential-broker
+"$CURATOR_GO" test -short -race -count=1 -timeout=180s ./internal/lease ./internal/server
+"$CURATOR_GO" test -short=false -count=1 -timeout=15s -run '^TestDefaultRenewDeadline$' ./internal/lease
+"$CURATOR_GO" test -c -tags=peeraccounts -o "$TMPDIR/peer-qualification" ./internal/server
+"$TMPDIR/peer-qualification" -test.run '^TestConfiguredPeers$' -test.v
+```
+
+The last command requires `BROKER_TEST_PEER_CONFIG`, pointing to a broker-owned
+0600 JSON fixture configuration with exactly `allowed_peer`, `foreign_peer`,
+`socket_directory`, and `helper_executable`. The first two values are configured
+OS account names, resolved privately at runtime. The foreign UID must differ
+from broker and allowed UIDs. The directory must already have the intended
+socket permissions, and the helper must be an operator-installed copy of the
+same peer-qualification binary accessible to those accounts. The gate uses
+`sudo -n -u` only for these configured accounts and verifies the helper's effective
+UID. It never creates accounts or changes socket permissions. The helper keeps
+tokens in memory and emits only a lease ID. Missing configuration, unusable
+accounts, an inaccessible helper or socket returns **69, PENDING**, with no
+qualification credit. A protocol assertion failure returns 1. Normal tests always
+exercise the actual same-UID kernel path; injected peer failures are model
+coverage and do not qualify foreign-account behavior.
+
+## Daemon configuration and current boundary
+
+Run `swarma-credential-broker daemon --config <protected-config>` and
+`swarma-credential-broker status --config <protected-config>`. Use
+`--init-store` with `daemon` only to create new, empty metadata directories; it
+never adopts a nonempty store whose installation marker is missing. Existing
+socket paths are refused. The socket is created with mode 0600 in an
+operator-selected directory outside the store. Cross-UID reachability is an
+installation qualification gate. Store directories are 0700; records and stable
+lock files are 0600. Configuration is a regular, broker-owned 0600 file, with no
+symlink, duplicate or unknown member. JSON lists must use arrays, including `[]`
+for an empty allowlist.
+
+| Configuration member | Required value |
+|---|---|
+| `socket_path`, `store_root` | Operator-selected absolute paths; distinct socket and protected metadata locations |
+| `policy.installation_id` | Random, never-reused installation identity |
+| `policy.policy_generation` | Positive, monotonically increasing safe integer |
+| `policy.broker_uid` | Configured broker UID; must match the daemon's effective UID |
+| `policy.executable`, `policy.executable_sha256` | Approved absolute executable path and lowercase SHA-256 |
+| `policy.max_lease_seconds` | Positive finite duration, normally 3600 |
+| `policy.accounts` | Array of the account entries below |
+
+Each account has `label`, `vendor_account_id`, `allowed_uids`, `profiles`,
+`endpoint`, `release_version`, `qualification_id`, `enabled`, and
+`network_required`. Account labels and vendor IDs are unique. Endpoints use
+HTTPS. Static admission requires the kernel UID, profile and account allowlist;
+clients cannot supply authority through a binding. The refresher subset uses
+release `0.163.0`, the external-token channel and no enforced network profile.
+A qualification reference in configuration does not activate an owner.
+
+`SIGHUP` rereads protected configuration, requires a higher generation in the
+same installation and unchanged socket/store locations, then closes old
+connections. Newly added accounts require their protected stores to be prepared
+and the daemon restarted. `SIGTERM` and `SIGINT` stop this daemon's listener and
+connections. Diagnostics contain fixed codes only.
+
+The auth-owner interface is in `internal/owner`. Its adapter must establish
+writer absence, durable outcome, account identity, independent freshness,
+trusted time and the exact release qualification before returning a usable
+snapshot. Qualification carries the matching policy generation, immutable evidence
+reference and executable digest; a stale qualification cannot survive policy
+replacement. Its refresh method receives the expected generation and must serialize
+writers across replacement. The lease engine holds no state mutex during owner
+I/O, and rechecks authority and the final delivery deadline. The owner scheduler
+uses the shared proactive gate; admitted demand suppresses proactive work.
+Durable time watermarking, attempt intent, containment, vendor-store reload,
+recovery and backoff belong to that adapter. Integrations must supply the
+conservative authorization clock through lease options. No command enables the
+test fake or bypasses the stopped production adapter.
+
+Lease metadata contains only protected digests, generations and authority. Tokens
+remain in memory and framed socket responses. The canary lifecycle test scans
+all metadata writes at durability checkpoints and all status output, including
+full token and digest prefixes. Tests also cover canonical framing, schema
+closure, queue/capacity bounds, lost responses, cancellation, FIFO, policy
+replacement, expiry, uncertain publication, symlinks and restart.
+
+The vector tests instantiate role UIDs, binding digests and access tokens from
+fixtures. All transport and renewal vectors exercise their core contracts;
+`renew-late` uses a shortened deadline and the real eight-second default has its
+own test. Runner callback/turn effects and admission source/home-conflict vectors are
+covered by the runner fixture tests; live release qualification remains pending. Lifecycle recovery,
+enrolment and cutover vectors belong to the real owner; eight lifecycle cases
+currently test only the core's reaction to resolved/unavailable owner snapshots
+and static mapping uniqueness, not recovery or enrolment itself. These distinctions must remain explicit in review evidence.
 
 ## License
 
