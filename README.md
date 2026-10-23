@@ -159,9 +159,21 @@ snapshot. Qualification carries the matching policy generation, immutable eviden
 reference and executable digest; a stale qualification cannot survive policy
 replacement. Its refresh method receives the expected generation and must serialize
 writers across replacement. The lease engine holds no state mutex during owner
-I/O. After that I/O, it holds policy and account fences through the bounded
-socket write, rechecking current lease state, authority and the delivery deadline.
-The write deadline also ends at the lease/token/account authorization limit. The owner scheduler
+I/O. After that I/O, it checks lease state and authority and registers the
+publication under policy/account fences, then writes outside those state locks.
+Release closes new publication admission for the lease, revokes its registered
+writes and waits for them to stop before durable release acknowledgement. Policy
+replacement closes admission and does the same for the old generation before
+publishing its durable successor. Revocation interrupts only the affected socket;
+a partial frame is a terminal transport failure, never a successful delivery.
+The write deadline also ends at the lease/token/account authorization limit.
+
+Arrival deadlines start before lookup. A lease-label index avoids locking
+unrelated accounts, state admission is cancellable, and expired-waiter cleanup
+never holds up the caller's timeout response. Per-connection writer contention
+keeps the original request deadline; a non-draining socket cannot serialize
+other leases' state transitions. Filesystem publication also uses revision CAS
+outside the request state lock. The owner scheduler
 uses the shared proactive gate; admitted demand suppresses proactive work.
 Before admitting a refresh after a snapshot, the engine checks for live demand.
 An already admitted attempt may reconcile under the manager lifetime, even when

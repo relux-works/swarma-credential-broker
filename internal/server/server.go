@@ -154,16 +154,37 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	var writeMu sync.Mutex
+	writeGate := make(chan struct{}, 1)
+	writeGate <- struct{}{}
 	send := func(id any, result any, err error, g uint64, until time.Time, method string) error {
-		writeMu.Lock()
-		defer writeMu.Unlock()
+		// A request waiting behind its own connection's writer retains its
+		// original arrival deadline; a non-draining connection is closed.
+		wait, stopWait := context.WithDeadline(ctx, until)
+		if until.IsZero() {
+			stopWait()
+			wait, stopWait = context.WithTimeout(ctx, 2*time.Second)
+		}
+		defer stopWait()
+		select {
+		case <-writeGate:
+		default:
+			select {
+			case <-writeGate:
+			case <-wait.Done():
+				return wait.Err()
+			}
+		}
+		defer func() { writeGate <- struct{}{} }()
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		write := func(authDeadline time.Time) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
+		write := func(delivery context.Context, authDeadline time.Time) error {
+			// Revocation closes this one socket, interrupting a blocked write.
+			// A partial frame is terminal transport failure, never success.
+			stopWrite := context.AfterFunc(delivery, func() { c.Close() })
+			defer stopWrite()
+			if delivery.Err() != nil {
+				return delivery.Err()
 			}
 			writeUntil := time.Now().Add(2 * time.Second)
 			if !until.IsZero() && !time.Now().Before(until) {
@@ -193,16 +214,16 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 			delivery, stop := context.WithDeadline(ctx, until)
 			defer stop()
 			wrote := false
-			e := s.Manager.Publish(delivery, uid, g, material, func(authDeadline time.Time) error {
+			e := s.Manager.Publish(delivery, uid, g, material, func(delivery context.Context, authDeadline time.Time) error {
 				wrote = true
-				return write(authDeadline)
+				return write(delivery, authDeadline)
 			})
 			if wrote {
 				return e
 			}
 			result, err = nil, e
 		}
-		return s.Manager.WithGeneration(g, func() error { return write(time.Time{}) })
+		return s.Manager.WithGenerationContext(ctx, g, func(delivery context.Context) error { return write(delivery, time.Time{}) })
 	}
 	hello := false
 	pending := map[string]bool{}
@@ -214,9 +235,13 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 		if e != nil {
 			cancel()
 			if errors.Is(e, wire.ErrTooLarge) {
-				writeMu.Lock()
-				terminal(c, "frame_too_large")
-				writeMu.Unlock()
+				select {
+				case <-writeGate:
+					terminal(c, "frame_too_large")
+					writeGate <- struct{}{}
+				default:
+					// Another frame is already blocked; closing interrupts it.
+				}
 			}
 			return
 		}

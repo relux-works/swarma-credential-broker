@@ -96,21 +96,31 @@ type operation struct {
 	waiters    map[uint64]*waiter
 	running    bool
 }
+type publication struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
 type account struct {
-	failed  bool
-	mu      sync.Mutex
-	store   *store.Account
-	records map[string]Record
-	queue   []*operation
-	pending map[string]*operation
-	waiters int
-	next    uint64
-	wake    chan struct{}
+	failed       bool
+	mu           stateMutex
+	store        *store.Account
+	records      map[string]Record
+	publications map[string]map[*publication]bool
+	queue        []*operation
+	pending      map[string]*operation
+	waiters      int
+	next         uint64
+	wake         chan struct{}
 }
 type Manager struct {
 	policyMu     sync.RWMutex
 	policy       policy.Policy
 	policyFailed bool
+	transition   bool
+	replaceMu    sync.Mutex
+	publications map[*publication]bool
+	labels       sync.Map
 	owner        owner.Owner
 	store        *store.Store
 	accounts     map[string]*account
@@ -141,7 +151,7 @@ func New(p policy.Policy, s *store.Store, o owner.Owner, options Options, initia
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{policy: p.Clone(), owner: o, store: s, accounts: map[string]*account{}, options: options, instance: RandomID(), ctx: ctx, cancel: cancel}
+	m := &Manager{publications: map[*publication]bool{}, policy: p.Clone(), owner: o, store: s, accounts: map[string]*account{}, options: options, instance: RandomID(), ctx: ctx, cancel: cancel}
 	for _, entry := range p.Accounts {
 		disk, e := s.Account(entry.Label, initialize)
 		if e != nil {
@@ -153,7 +163,7 @@ func New(p policy.Policy, s *store.Store, o owner.Owner, options Options, initia
 			cancel()
 			return nil, e
 		}
-		a := &account{store: disk, records: map[string]Record{}, pending: map[string]*operation{}, wake: make(chan struct{}, 1)}
+		a := &account{publications: map[string]map[*publication]bool{}, store: disk, records: map[string]Record{}, pending: map[string]*operation{}, wake: make(chan struct{}, 1)}
 		for name, b := range raw {
 			// The owner validates its own protected records; leases never decode them.
 			if strings.HasPrefix(name, "owner-") {
@@ -175,6 +185,7 @@ func New(p policy.Policy, s *store.Store, o owner.Owner, options Options, initia
 				}
 			}
 			a.records[rec.LeaseID] = rec
+			m.labels.Store(rec.LeaseID, entry.Label)
 		}
 		m.accounts[entry.Label] = a
 	}
@@ -198,25 +209,61 @@ func (m *Manager) Policy() policy.Policy {
 	return m.policy.Clone()
 }
 
-// WithGeneration fences final socket publication against concurrent policy replacement.
+// WithGeneration orders a callback before replacement without holding state
+// locks over it. Transport uses WithGenerationContext to observe revocation.
 func (m *Manager) WithGeneration(g uint64, fn func() error) error {
-	m.policyMu.RLock()
-	defer m.policyMu.RUnlock()
-	if m.policyFailed || g != m.policy.Generation {
+	return m.WithGenerationContext(context.Background(), g, func(context.Context) error { return fn() })
+}
+func (m *Manager) WithGenerationContext(ctx context.Context, g uint64, fn func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(m.ctx, cancel)
+	defer stop()
+	d := &publication{cancel: cancel, done: make(chan struct{})}
+	m.policyMu.Lock()
+	if m.policyFailed || m.transition || g != m.policy.Generation {
+		m.policyMu.Unlock()
 		return wire.Refuse("lease_not_authorised")
 	}
-	return fn()
+	m.publications[d] = true
+	m.policyMu.Unlock()
+	defer m.finishPublication(nil, "", d)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fn(ctx)
 }
 func (m *Manager) Replace(p policy.Policy) error {
+	m.replaceMu.Lock()
+	defer m.replaceMu.Unlock()
 	m.policyMu.Lock()
-	defer m.policyMu.Unlock()
 	if e := p.Validate(m.policy.BrokerUID); e != nil {
+		m.policyMu.Unlock()
 		return e
 	}
-	if p.Installation != m.policy.Installation || p.Generation <= m.policy.Generation {
+	if m.policyFailed || p.Installation != m.policy.Installation || p.Generation <= m.policy.Generation {
+		m.policyMu.Unlock()
 		return wire.Refuse("lease_not_authorised")
 	}
-	if err := m.store.PolicyGeneration(p.Generation, false); err != nil {
+	// Close admission before revoking writes. Cancellation and waiting run with
+	// neither policy nor account state locks held.
+	m.transition = true
+	pending := make([]*publication, 0, len(m.publications))
+	for d := range m.publications {
+		pending = append(pending, d)
+	}
+	m.policyMu.Unlock()
+	for _, d := range pending {
+		d.cancel()
+	}
+	for _, d := range pending {
+		<-d.done
+	}
+	err := m.store.PolicyGeneration(p.Generation, false)
+	m.policyMu.Lock()
+	defer m.policyMu.Unlock()
+	m.transition = false
+	if err != nil {
 		m.policyFailed = true
 		return wire.Refuse("lease_owner_unavailable")
 	}
@@ -224,8 +271,15 @@ func (m *Manager) Replace(p policy.Policy) error {
 	return nil
 }
 func (m *Manager) Call(ctx context.Context, uid uint32, method string, params any, arrival time.Time) Outcome {
+	ctx, cancel := context.WithDeadline(ctx, m.Deadline(method, arrival))
+	defer cancel()
+	stopManager := context.AfterFunc(m.ctx, cancel)
+	defer stopManager()
+	if ctx.Err() != nil {
+		return Outcome{Err: deadline(method)}
+	}
 	m.policyMu.RLock()
-	failed := m.policyFailed
+	failed := m.policyFailed || m.transition
 	p := m.policy.Clone()
 	m.policyMu.RUnlock()
 	if failed {
@@ -280,18 +334,9 @@ func (m *Manager) Call(ctx context.Context, uid uint32, method string, params an
 		}
 		return Outcome{Err: wire.Refuse(code)}
 	}
-	timeout := m.options.RequestTimeout
-	if method == "lease.renew" {
-		timeout = m.options.RenewTimeout
-	} else if method == "lease.release" {
-		timeout = 2 * time.Second
-	}
-	ctx, cancel := context.WithDeadline(ctx, arrival.Add(timeout))
-	defer cancel()
-	if ctx.Err() != nil {
+	if err := a.mu.LockContext(ctx); err != nil {
 		return Outcome{Err: deadline(method)}
 	}
-	a.mu.Lock()
 	if method == "proactive" && len(a.pending) != 0 {
 		a.mu.Unlock()
 		return Outcome{}
@@ -327,6 +372,15 @@ func (m *Manager) Call(ctx context.Context, uid uint32, method string, params an
 	op.waiters[w.id] = w
 	a.waiters++
 	a.mu.Unlock()
+	// Cleanup may wait for a local state transition, but must never hold the
+	// caller's timeout response behind it. At most the admitted waiters own these
+	// callbacks; their capacity is not reclaimed until they are detached.
+	detach := context.AfterFunc(ctx, func() { m.detach(a, op, w) })
+	defer func() {
+		if ctx.Err() == nil {
+			detach()
+		}
+	}()
 	select {
 	case a.wake <- struct{}{}:
 	default:
@@ -338,17 +392,9 @@ func (m *Manager) Call(ctx context.Context, uid uint32, method string, params an
 		}
 		return out
 	case <-ctx.Done():
-		a.mu.Lock()
-		if _, ok := op.waiters[w.id]; ok {
-			delete(op.waiters, w.id)
-			a.waiters--
-		}
-		if len(op.waiters) == 0 && !op.running {
-			delete(a.pending, op.key)
-		}
-		a.mu.Unlock()
 		return Outcome{Err: deadline(method)}
 	case <-m.ctx.Done():
+		cancel()
 		return Outcome{Err: wire.Refuse("lease_owner_unavailable")}
 	}
 }
@@ -378,16 +424,26 @@ func deadline(method string) error {
 	}
 	return wire.Refuse("request_deadline_exceeded")
 }
+
+// Lease IDs and tombstones never move between accounts. This index avoids
+// locking unrelated accounts during lookup and carries no credential material.
 func (m *Manager) label(id string) string {
-	for label, a := range m.accounts {
-		a.mu.Lock()
-		_, ok := a.records[id]
-		a.mu.Unlock()
-		if ok {
-			return label
-		}
+	label, ok := m.labels.Load(id)
+	if !ok {
+		return ""
 	}
-	return ""
+	return label.(string)
+}
+func (m *Manager) detach(a *account, op *operation, w *waiter) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, ok := op.waiters[w.id]; ok {
+		delete(op.waiters, w.id)
+		a.waiters--
+	}
+	if len(op.waiters) == 0 && !op.running && a.pending[op.key] == op {
+		delete(a.pending, op.key)
+	}
 }
 func (m *Manager) worker(label string, a *account) {
 	defer m.wg.Done()
@@ -453,16 +509,22 @@ func (m *Manager) record(a *account, op *operation) (Record, error) {
 	return r, nil
 }
 func (m *Manager) persist(a *account, r Record) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	// The single account worker serializes durable transitions; expected revision
+	// protects the disk write. Release has already closed delivery admission.
+	// Local filesystem I/O must not occupy the request/state admission gate.
 	prior := r.Revision
 	r.Revision++
 	r.DaemonInstance = m.instance
 	if e := a.store.Put(store.LeaseName(r.LeaseID), prior, r); e != nil {
+		a.mu.Lock()
 		a.failed = true
+		a.mu.Unlock()
 		return wire.Refuse("lease_owner_unavailable")
 	}
+	a.mu.Lock()
 	a.records[r.LeaseID] = r
+	m.labels.Store(r.LeaseID, r.Account)
+	a.mu.Unlock()
 	return nil
 }
 func (m *Manager) execute(label string, a *account, op *operation) Outcome {
@@ -488,8 +550,7 @@ func (m *Manager) execute(label string, a *account, op *operation) Outcome {
 		}
 		if op.method == "lease.release" {
 			if rec.State != "released" {
-				rec.State = "released"
-				if e := m.persist(a, rec); e != nil {
+				if e := m.release(a, rec); e != nil {
 					return Outcome{Err: e}
 				}
 			}
@@ -683,69 +744,130 @@ func (m *Manager) Stats(label string) (pending, waiters int) {
 	return len(a.pending), a.waiters
 }
 
-// Publish performs owner I/O without state locks, then fences the complete
-// bounded socket write against lease mutation and policy replacement. The callback
-// must use the supplied authorization deadline and must not reenter the manager.
-func (m *Manager) Publish(ctx context.Context, uid uint32, generation uint64, result wire.LeaseResult, write func(time.Time) error) error {
+// Publish registers the validated delivery decision under the state fences,
+// then writes without holding them. Release and replacement revoke registered
+// writes and wait for completion before committing their terminal transition.
+// The callback must honor cancellation and the supplied authorization deadline,
+// and must not reenter the manager.
+func (m *Manager) Publish(ctx context.Context, uid uint32, generation uint64, result wire.LeaseResult, write func(context.Context, time.Time) error) error {
 	label := m.label(result.LeaseID)
 	a := m.accounts[label]
 	if a == nil {
 		return wire.Refuse("lease_not_owner")
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(m.ctx, cancel)
+	defer stop()
 	snapshot, err := m.owner.Snapshot(ctx, label)
 	if err != nil {
 		return wire.Refuse("lease_owner_unavailable")
 	}
-	m.policyMu.RLock()
-	defer m.policyMu.RUnlock()
-	if m.policyFailed {
+	if a.store.Healthy() != nil {
 		return wire.Refuse("lease_owner_unavailable")
 	}
-	p := m.policy
-	if p.Generation != generation {
+	if err = a.mu.LockContext(ctx); err != nil {
+		return err
+	}
+	m.policyMu.Lock()
+	if m.policyFailed || m.transition || m.policy.Generation != generation {
+		m.policyMu.Unlock()
+		a.mu.Unlock()
 		return wire.Refuse("lease_not_authorised")
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	r, ok := a.records[result.LeaseID]
-	if !ok || r.UID != uid || r.PolicyGeneration != p.Generation || r.Installation != p.Installation {
-		return wire.Refuse("lease_not_owner")
-	}
-	now := m.options.Now()
-	if r.State != "active" || !now.Before(r.AuthorizedUntil) {
-		return wire.Refuse("lease_not_active")
-	}
-	if _, err = p.Admit(uid, label, r.Profile); err != nil {
+	p := m.policy
+	err = m.checkPublication(a, p, uid, result, snapshot)
+	if err != nil {
+		m.policyMu.Unlock()
+		a.mu.Unlock()
 		return err
 	}
-	if r.Binding != p.Binding(uid, mustAccount(p, label), r.Profile) {
-		return wire.Refuse("lease_binding_mismatch")
-	}
-	if a.failed || a.store.Healthy() != nil {
-		return wire.Refuse("lease_owner_unavailable")
-	}
-	if err = usable(p, m.options.Now(), snapshot, label); err != nil {
-		return err
-	}
-	if Digest(snapshot.AccessToken) != Digest(result.Payload.AccessToken) {
-		return wire.Refuse("lease_owner_unavailable")
-	}
-	// Check time again after local store I/O, and bound the write itself by all
-	// authorization/material limits, using a monotonic transport deadline.
-	now = m.options.Now()
+	r := a.records[result.LeaseID]
 	limit := r.AuthorizedUntil
 	for _, bound := range []time.Time{snapshot.ExpiresAt.Truncate(time.Second), snapshot.AuthorityUntil.Truncate(time.Second)} {
 		if !bound.IsZero() && bound.Before(limit) {
 			limit = bound
 		}
 	}
+	now := m.options.Now()
 	if !now.Before(limit) {
+		a.mu.Unlock()
+		m.policyMu.Unlock()
 		return wire.Refuse("lease_not_active")
 	}
+	d := &publication{cancel: cancel, done: make(chan struct{})}
+	m.publications[d] = true
+	if a.publications[r.LeaseID] == nil {
+		a.publications[r.LeaseID] = map[*publication]bool{}
+	}
+	a.publications[r.LeaseID][d] = true
+	a.mu.Unlock()
+	m.policyMu.Unlock()
+	defer m.finishPublication(a, r.LeaseID, d)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	return write(time.Now().Add(limit.Sub(now)))
+	return write(ctx, time.Now().Add(limit.Sub(now)))
+}
+func (m *Manager) checkPublication(a *account, p policy.Policy, uid uint32, result wire.LeaseResult, snapshot owner.Snapshot) error {
+	r, ok := a.records[result.LeaseID]
+	if !ok || r.UID != uid || r.PolicyGeneration != p.Generation || r.Installation != p.Installation {
+		return wire.Refuse("lease_not_owner")
+	}
+	if r.State != "active" || !m.options.Now().Before(r.AuthorizedUntil) {
+		return wire.Refuse("lease_not_active")
+	}
+	if _, err := p.Admit(uid, r.Account, r.Profile); err != nil {
+		return err
+	}
+	if r.Binding != p.Binding(uid, mustAccount(p, r.Account), r.Profile) {
+		return wire.Refuse("lease_binding_mismatch")
+	}
+	if a.failed {
+		return wire.Refuse("lease_owner_unavailable")
+	}
+	if err := usable(p, m.options.Now(), snapshot, r.Account); err != nil {
+		return err
+	}
+	if Digest(snapshot.AccessToken) != Digest(result.Payload.AccessToken) {
+		return wire.Refuse("lease_owner_unavailable")
+	}
+	return nil
+}
+func (m *Manager) finishPublication(a *account, id string, d *publication) {
+	// The callback has stopped before either registration is removed. No policy
+	// lock waits for an account transition, so other accounts keep making progress.
+	if a != nil {
+		a.mu.Lock()
+		delete(a.publications[id], d)
+		if len(a.publications[id]) == 0 {
+			delete(a.publications, id)
+		}
+		a.mu.Unlock()
+	}
+	m.policyMu.Lock()
+	delete(m.publications, d)
+	close(d.done)
+	m.policyMu.Unlock()
+}
+func (m *Manager) release(a *account, r Record) error {
+	a.mu.Lock()
+	// Close new publication admission before releasing the state fence. The
+	// durable terminal transition follows completion of every older delivery.
+	r.State = "released"
+	a.records[r.LeaseID] = r
+	pending := make([]*publication, 0, len(a.publications[r.LeaseID]))
+	for d := range a.publications[r.LeaseID] {
+		pending = append(pending, d)
+	}
+	a.mu.Unlock()
+	for _, d := range pending {
+		d.cancel()
+	}
+	for _, d := range pending {
+		<-d.done
+	}
+	return m.persist(a, r)
 }
 func mustAccount(p policy.Policy, label string) policy.Account {
 	for _, a := range p.Accounts {

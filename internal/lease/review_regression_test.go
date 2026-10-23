@@ -127,7 +127,7 @@ func TestPublicationOrdersMutations(t *testing.T) {
 			unblock := func() { once.Do(func() { close(resume) }) }
 			defer unblock()
 			go func() {
-				published <- e.Manager.Publish(context.Background(), e.UID, e.Policy.Generation, r, func(deadline time.Time) error {
+				published <- e.Manager.Publish(context.Background(), e.UID, e.Policy.Generation, r, func(_ context.Context, deadline time.Time) error {
 					if !time.Now().Before(deadline) {
 						return errors.New("expired write deadline")
 					}
@@ -167,7 +167,7 @@ func TestPublicationOrdersMutations(t *testing.T) {
 				t.Fatal("mutation did not progress after write")
 			}
 			called := false
-			err := e.Manager.Publish(context.Background(), e.UID, e.Policy.Generation, r, func(time.Time) error { called = true; return nil })
+			err := e.Manager.Publish(context.Background(), e.UID, e.Policy.Generation, r, func(context.Context, time.Time) error { called = true; return nil })
 			if err == nil || called {
 				t.Fatal("terminal mutation allowed later publication")
 			}
@@ -297,7 +297,7 @@ func TestPublicationAuthorizationDeadline(t *testing.T) {
 			}
 			start := time.Now()
 			called := false
-			err := e.Manager.Publish(context.Background(), e.UID, e.Policy.Generation, r, func(deadline time.Time) error {
+			err := e.Manager.Publish(context.Background(), e.UID, e.Policy.Generation, r, func(_ context.Context, deadline time.Time) error {
 				called = true
 				if deadline.After(time.Now().Add(expected)) || deadline.Before(start.Add(expected)) {
 					return errors.New("write deadline exceeds or shortens authority bound")
@@ -308,5 +308,69 @@ func TestPublicationAuthorizationDeadline(t *testing.T) {
 				t.Fatal("publication deadline control failed")
 			}
 		})
+	}
+}
+
+// Claim: canceling a release while it awaits an older publication returns promptly, detaches its waiter, and never acknowledges before that publication stops; its eventual terminal transition does not mutate a neighboring lease.
+func TestCancellationWhileRevokingPublication(t *testing.T) {
+	e := testutil.New(t, lease.Options{})
+	r := e.Issue(t)
+	neighbor := e.Issue(t)
+	entered := make(chan struct{})
+	revoked := make(chan struct{})
+	resume := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(resume) }) }
+	defer unblock()
+	publication := make(chan error, 1)
+	go func() {
+		publication <- e.Manager.Publish(context.Background(), e.UID, e.Policy.Generation, r, func(ctx context.Context, _ time.Time) error {
+			close(entered)
+			<-ctx.Done()
+			close(revoked)
+			<-resume
+			return ctx.Err()
+		})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("publication not registered")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	release := make(chan lease.Outcome, 1)
+	go func() {
+		release <- e.Manager.Call(ctx, e.UID, "lease.release", wire.Release{LeaseID: r.LeaseID}, time.Now())
+	}()
+	select {
+	case <-revoked:
+	case <-time.After(time.Second):
+		t.Fatal("release did not revoke active delivery")
+	}
+	called := false
+	if err := e.Manager.Publish(context.Background(), e.UID, e.Policy.Generation, r, func(context.Context, time.Time) error { called = true; return nil }); err == nil || called {
+		t.Fatal("revoking lease admitted another publication")
+	}
+	cancel()
+	select {
+	case out := <-release:
+		if lease.ErrorCode(out.Err) != "request_deadline_exceeded" || out.Result != nil {
+			t.Fatal("cancelled release acknowledged")
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("cancellation waited for publication cleanup")
+	}
+	testutil.Await(t, func() bool { p, w := e.Manager.Stats(e.Account); return p == 1 && w == 0 })
+	unblock()
+	if <-publication == nil {
+		t.Fatal("revoked delivery succeeded")
+	}
+	testutil.Await(t, func() bool { p, w := e.Manager.Stats(e.Account); return p == 0 && w == 0 })
+	if err := e.Manager.Call(context.Background(), e.UID, "lease.release", wire.Release{LeaseID: r.LeaseID}, time.Now()).Err; err != nil {
+		t.Fatal("terminal receipt not retained after cancellation")
+	}
+	if out := e.Renew(context.Background(), neighbor, lease.Digest(neighbor.Payload.AccessToken)); out.Err != nil {
+		t.Fatal("neighbor was changed by cancelled release")
 	}
 }
