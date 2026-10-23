@@ -53,13 +53,20 @@ var attemptPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 var unitPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*\.service$`)
 var prefixPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*-$`)
 
+type referenceState uint8
+
+const (
+	referenceUncertain referenceState = iota + 1
+	referenceHeld
+)
+
 type Systemd struct {
 	conn           *dbus.Conn
 	prefix, daemon string
 	uid            uint32
 	mu             sync.Mutex
 	specs          map[string]UnitSpec
-	retained       map[string]bool
+	retained       map[string]referenceState
 	verified       Identity
 }
 
@@ -81,7 +88,7 @@ func NewSystemd(ctx context.Context, prefix, daemon string) (*Systemd, error) {
 	if conn.Auth([]dbus.Auth{dbus.AuthExternal(strconv.FormatUint(uint64(uid), 10))}) != nil || conn.Hello() != nil || !conn.SupportsUnixFDs() {
 		return fail()
 	}
-	m := &Systemd{conn: conn, prefix: prefix, daemon: daemon, uid: uid, specs: map[string]UnitSpec{}, retained: map[string]bool{}}
+	m := &Systemd{conn: conn, prefix: prefix, daemon: daemon, uid: uid, specs: map[string]UnitSpec{}, retained: map[string]referenceState{}}
 	if conn.Object(destination, managerPath).CallWithContext(ctx, destination+".Manager.Subscribe", 0).Err != nil {
 		return fail()
 	}
@@ -139,10 +146,16 @@ func (m *Systemd) Start(ctx context.Context, s UnitSpec) error {
 	}
 	m.specs[s.Name] = s
 	// If this uncertain submission creates the unit, AddRef belongs to this connection.
-	m.retained[s.Name] = true
+	m.retained[s.Name] = referenceUncertain
 	m.mu.Unlock()
 	props := append(properties(s), prop("StandardInputFileDescriptor", dbus.UnixFD(s.Input.Fd())), prop("StandardOutputFileDescriptor", dbus.UnixFD(s.Output.Fd())))
-	return m.job(ctx, s.Name, "StartTransientUnit", "fail", props, []auxiliary{})
+	if err := m.job(ctx, s.Name, "StartTransientUnit", "fail", props, []auxiliary{}); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.retained[s.Name] = referenceHeld
+	m.mu.Unlock()
+	return nil
 }
 
 // job subscribes before the request, correlates the returned job path and exact
@@ -415,16 +428,24 @@ func (m *Systemd) Stop(ctx context.Context, name string, before Observation) (Ob
 	// reference through durable terminal publication; only Unload releases it.
 	// Failure (including prior collection) is unknown, never confirmed absence.
 	m.mu.Lock()
-	held := m.retained[name]
+	state, tracked := m.retained[name]
+	if !tracked {
+		// RefUnit can take effect before its reply. Reserve the possible reference
+		// before submission so cancellation cannot authorize a second acquisition.
+		m.retained[name] = referenceUncertain
+	}
 	m.mu.Unlock()
 	// The engine serializes lifecycle calls for each never-reused unit name.
 	// RefUnit is counted: repeated stops must reuse this connection's reference.
-	if !held {
+	if tracked && state != referenceHeld {
+		return Observation{}, ErrUnavailable
+	}
+	if !tracked {
 		if m.conn.Object(destination, managerPath).CallWithContext(ctx, destination+".Manager.RefUnit", 0, name).Err != nil {
 			return Observation{}, ErrUnavailable
 		}
 		m.mu.Lock()
-		m.retained[name] = true
+		m.retained[name] = referenceHeld
 		m.mu.Unlock()
 	}
 	current, err := m.Observe(ctx, name)
@@ -466,6 +487,17 @@ func (m *Systemd) Unload(ctx context.Context, name string) error {
 	if err != nil || unit.Active != "inactive" && unit.Active != "failed" {
 		return ErrUnavailable
 	}
+	m.mu.Lock()
+	state := m.retained[name]
+	if state == referenceHeld {
+		// Unref also has an uncertain-reply boundary. It is never safe to repeat
+		// it or acquire another reference after a cancelled release.
+		m.retained[name] = referenceUncertain
+	}
+	m.mu.Unlock()
+	if state != referenceHeld {
+		return ErrUnavailable
+	}
 	obj := m.conn.Object(destination, managerPath)
 	if unit.Active == "failed" && obj.CallWithContext(ctx, destination+".Manager.ResetFailedUnit", 0, name).Err != nil {
 		return ErrUnavailable
@@ -473,10 +505,30 @@ func (m *Systemd) Unload(ctx context.Context, name string) error {
 	if obj.CallWithContext(ctx, destination+".Manager.UnrefUnit", 0, name).Err != nil {
 		return ErrUnavailable
 	}
-	m.mu.Lock()
-	delete(m.retained, name)
-	m.mu.Unlock()
-	return nil
+	// A successful Unref reply alone does not demonstrate collection. Never
+	// report a clean unload while an unexpected counted reference retains it.
+	check, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var path dbus.ObjectPath
+		err := obj.CallWithContext(check, destination+".Manager.GetUnit", 0, name).Store(&path)
+		if missing, ok := err.(dbus.Error); ok && (missing.Name == "org.freedesktop.systemd1.NoSuchUnit" || missing.Name == "org.freedesktop.DBus.Error.UnknownObject") {
+			m.mu.Lock()
+			delete(m.retained, name)
+			m.mu.Unlock()
+			return nil
+		}
+		if err != nil {
+			return ErrUnavailable
+		}
+		select {
+		case <-check.Done():
+			return ErrUnavailable
+		case <-ticker.C:
+		}
+	}
 }
 
 // Ready checks FD negotiation and the explicitly configured daemon in this

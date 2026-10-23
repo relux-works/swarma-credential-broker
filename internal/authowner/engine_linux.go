@@ -201,7 +201,7 @@ func (e *Engine) checkpoint(a *account, c Checkpoint) error {
 	return nil
 }
 func (e *Engine) confidenceAt(ctx context.Context, a *account) (TimeEvidence, error) {
-	if a.blocked || a.config.Disk.Healthy() != nil {
+	if a.blocked || e.retained(a) != nil || a.config.Disk.Healthy() != nil {
 		return TimeEvidence{}, ErrUnavailable
 	}
 	now, err := e.confidence.Validate(ctx, a.config.Label, a.config.HomeID, a.checkpoint.StoreGeneration, a.checkpoint.Watermark)
@@ -308,22 +308,8 @@ func (e *Engine) AdmitFreshHome(ctx context.Context, label string) error {
 		return err
 	}
 	defer e.leave(a)
-	if !a.historyValid || a.config.Disk.Healthy() != nil {
+	if e.retained(a) != nil || a.config.Disk.Healthy() != nil {
 		return ErrUnavailable
-	}
-	for id, intent := range a.intents {
-		// Retained absence from another boot/manager requires operator reconciliation.
-		if intent.Identity != e.identity {
-			return ErrUnavailable
-		}
-		ev := a.attempts[id]
-		if len(ev) == 0 {
-			return ErrUnavailable
-		}
-		last := ev[len(ev)-1]
-		if last.Absence != "confirmed" || !last.Observation.Complete || !last.Observation.StopCompleted || !last.Observation.Empty || !last.Observation.PopulatedZero {
-			return ErrUnavailable
-		}
 	}
 	identity, err := e.manager.Identity(ctx)
 	if err != nil || identity != e.identity {
@@ -354,7 +340,7 @@ func (e *Engine) evidence(a *account, b Binding, phase string, o Observation, ab
 }
 func (e *Engine) attempt(ctx context.Context, a *account, t TimeEvidence) error {
 	// Retained attempts are never evicted to make room for a new writer.
-	if ctx.Err() != nil || a.blocked || len(a.intents) >= e.config.MaxAttempts {
+	if ctx.Err() != nil || a.blocked || e.retained(a) != nil || len(a.intents) >= e.config.MaxAttempts {
 		return ErrUnavailable
 	}
 	old, err := load(a.config, false)
@@ -448,6 +434,9 @@ func confirmed(b Binding, before, after Observation) bool {
 	return validRunning(b, before) && after.Complete && after.RestartNo && after.Identity == b.Identity && after.Unit == b.Unit && after.Invocation == before.Invocation && after.Cgroup == before.Cgroup && after.CgroupID == before.CgroupID && after.Properties == before.Properties && after.StopCompleted && after.Empty && after.PopulatedZero && (after.Active == "inactive" || after.Active == "failed")
 }
 func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Observation, result rpcResult) error {
+	if e.validateChain(a) != nil {
+		return ErrUnavailable
+	}
 	material, err := load(a.config, true)
 	if err != nil {
 		return ErrUnavailable
@@ -550,12 +539,15 @@ func (e *Engine) restore(a *account) error {
 	if err != nil {
 		return ErrUnavailable
 	}
+	// Decode into fresh maps: a deleted record must not survive in memory from
+	// an earlier successful load. Publish only a fully validated chain.
+	next := &account{config: a.config, intents: map[string]Intent{}, attempts: map[string][]Evidence{}}
 	for name, raw := range records {
 		if !strings.HasPrefix(name, "owner-") {
 			continue
 		}
 		if name == "owner-checkpoint.json" {
-			if decodeRecord(raw, &a.checkpoint) != nil {
+			if decodeRecord(raw, &next.checkpoint) != nil {
 				return ErrUnavailable
 			}
 			continue
@@ -568,132 +560,37 @@ func (e *Engine) restore(a *account) error {
 		switch kind {
 		case "attempt-intent/1":
 			var v Intent
-			if decodeRecord(raw, &v) != nil || !e.binding(a, v.Binding) || v.Revision != 1 || v.Phase != "intent" || name != evidenceName(v.Attempt, 1) || a.intents[v.Attempt].Kind != "" {
+			if decodeRecord(raw, &v) != nil || name != evidenceName(v.Attempt, v.Revision) || next.intents[v.Attempt].Kind != "" {
 				return ErrUnavailable
 			}
-			a.intents[v.Attempt] = v
+			next.intents[v.Attempt] = v
 		case "attempt-evidence/1":
 			var v Evidence
-			if decodeRecord(raw, &v) != nil || !e.binding(a, v.Binding) || v.Revision < 2 || name != evidenceName(v.Attempt, v.Revision) {
+			if decodeRecord(raw, &v) != nil || name != evidenceName(v.Attempt, v.Revision) {
 				return ErrUnavailable
 			}
-			a.attempts[v.Attempt] = append(a.attempts[v.Attempt], v)
+			next.attempts[v.Attempt] = append(next.attempts[v.Attempt], v)
 		default:
 			return ErrUnavailable
 		}
 	}
-	c := a.checkpoint
-	if c.Kind != "account-checkpoint/1" || c.Installation != e.config.Installation || c.Account != a.config.Label || c.VendorID != a.config.VendorID || c.HomeID != a.config.HomeID || c.Revision == 0 || c.Policy != e.config.PolicyGeneration || c.StoreGeneration == 0 || c.TokenGeneration == 0 || c.StoreDigest == "" || c.TokenDigest == "" || !validPlan(c.Plan) || c.Watermark.IsZero() {
-		return ErrUnavailable
-	}
-	if c.State != owner.Active && c.State != owner.Transient && c.State != owner.Reauth && !(c.State == owner.Unavailable && c.PendingAttempt != "") {
-		return ErrUnavailable
-	}
-	if uint64(len(a.intents)) < c.RetainedAttempts {
-		return ErrUnavailable
-	}
-	if c.PendingAttempt != "" {
-		if _, ok := a.intents[c.PendingAttempt]; !ok {
-			return ErrUnavailable
-		}
-	}
-	for id, list := range a.attempts {
-		intent, ok := a.intents[id]
-		if !ok {
-			return ErrUnavailable
-		}
+	for key, list := range next.attempts {
 		sort.Slice(list, func(i, j int) bool { return list[i].Revision < list[j].Revision })
-		a.attempts[id] = list
-		previous := 0
-		var observed Observation
-		for i, v := range list {
-			b := v.Binding
-			b.Revision = 1
-			if b != intent.Binding || v.Revision != uint64(i)+2 {
-				return ErrUnavailable
-			}
-			phase := map[string]int{"submitted": 1, "running": 2, "stopping": 3, "absent": 4, "resolved": 5}[v.Phase]
-			if phase == 0 || phase <= previous {
-				return ErrUnavailable
-			}
-			previous = phase
-			// Submitted may precede observation; every supplied observation must bind
-			// the same verified writer, including already checkpointed history.
-			if phase >= 2 || v.Observation != (Observation{}) {
-				if !validRunning(intent.Binding, v.Observation) {
-					return ErrUnavailable
-				}
-				if observed.Complete && !sameWriter(observed, v.Observation) {
-					return ErrUnavailable
-				}
-				observed = v.Observation
-			}
-			if phase >= 4 && (v.Absence != "confirmed" || !v.Observation.StopCompleted || !v.Observation.Empty || !v.Observation.PopulatedZero) {
-				return ErrUnavailable
-			}
-		}
+		next.attempts[key] = list
 	}
-
-	// Sequence and checkpoint retention count detect holes in older resolved
-	// history as well as loss of the current intent. Counters are local integrity
-	// checks, never independent rollback detection.
-	ordered := make([]Intent, len(a.intents))
-	for _, v := range a.intents {
-		if v.Sequence == 0 || v.Sequence > uint64(len(ordered)) || ordered[v.Sequence-1].Kind != "" {
-			return ErrUnavailable
-		}
-		ordered[v.Sequence-1] = v
-	}
-	sg, tg := uint64(1), uint64(1)
-	if uint64(len(ordered)) > c.RetainedAttempts+1 {
+	if e.validateChain(next) != nil {
 		return ErrUnavailable
 	}
-	for _, v := range ordered {
-		if v.StoreBefore != sg || v.TokenBefore != tg {
-			return ErrUnavailable
-		}
-		list := a.attempts[v.Attempt]
-		if len(list) == 0 || list[len(list)-1].Phase != "resolved" {
-			if v.Sequence <= c.RetainedAttempts {
-				return ErrUnavailable
-			}
-			continue
-		}
-		last := list[len(list)-1]
-		switch last.Outcome {
-		case Committed:
-			if last.RPC != Committed {
-				return ErrUnavailable
-			}
-			sg++
-			tg++
-		case Safe, Rejected:
-			if last.RPC != last.Outcome {
-				return ErrUnavailable
-			}
-		default:
-			return ErrUnavailable
-		}
-		if last.StoreAfter != sg {
-			return ErrUnavailable
-		}
-		if v.Sequence == c.RetainedAttempts && (c.LastAttempt != v.Attempt || c.StoreGeneration != sg || c.TokenGeneration != tg) {
-			return ErrUnavailable
-		}
-	}
-	if c.RetainedAttempts == 0 && (c.LastAttempt != "" || c.StoreGeneration != 1 || c.TokenGeneration != 1) {
-		return ErrUnavailable
-	}
-	if c.PendingAttempt != "" && a.intents[c.PendingAttempt].Sequence != c.RetainedAttempts+1 {
-		return ErrUnavailable
-	}
-
+	a.checkpoint, a.intents, a.attempts = next.checkpoint, next.intents, next.attempts
 	return nil
 }
 func (e *Engine) binding(a *account, b Binding) bool {
 	return b.Installation == e.config.Installation && b.Account == a.config.Label && attemptPattern.MatchString(b.Attempt) && b.Sequence > 0 && b.Operation == "refresh" && b.Daemon != "" && b.Policy == e.config.PolicyGeneration && b.Unit == e.config.WriterPrefix+b.Attempt+".service" && b.Executable == e.config.ExecutableSHA256 && b.Home == a.config.HomeID && b.StoreBefore > 0 && b.TokenBefore > 0 && !b.Created.IsZero() && b.Deadline.After(b.Created)
 }
 func (e *Engine) recover(ctx context.Context, a *account) error {
+	if e.validateChain(a) != nil {
+		return ErrUnavailable
+	}
 	var unresolved []Intent
 	for id, intent := range a.intents {
 		// Old boot/manager identity remains unavailable even with a new empty manager.
@@ -744,7 +641,7 @@ func (e *Engine) recover(ctx context.Context, a *account) error {
 		// Durable response proof is essential. Absence alone cannot resolve rotation.
 		last := list[len(list)-1]
 		if last.Phase != "absent" && last.Phase != "resolved" {
-			if e.evidence(a, b, "absent", absent, "confirmed", rpc, Unknown, 0) != nil {
+			if e.evidence(a, b, "absent", absent, "confirmed", rpc, Unknown, 0, plan) != nil {
 				return ErrUnavailable
 			}
 		}

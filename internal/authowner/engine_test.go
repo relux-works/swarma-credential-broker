@@ -821,8 +821,8 @@ func TestLeaseCoalescingCountsVendorUnits(t *testing.T) {
 }
 
 // Claim: interruption before RPC leaves a live child and retained intent, closes
-// replacement admission, and requires correlated absence before a fresh-home
-// ceremony can become admissible. This models daemon-death/replacement-contention.
+// replacement admission, and requires outcome reconciliation even after correlated
+// absence before fresh-home admission. This models daemon-death/replacement-contention.
 func TestDaemonDeathAndReplacementContention(t *testing.T) {
 	armed := false
 	syncs := 0
@@ -863,8 +863,8 @@ func TestDaemonDeathAndReplacementContention(t *testing.T) {
 	if f.m.count() != 1 {
 		t.Fatal("replacement writer admitted")
 	}
-	if r.AdmitFreshHome(context.Background(), f.c.Accounts[0].Label) != nil {
-		t.Fatal("confirmed-absent old writer still barred from explicit fresh-home prerequisite")
+	if !errors.Is(r.AdmitFreshHome(context.Background(), f.c.Accounts[0].Label), ErrUnavailable) {
+		t.Fatal("ambiguous pre-response writer admitted a fresh home without reconciliation")
 	}
 }
 
