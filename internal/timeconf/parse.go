@@ -3,7 +3,7 @@ package timeconf
 import (
 	"encoding/csv"
 	"io"
-	"math"
+	"math/big"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -36,18 +36,6 @@ func rows(b []byte, fields int) ([][]string, error) {
 		return nil, ErrUnavailable
 	}
 	return result, nil
-}
-func number(s string) (float64, error) {
-	for _, c := range s {
-		if !(c >= '0' && c <= '9' || c == '.' || c == '+' || c == '-' || c == 'e' || c == 'E') {
-			return 0, ErrUnavailable
-		}
-	}
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil || !finite(v) {
-		return 0, ErrUnavailable
-	}
-	return v, nil
 }
 func epoch(s string) (time.Time, error) {
 	parts := strings.Split(s, ".")
@@ -104,15 +92,22 @@ func ParseTracking(b []byte) (Tracking, error) {
 	if err != nil {
 		return Tracking{}, err
 	}
-	// Keep the finite update interval for diagnostics; it is not sync age.
+	// Parse the decimal strings directly into exact rationals. Float copies are
+	// diagnostics only; underflow cannot erase a term from threshold arithmetic.
+	t.exact = new(trackingNumbers)
 	fields := []*float64{&t.SystemOffset, &t.LastOffset, &t.RMSOffset, &t.Frequency, &t.ResidualFrequency, &t.Skew, &t.RootDelay, &t.RootDispersion, &t.UpdateInterval}
 	for i, field := range fields {
-		*field, err = number(v[i+4])
-		if err != nil {
-			return Tracking{}, err
+		value, parseErr := decimal(v[i+4])
+		if parseErr != nil {
+			return Tracking{}, parseErr
+		}
+		t.exact[i] = value
+		*field, _ = value.Float64()
+		if !finite(*field) {
+			return Tracking{}, ErrUnavailable
 		}
 	}
-	if t.RMSOffset < 0 || t.Skew < 0 || t.RootDelay < 0 || t.RootDispersion < 0 || math.Abs(t.Frequency) > 1e6 || math.Abs(t.ResidualFrequency) > 1e6 || t.Skew > 1e6 {
+	if !t.exact.valid() {
 		return Tracking{}, ErrUnavailable
 	}
 	t.Leap = v[13]
@@ -256,8 +251,8 @@ func parseSources(b []byte, sourceOnly bool, expand expandDirectory) (Sources, e
 			if len(f) != 2 {
 				return Sources{}, ErrUnavailable
 			}
-			v, err := number(f[1])
-			if err != nil || v <= 0 || v > 1e6 {
+			v, err := decimal(f[1])
+			if err != nil || v.Sign() <= 0 || v.Cmp(big.NewRat(1000000, 1)) > 0 {
 				return Sources{}, ErrUnavailable
 			}
 		case "port", "cmdport", "minsources":
@@ -272,8 +267,8 @@ func parseSources(b []byte, sourceOnly bool, expand expandDirectory) (Sources, e
 			if len(f) != 3 {
 				return Sources{}, ErrUnavailable
 			}
-			v, err := number(f[1])
-			if err != nil || v <= 0 {
+			v, err := decimal(f[1])
+			if err != nil || v.Sign() <= 0 {
 				return Sources{}, ErrUnavailable
 			}
 			if _, err := strconv.ParseInt(f[2], 10, 32); err != nil {
