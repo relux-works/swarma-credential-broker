@@ -57,21 +57,46 @@ The real-manager connection replacement regression closes the original connectio
 stops through its replacement, verifies retained terminal readback and explicitly
 unloads; its connected control and collected-unit refusal exercise the boundary.
 
-`Confidence.Validate` must supply trusted time and freshness outside the restored
-store's rollback domain. There is no shipped always-fresh implementation. The
-watermark is persisted before material release, advances only on trusted time,
-and remains sticky after clock correction. `Engine.admissionTime` is the single
-time-admission rule: independent evidence must be trusted and fresh, supply a
-nonzero `Now`, and cover `max(Now, checkpoint.Watermark)` strictly before
-`AuthorityUntil`. Equality is refused. Retained metadata supplies only a lower
-bound; it cannot establish independent time authority. A covered sticky watermark
-remains valid after clock correction. `confidenceAt` persists any accepted
-advance before admission, after retained-history and manager-identity checks.
-After that write it samples independent confidence again; this later sample may
-advance without forcing an unbounded loop of watermark writes. The persisted
-sample remains a lower bound. Resolution persists its accepted effective time
-with its outcome checkpoint. Recovery checks time before reconciliation and
-uses the same durable-operation boundary during resolution.
+## Normative trusted-time model
+
+Independent confidence MUST come from outside the restored store's rollback
+domain; there is no shipped always-fresh provider. The process-wide effective
+time E is the maximum of every nonzero independently trusted sample observed in
+this process and every account watermark observed here. E MUST never decrease.
+Each account's durable decision time D is its persisted checkpoint watermark.
+Only trusted time may raise D; clock correction MUST NOT lower either floor.
+
+**Rule of action: use durable time only.** Material release and expiry refusal,
+admission, retry/proactive scheduling, writer timestamps and resolution MUST use
+D, never a later unpersisted sample. Before using a newer effective time, the
+owner MUST raise that account's watermark successfully. A failed or interrupted
+raise MUST refuse the action. After replacement, D is restored before admission;
+observations that have not affected an action need not survive the old process.
+
+A time admission MAY perform one initial watermark raise and at most one
+catch-up raise to incorporate an observed completion sample. Every successful
+raise MUST retain the shared before/after confidence checks. The final postcheck
+MUST update E and require fresh, trusted, nonzero evidence whose exclusive
+AuthorityUntil covers E. It MUST NOT substitute its later Now for D in any
+numeric decision. A later valid sample is carried forward to the next time
+admission; there is no write-until-the-clock-stops loop. The write cost is zero
+when D already covers the observed floor, otherwise at most two checkpoint
+writes per time admission, in addition to the attempt's existing record writes.
+
+**Non-revival.** Once material is refused as expired at D = T, that refusal
+MUST be supported by a successful durable watermark of at least T. The same
+material MUST never be served after any later correction or replacement restart.
+This is the sticky-watermark rule of [R-TIME](../spec/broker.md#151-service-user-and-time),
+imported by the refresher contract. No reset of this evidence is implemented.
+
+Missing instants, provider errors, untrusted or stale evidence MUST refuse
+admission without claiming a material-expiry verdict. A trusted correction is
+bounded below by E and D. E at or beyond the current AuthorityUntil MUST refuse;
+equality is outside authority. Such confidence refusals authorize no protected
+effect and do not infer expiry of the material. Retained metadata supplies a
+lower bound, never independent authority. Previously observed trusted time stays
+in E even when the current confidence fails to cover it.
+
 
 | Admission | Shared time rule call sites |
 |---|---|
