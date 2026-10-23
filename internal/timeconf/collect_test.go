@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const goodCSV = "C0000201,192.0.2.1,3,1893553444.000000000,0.001,0.001,0.001,1.0,0.1,0.1,0.002,0.001,10.0,Normal\n"
@@ -26,6 +28,15 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "-c" {
 		scenario, _ := os.ReadFile(filepath.Join(filepath.Dir(os.Args[0]), "scenario"))
 		switch string(scenario) {
+		case "descriptor":
+			_, err := unix.FcntlInt(200, unix.F_GETFD, 0)
+			if err == nil {
+				fmt.Print("present")
+			} else if err == unix.EBADF {
+				fmt.Print("closed")
+			} else {
+				os.Exit(9)
+			}
 		case "exit":
 			os.Exit(9)
 		case "timeout":

@@ -22,16 +22,53 @@ cannot select a source. The two implemented choices are:
 Neither selection is activated by this change. An operator must control the installed daemon, its
 executable, configuration inventory and all ways it can add/change associations.
 Configuration inspection alone cannot establish that an independently reconfigured
-running daemon loaded those files. Dynamic includes/source directories, peers,
+running daemon loaded those files. Other include mechanisms, peers,
 local reference clocks and unknown directives are refused. A closed subset of
 ordinary non-source directives is parsed; unsupported configuration refuses
 rather than being silently skipped. Referenced key/certificate files are never
 opened by the collector.
 
+The collector expands `sourcedir` (`*.sources`) and `confdir` (`*.conf`) on
+**every sample**, including directories that appear after earlier samples.
+Absent directories add nothing; existing directories and effective files must
+pass the same ownership, mode, no-link and protected-ancestor checks as the main
+configuration. Unreadable, oversized or unsafe inputs refuse the whole sample.
+Directory paths must be clean and absolute. Following
+[chrony's directory semantics](https://chrony-project.org/doc/4.6/chrony.conf.html),
+each directive accepts up to ten directories, sorts the union by filename and
+uses the first directory's file for duplicate filenames. Source files permit
+only NTS `server`/`pool` directives and require newline-terminated lines;
+configuration files recursively use the same closed directive parser. Selection
+matching uses the union of all accepted associations. The standalone
+`ParseSources` parser has no filesystem authority and refuses directory directives.
+Expansion is bounded to eight directory levels, 128 files, 128 directory visits,
+4096 directory entries (including ignored suffixes), and one MiB of aggregate
+configuration, in addition to the per-file policy limit. Cycles exhaust the depth
+bound and refuse. Ordinary ignored comment prose may contain quotes; effective
+quoted or escaped syntax still refuses. `leapseclist <file>` is a recognized
+non-source directive; the referenced leap metadata is not opened.
+
+On Linux, `SystemRunner` re-executes `/proc/self/exe` through a reserved internal
+initialization shim, locks its OS thread, then calls
+`close_range(3, ~0U, CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC)` before executing
+the target directly. The private descriptor table prevents changes to the
+parent; the target receives only stdin, stdout and stderr. The shim reuses the
+embedding executable, so embedding initialization must be safe to repeat before
+this package's initialization. No shell or external helper is needed. The
+[close-range CLOEXEC flag](https://man7.org/linux/man-pages/man2/close_range.2.html)
+requires **Linux 5.11 or later**; unavailable `/proc/self/exe`, unsupported or
+blocked isolation syscalls, and target exec failures refuse collection without a
+fallback. The same timeout, minimal environment and shared output limit cover
+both the shim and target. The reserved shim mode does not select a confidence
+source or load policy; only the protected policy supplies production selection.
+
 `LoadPolicy(path, uid)` reads a regular, singly linked mode-0600 file owned by
 that UID, rejects symlinks and unsafe ancestors, and strictly decodes JSON.
-Duplicate/unknown members, nulls, trailing input and missing enabled bounds are
-errors. Enabled policies use integer nanoseconds:
+Member names must match the closed JSON inventory exactly, including case.
+Duplicate/unknown members, case variants, nulls, trailing input and missing enabled bounds are
+errors. The entire member inventory is checked before typed decoding publishes
+any value, through the shared, service and nested broker loaders alike. Enabled
+policies use integer nanoseconds:
 
 | Field | Accepted bound |
 |---|---|

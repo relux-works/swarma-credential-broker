@@ -43,7 +43,7 @@ func (SystemRunner) Run(ctx context.Context, path string, args []string, timeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := exec.CommandContext(ctx, "/proc/self/exe", append([]string{collectorExecMarker, path}, args...)...)
 	cmd.Env = []string{"LC_ALL=C", "LANG=C", "TZ=UTC"}
 	cmd.Stdin = nil
 	cmd.WaitDelay = 100 * time.Millisecond
@@ -150,20 +150,10 @@ func (c SystemCollector) Collect(ctx context.Context, p Policy) (Evidence, error
 	if !ok || (st.Uid != 0 && st.Uid != uint32(os.Geteuid())) {
 		return e, ErrUnavailable
 	}
-	for _, path := range p.SourceFiles {
-		if ctx.Err() != nil {
-			return Evidence{}, ErrUnavailable
-		}
-		b, err := protectedRead(path, uint32(os.Geteuid()), p.MaxOutputBytes, false)
-		if err != nil {
-			return Evidence{}, ErrUnavailable
-		}
-		sources, err := ParseSources(b)
-		if err != nil {
-			return Evidence{}, ErrUnavailable
-		}
-		e.Sources.Count += sources.Count
-		e.Sources.Entries = append(e.Sources.Entries, sources.Entries...)
+	var errSources error
+	e.Sources, errSources = collectSources(ctx, p)
+	if errSources != nil {
+		return Evidence{}, ErrUnavailable
 	}
 	if e.Sources.Count == 0 {
 		return Evidence{}, ErrUnavailable
