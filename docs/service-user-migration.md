@@ -179,21 +179,38 @@ single records are limited to 4096 bytes; configuration, phase records and
 enumerations to 1 MiB. Exceeding a limit refuses rather than truncating.
 
 A record already known to be invalid never waits for the producer's normal
-exit. The command execs as the captured child PID. The tool closes the read end,
-sends that PID TERM, polls termination at most ten times with 50 ms sleeps,
-then escalates to KILL with another ten polls. The shutdown budget is two
-500 ms intervals, plus command/scheduling overhead; it is not a real-time
-scheduling guarantee. Only after the local Linux `/proc` table confirms the
-PID is absent does the tool call `wait` to collect its saved exit status.
-Valid records keep an unbounded wait for their producer's actual exit status.
+exit. The command execs as the captured direct child PID. Bash 5.3 or later is
+required: `wait -n -p` races this child against an owned 50 ms timer. Only a
+positive completion naming that exact child establishes `absent` (the original
+child has been reaped), regardless of its exit code. No failed filesystem
+lookup establishes absence or authorizes a subsequent producer wait. If the
+timer completes first, a successful `/proc/<pid>/stat` read with matching direct
+parent and a valid start time establishes `present`. Read failures, including
+ENOENT, EACCES and EIO, malformed metadata, foreign parentage, and unavailable
+wait evidence remain `unknown`. This uses positive child completion rather
+than interpreting a filesystem not-found result as process completion.
+
+The tool closes the read end and attempts TERM, then KILL, only when direct
+parentage and the same observed start time are freshly confirmed. Each phase
+has at most ten 50 ms probes, followed by one final bounded confirmation:
+nominally 1.05 seconds plus command/scheduling overhead, not a real-time
+scheduling guarantee. Unknown probes retain the identity and consume this
+bounded budget without blocking on the producer. Valid records keep an
+unbounded wait for their producer's actual exit status.
 
 If termination cannot be confirmed, the tool retains and reports the numeric
 PID, returns incomplete/unknown (75 even during preflight), and never reports
 verified cleanup. During migration it still attempts the pre-armed safety close
 and closed-state readback before halting. An unavailable process table also
-means termination is unconfirmed. No process group or unrelated process is
-signaled. These bounds concern the captured command itself; the site driver
-must own and reconcile any subprocesses it creates.
+means termination is unconfirmed. No process group is signaled. Parentage and
+start time are checked again before KILL, reducing the PID reuse window. Bash
+still supplies a numeric PID to `kill`: the original child could exit and Bash
+could reap it between the metadata read and the signal syscall, permitting PID
+reuse in that interval. These checks do not close that race or guarantee that a
+reused foreign PID can never be signaled. Closing it requires a separately
+reviewed process-handle implementation such as Linux pidfds. These bounds
+concern the captured command itself; the site driver must own and reconcile any
+subprocesses it creates.
 
 Errors and INT/TERM/HUP enter reconciliation based on current observations and
 the preflight identities. Recovery first re-closes admission and verifies the
@@ -234,22 +251,30 @@ bash tests/migration/run <absolute-fresh-scratch-directory>
 ```
 
 The shell runner executes the **shipped script unmodified**. Python 3 standard
-library command doubles provide structured failure injection and call records
-without new dependencies. Real fixture inodes, renames and credential-canary
+library command doubles provide structured failure injection and call records.
+The process-lookup regressions also require `strace` syscall injection on Linux;
+they trace the main Bash process and verify EACCES/EIO at the exact owned-child
+`openat` call. Each includes an ordinary shutdown control. A test-only Linux
+subreaper, accessed through Python's standard-library `ctypes`, collects any
+fixture producer abandoned by the narrowing mutant. Real fixture inodes,
+renames and credential-canary
 atimes are checked; account database, ownership, root authority, mount inventory,
 manager and durability effects are simulated. No real account or service-manager
 operation runs. The doubles reject credential reads via `cat`/`sha256sum`; every
 assertion checks no forbidden read, no canary in output/state records, unchanged
 payload atimes and unchanged unrelated-directory identity. Atime observations
 supplement call records; they do not establish a kernel-level no-open proof on
-all filesystems. No open tracing, real mount operations, root provisioning or
-real credential tests are claimed.
+all filesystems. The bounded process-metadata traces do not establish a general
+no-open proof. No real mount operations, root provisioning or real credential
+tests are claimed.
 
 | Requirement | Implementation | Named tests (with adjacent controls) |
 |---|---|---|
 | Observation status before value | `observe`, `lookup`, `stat_path`, `not_mount`, `absent`; explicit status handling, no errexit/negated command checks | `ObservationRejectsFailed-*`, `GetentExit1IsUnknown`, `GetentExit3IsUnknown`, `Rollback*FailureIsUnknown` |
 | Raw framing before value | Bounded NUL-delimited read, exact LF validation, independent child status; no lossy command substitution | `ReworkRawDriverRejects-*`, `ReworkRawDriverExactFormatControl`, `ReworkRawObservationRejectsNul-*`, `ReworkRawMetadataHashRejectsNul`, `ReworkRawFlockRejectsOutput`, `ReworkRawMountpointRejectsOutput` |
-| Invalid live producer cannot postpone refusal/recovery | TERM/KILL of owned exec PID, bounded termination confirmation before reap; unknown PID retained | `LiveProducerNul-*`, `LiveProducerOversize-*`, `LiveProducerTermCooperative`, `LiveProducerClosedInvalid`, `LiveProducerUnconfirmedRefusal`, `LiveProducerUnconfirmedRecovery`, `LiveProducerWaitOrderingControl` |
+| Invalid live producer cannot postpone refusal/recovery | Bounded child-completion probes, parent/start-time guards before TERM/KILL; unknown PID retained | `LiveProducerNul-*`, `LiveProducerOversize-*`, `LiveProducerTermCooperative`, `LiveProducerClosedInvalid`, `LiveProducerUnconfirmedRefusal`, `LiveProducerUnconfirmedRecovery`, `LiveProducerWaitOrderingControl` |
+| Failed process lookup remains unknown | Actual EACCES/EIO at the shipped script's process metadata lookup cannot authorize blocking wait or discard a live child | `ProcessLookupEACCES`, `ProcessLookupEIO` (each with ordinary shutdown control), `ProcessLookupUnknownAbsenceNarrowingControl` (same EACCES regression fails on discarded live child; trace confirms fault and fixture cleanup) |
+| Reader evidence remains valid after stop | Invalid-child absence needs no fd read; valid incomplete output retains the pipe reader until release | `ReaderWaitEvidenceOversize`, `ReaderWaitEvidenceNul`, `ReaderWaitEvidenceValidControl` |
 | Valid producer status still awaited | No valid-observation deadline, including fragmented output and valid EOF | `LiveProducerFragmentedControl-*`, `LiveProducerNonzeroControl-*`, `LiveProducerValidEofControl` |
 | Absence before mutation, retained preflight | Read-only preflight then `write_record` | `PreflightRejects-*`, `ConfirmationRejects-stale-store` |
 | Fresh phase/result artifacts before dependent effects | Initial absence checks, phase-boundary rechecks and per-mutation result guard | `ReworkExisting-*-RefusesBeforeClose`, `ReworkExisting-*-RefusesBeforeMigration`, `ReworkLateResultBlocksDependentMutation`, `ReworkFreshArtifactsControl` |

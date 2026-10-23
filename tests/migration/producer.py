@@ -10,6 +10,7 @@ import time
 
 script, fixture, phase, record, status, ignore_term = sys.argv[1:7]
 unconfirmed = sys.argv[7:] == ["unconfirmed"]
+reader_evidence = sys.argv[7:] == ["reader-evidence"]
 root = Path(os.environ["MIGRATION_FIXTURE"])
 processes = root / "producer-processes.jsonl"
 
@@ -57,6 +58,18 @@ try:
             time.sleep(1.25)
             assert p.poll() is None, "valid producer was timed out or accepted early"
             assert Path(f"/proc/{producer}").exists(), "valid producer was stopped"
+            if reader_evidence:
+                # Only a live valid producer is expected to retain fd 1.
+                # Invalid producers below have already been stopped/reaped.
+                pipe = os.readlink(f"/proc/{producer}/fd/1")
+                links = []
+                for fd in Path(f"/proc/{p.pid}/fd").iterdir():
+                    try:
+                        links.append(os.readlink(fd))
+                    except FileNotFoundError:
+                        pass
+                evidence["reader_open"] = pipe in links
+                assert evidence["reader_open"], "valid incomplete observation lost its reader"
             (root / "producer-release").touch()
             code = p.wait(timeout=10)
             expected = (69 if phase == "close-admission" else 75) if int(status) else 0
@@ -64,6 +77,12 @@ try:
         evidence.update(exit=code, elapsed=round(time.monotonic() - evidence["started"], 3))
         assert not Path(f"/proc/{producer}").exists(), "producer was not reaped"
         assert evidence["parent"] == p.pid, "captured PID must directly own the producer"
+        if reader_evidence and invalid:
+            # Absence after successful stop is evidence, not an fd-read error.
+            db = json.loads((root / "fixture.json").read_text())
+            opened = next(i for i, c in enumerate(db["calls"]) if c[:2] == ["platform", "open-new"])
+            evidence["reclose_attempted"] = any(c[:2] == ["platform", "close"] for c in db["calls"][opened + 1:])
+            assert evidence["reclose_attempted"] and not db["new_open"]
         if unconfirmed:
             diagnostics = (root / "stderr").read_text()
             assert f"unconfirmed observation producer pid={producer}" in diagnostics

@@ -13,32 +13,71 @@ exec 8>&2
 command_layer() { command "$@"; }
 OBS= OBS_STATUS=0
 unreaped_producers=()
-# Only an absent PID in the local Linux process table confirms termination.
-# If that observation is unavailable, retain the PID and report unknown.
-producer_gone() { [[ -d /proc/self && ! -d /proc/$1 ]]; }
+# Completion is established by Bash reaping this exact child, never by a
+# failed filesystem lookup. The short owned timer bounds each wait -n probe.
+PRODUCER_STATE=unknown PRODUCER_START=
+producer_reaped() { PRODUCER_STATE=absent; }
+observe_producer() {
+    local producer=$1 timer completed= status timer_status record read_status
+    local -a fields=()
+    PRODUCER_STATE=unknown PRODUCER_START=
+    command_layer sleep 0.05 >/dev/null 2>&1 & timer=$!
+    wait -n -p completed "$producer" "$timer" 2>/dev/null; status=$?
+    if [[ ${completed:-} == "$producer" ]]; then
+        # This wait is for our finite timer, never the observation producer.
+        wait "$timer" 2>/dev/null; timer_status=$?
+        (( timer_status == 0 )) || return 0
+        producer_reaped
+        return 0
+    fi
+    if [[ ${completed:-} != "$timer" ]]; then
+        # An interrupted/failed wait established neither child's completion.
+        unreaped_producers+=("$timer")
+        return 0
+    fi
+    (( status == 0 )) || return 0
+    { IFS= read -r record < "/proc/$producer/stat"; } 2>/dev/null; read_status=$?
+    # PROCESS_LOOKUP_FAILURE_BEGIN: the narrowing control changes only unknown.
+    if (( read_status != 0 )); then PRODUCER_STATE=unknown; return 0; fi
+    # PROCESS_LOOKUP_FAILURE_END
+    [[ $record == "$producer ("*') '* ]] || return 0
+    IFS=' ' read -r -a fields <<< "${record##*) }" || return 0
+    (( ${#fields[@]} >= 20 )) || return 0
+    [[ ${fields[0]} =~ ^[A-Za-z]$ && ${fields[1]} == "$$" && ${fields[19]} =~ ^[0-9]+$ ]] || return 0
+    PRODUCER_START=${fields[19]}
+    PRODUCER_STATE=present
+}
 stop_invalid_producer() {
-    local producer=$1 slot=${#unreaped_producers[@]} signal attempt
-    unreaped_producers[$slot]=$producer
+    local producer=$1 slot signal attempt identity= sent signal_status
+    # A retained timer can leave sparse indices after a producer is reaped.
+    # Append rather than indexing by length, which could replace that identity.
+    unreaped_producers+=("$producer")
+    local -a slots=("${!unreaped_producers[@]}")
+    slot=${slots[-1]}
     for signal in TERM KILL; do
-        if producer_gone "$producer"; then
-            wait "$producer" >/dev/null 2>&1
-            unset "unreaped_producers[$slot]"
-            return 0
-        fi
-        # The producer execs in the process substitution, so this recorded PID
-        # names the command itself, never a wrapper or a shared process group.
-        builtin kill -s "$signal" "$producer" 2>/dev/null || :
+        sent=0
         for ((attempt=0; attempt<10; attempt++)); do
-            if producer_gone "$producer"; then
-                wait "$producer" >/dev/null 2>&1
-                unset "unreaped_producers[$slot]"
-                return 0
-            fi
-            command_layer sleep 0.05 >/dev/null 2>&1 || break
+            observe_producer "$producer"
+            case $PRODUCER_STATE in
+                absent)
+                    # wait -n already collected this owned child's exit status.
+                    unset "unreaped_producers[$slot]"
+                    return 0 ;;
+                present)
+                    if [[ -z $identity ]]; then identity=$PRODUCER_START; fi
+                    if [[ $identity == "$PRODUCER_START" ]] && (( sent == 0 )); then
+                        # Recheck direct parent and start time before each
+                        # signal, including KILL. Numeric signaling still has
+                        # a residual lookup-to-kill race; see the operator guide.
+                        builtin kill -s "$signal" "$producer" 2>/dev/null; signal_status=$?
+                        if (( signal_status == 0 )); then sent=1; fi
+                    fi ;;
+                unknown) ;; # Never wait on the producer or drop its identity.
+            esac
         done
     done
-    if producer_gone "$producer"; then
-        wait "$producer" >/dev/null 2>&1
+    observe_producer "$producer"
+    if [[ $PRODUCER_STATE == absent ]]; then
         unset "unreaped_producers[$slot]"
         return 0
     fi
@@ -64,14 +103,15 @@ valid_record() {
 # limit (status 0); only EOF (status 1) admits the raw value. Unlike $(...), it
 # preserves all LFs. Wait separately for the producer's actual command status.
 capture() {
-    local format=$1 limit=$2 fd producer read_status; shift 2
+    local format=$1 limit=$2 fd producer read_status record_status; shift 2
     OBS= OBS_STATUS=0
     exec {fd}< <(command_layer exec "$@" 2>/dev/null)
     producer=$!
     IFS= read -r -d '' -n "$((limit + 1))" OBS <&"$fd"; read_status=$?
     exec {fd}<&-
     # Reject known-invalid bytes/framing before waiting for command success.
-    if ! valid_record "$format" "$limit" "$read_status"; then
+    valid_record "$format" "$limit" "$read_status"; record_status=$?
+    if (( record_status != 0 )); then
         stop_invalid_producer "$producer" || :
         OBS_STATUS=1
         return 1
@@ -119,6 +159,7 @@ refuse() {
 }
 unknown() { report_producers; say 'halted: recovery incomplete/unknown; keep admission closed'; exit 75; }
 usage() { say 'usage: migrate-service-user {close-admission|migrate} /absolute/config'; exit 64; }
+(( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )) || refuse
 (( $# == 2 )) || usage
 phase=$1 config=$2
 case $phase in close-admission|migrate) ;; *) usage ;; esac
@@ -134,7 +175,7 @@ stat_path() {
     STAT=$OBS
     [[ $STAT =~ ^[0-9]+:[0-9]+:[0-9]+:[0-9]+:[0-7]{3,4}:[0-9]+:[0-9a-f]+:[0-9]+:-?[0-9]+:-?[0-9]+$ ]] || return 1
     local hex
-    IFS=: read -r DEV INO UID_ GID_ MODE LINKS hex SIZE MTIME CTIME <<< "$STAT"
+    IFS=: read -r DEV INO UID_ GID_ MODE LINKS hex SIZE MTIME CTIME <<< "$STAT" || return 1
     TYPE=$((16#$hex & 0170000))
 }
 protected_file() {
@@ -307,7 +348,7 @@ verify_tree() {
         guard_id "$p" "${ids[$i]}" || return 1
         [[ $UID_ == "$owner" && $GID_ == "$group" ]] || return 1
         if [[ $original_modes == yes ]]; then
-            IFS=: read -r _ _ _ _ expected _ <<< "${original[$i]}"
+            IFS=: read -r _ _ _ _ expected _ <<< "${original[$i]}" || return 1
         elif [[ $TYPE == 16384 ]]; then expected=700; else expected=600; fi
         [[ $MODE == "$expected" ]] || return 1
         [[ $TYPE == 16384 || ( $TYPE == 32768 && $LINKS == 1 ) ]] || return 1
@@ -323,7 +364,7 @@ restore_metadata() {
         guard_id "$p" "${ids[$i]}" || return 1
         [[ $TYPE == 16384 || ( $TYPE == 32768 && $LINKS == 1 ) ]] || return 1
         not_mount "$p" || return 1
-        IFS=: read -r _ _ uid gid mode _ <<< "${original[$i]}"
+        IFS=: read -r _ _ uid gid mode _ <<< "${original[$i]}" || return 1
         mutate "restore-owner:$i" chown -- "$uid:$gid" "$p" || return 1
         guard_id "$p" "${ids[$i]}" || return 1
         mutate "restore-mode:$i" chmod -- "$mode" "$p" || return 1

@@ -328,9 +328,9 @@ unconfirmed_producer() {
 from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
-old='producer_gone() { [[ -d /proc/self && ! -d /proc/$1 ]]; }'
+old='producer_reaped() { PRODUCER_STATE=absent; }'
 assert s.count(old)==1
-Path(sys.argv[2]).write_text(s.replace(old, 'producer_gone() { return 1; }'))
+Path(sys.argv[2]).write_text(s.replace(old, 'producer_reaped() { PRODUCER_STATE=unknown; }'))
 PYCONFIRM
     python3 "$repo/tests/migration/producer.py" "$instrument" "$fixture" "$1" nul 0 yes unconfirmed
 }
@@ -365,6 +365,47 @@ assert e['blocked'] and e['new_open'] and e['producer_gone_after_cleanup']
 PYWAITSTATE
 }
 run_test LiveProducerWaitOrderingControl wait_order_control
+# Keep the original oversize/NUL/valid-reader distinction without inspecting
+# fd 1 of a producer that correct shutdown has already stopped and reaped.
+run_test ReaderWaitEvidenceOversize live_producer migrate oversize 0 yes reader-evidence
+run_test ReaderWaitEvidenceNul live_producer migrate nul 0 yes reader-evidence
+run_test ReaderWaitEvidenceValidControl live_producer migrate reader-valid 0 no reader-evidence
+# Inject real EACCES/EIO into the unchanged script's owned-child metadata read.
+# Each case includes an ordinary positive shutdown control with the same trace.
+process_lookup_failure() {
+    new_fixture || return 1
+    python3 "$repo/tests/migration/process-observation.py" "$script" "$fixture" "$1"
+}
+run_test ProcessLookupEACCES process_lookup_failure EACCES
+run_test ProcessLookupEIO process_lookup_failure EIO
+# Narrow only unknown metadata to absence: the identical regression must reject
+# the resulting live, discarded producer, with the injected syscall confirmed.
+process_lookup_narrowing() {
+    local mutant=$scratch/process-absence-mutant
+    python3 - "$script" "$mutant" <<'PYLOOKUP'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+old='if (( read_status != 0 )); then PRODUCER_STATE=unknown; return 0; fi'
+assert s.count(old)==1
+Path(sys.argv[2]).write_text(s.replace(old, old.replace('unknown', 'absent')))
+PYLOOKUP
+    local script=$mutant
+    process_lookup_failure EACCES > "$scratch/mutant-process-absence.log" 2>&1
+    local red=$?
+    printf 'mutant regression exit=%s (expected 1)\n' "$red" > "$scratch/mutant-process-absence-result.txt"
+    [[ $red == 1 ]] || return 1
+    python3 - <<'PYLOOKUPSTATE'
+from pathlib import Path
+import json, os
+r=Path(os.environ['MIGRATION_FIXTURE'])
+e=json.loads((r/'fault/evidence.json').read_text())
+assert '(INJECTED)' in e['lookup_line'] and '= -1 EACCES' in e['lookup_line']
+assert e['exit']==75 and e['reclose_attempted'] and not e['producer_gone']
+assert e['producer_gone_after_cleanup']
+PYLOOKUPSTATE
+}
+run_test ProcessLookupUnknownAbsenceNarrowingControl process_lookup_narrowing
 run_test ObservationStatusNarrowingControl narrowing_control
 printf 'passed=%s failed=%s\n' "$passed" "$failed"
 (( failed == 0 ))
