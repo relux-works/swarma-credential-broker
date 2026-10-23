@@ -70,6 +70,8 @@ Only trusted time may raise D; clock correction MUST NOT lower either floor.
 observed in the final postcheck: material release and expiry refusal, admission,
 retry and proactive readiness, and the exclusive AuthorityUntil bound. A grant
 requires validity at E; a later trusted sample can only narrow the grant.
+Every admission result MUST pass `timeAuthority.authorize` against the latest E
+after its last blocking operation, including the path requiring no write.
 
 **Durable refusals.** An expiry refusal that depends on E > D MUST persist a
 watermark of at least that decision's E before returning the expiry verdict.

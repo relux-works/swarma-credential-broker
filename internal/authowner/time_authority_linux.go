@@ -16,6 +16,26 @@ type timeAuthority struct {
 	observed time.Time
 }
 
+// authorizedTime is the admission result. Only authorize constructs a nonzero
+// result; raw provider evidence cannot be returned as an admitted time.
+type authorizedTime struct {
+	evidence TimeEvidence
+}
+
+// authorize is the final, nonblocking authority check after an operation's last
+// blocking call. It also covers admissions that needed no watermark write.
+func (t *timeAuthority) authorize(a *account, v TimeEvidence) (authorizedTime, error) {
+	if !v.Trusted || !v.Fresh || v.Now.IsZero() {
+		return authorizedTime{}, ErrUnavailable
+	}
+	t.floor(a.checkpoint.Watermark)
+	v.Now = t.floor(v.Now)
+	if !v.Now.Before(v.AuthorityUntil) {
+		return authorizedTime{}, ErrUnavailable
+	}
+	return authorizedTime{evidence: v}, nil
+}
+
 func (t *timeAuthority) floor(lower time.Time) time.Time {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -35,14 +55,11 @@ func (t *timeAuthority) sample(ctx context.Context, e *Engine, a *account, c Che
 	if err == nil && v.Trusted && !v.Now.IsZero() {
 		t.floor(v.Now)
 	}
-	if err != nil || !v.Trusted || !v.Fresh || v.Now.IsZero() {
+	if err != nil {
 		return TimeEvidence{}, ErrUnavailable
 	}
-	v.Now = t.floor(lower)
-	if !v.Now.Before(v.AuthorityUntil) {
-		return TimeEvidence{}, ErrUnavailable
-	}
-	return v, nil
+	authorized, err := t.authorize(a, v)
+	return authorized.evidence, err
 }
 
 // commit keeps completed writes even when the postcheck refuses their successor.
@@ -93,28 +110,28 @@ func (t *timeAuthority) raise(ctx context.Context, e *Engine, a *account, c Chec
 
 // durable admits at most two watermark writes and retains the final effective
 // sample for every grant decision, even when it is newer than durable time.
-func (t *timeAuthority) durable(ctx context.Context, e *Engine, a *account, c Checkpoint, v TimeEvidence) (TimeEvidence, error) {
+func (t *timeAuthority) durable(ctx context.Context, e *Engine, a *account, c Checkpoint, v TimeEvidence) (authorizedTime, error) {
 	for writes := 0; writes < 2 && v.Now.After(a.checkpoint.Watermark); writes++ {
 		var err error
 		v, err = t.raise(ctx, e, a, c, v.Now)
 		if err != nil {
-			return TimeEvidence{}, err
+			return authorizedTime{}, err
 		}
 	}
-	return v, nil
+	return t.authorize(a, v)
 }
 
-func (t *timeAuthority) admission(ctx context.Context, e *Engine, a *account) (TimeEvidence, error) {
+func (t *timeAuthority) admission(ctx context.Context, e *Engine, a *account) (authorizedTime, error) {
 	if a.blocked || e.retained(a) != nil || a.config.Disk.Healthy() != nil {
-		return TimeEvidence{}, ErrUnavailable
+		return authorizedTime{}, ErrUnavailable
 	}
 	v, err := t.sample(ctx, e, a, a.checkpoint)
 	if err != nil {
-		return TimeEvidence{}, ErrUnavailable
+		return authorizedTime{}, ErrUnavailable
 	}
 	identity, err := e.manager.Identity(ctx)
 	if err != nil || identity != e.identity {
-		return TimeEvidence{}, ErrUnavailable
+		return authorizedTime{}, ErrUnavailable
 	}
 	return t.durable(ctx, e, a, a.checkpoint, v)
 }
@@ -127,10 +144,11 @@ func (t *timeAuthority) materialValid(v TimeEvidence, expires time.Time) bool {
 // one refusal raise; once D reaches expiry, this material cannot revive. The
 // raise's postcheck may narrow authority, but cannot undo that durable refusal.
 func (t *timeAuthority) materialAvailable(ctx context.Context, e *Engine, a *account, c Checkpoint, v TimeEvidence, expires time.Time) error {
-	v.Now = t.floor(v.Now)
-	if !v.Now.Before(v.AuthorityUntil) {
-		return ErrUnavailable
+	authorized, err := t.authorize(a, v)
+	if err != nil {
+		return err
 	}
+	v = authorized.evidence
 	if t.materialValid(v, expires) {
 		return nil
 	}
@@ -162,10 +180,11 @@ func (t *timeAuthority) resolution(ctx context.Context, e *Engine, a *account, c
 	if err != nil {
 		return time.Time{}, ErrUnavailable
 	}
-	v, err = t.durable(ctx, e, a, *c, v)
+	authorized, err := t.durable(ctx, e, a, *c, v)
 	if err != nil {
 		return time.Time{}, ErrUnavailable
 	}
+	v = authorized.evidence
 	if outcome == Committed {
 		if err := t.materialAvailable(ctx, e, a, *c, v, expires); err != nil {
 			return time.Time{}, err

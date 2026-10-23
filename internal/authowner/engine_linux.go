@@ -253,7 +253,8 @@ func (e *Engine) admissionTime(ctx context.Context, a *account, c Checkpoint) (T
 }
 
 func (e *Engine) confidenceAt(ctx context.Context, a *account) (TimeEvidence, error) {
-	return e.clock.admission(ctx, e, a)
+	authorized, err := e.clock.admission(ctx, e, a)
+	return authorized.evidence, err
 }
 
 func (e *Engine) snapshot(ctx context.Context, a *account) (owner.Snapshot, error) {
@@ -716,7 +717,10 @@ func (e *Engine) recover(ctx context.Context, a *account) error {
 			return ErrUnavailable
 		}
 	}
-	return nil
+	// Recovery may finish with a blocking manager unload. Its admission result
+	// must pass the same final constructor after that operation has returned.
+	_, err := e.admissionTime(ctx, a, a.checkpoint)
+	return err
 }
 
 var _ owner.Owner = (*Engine)(nil)
