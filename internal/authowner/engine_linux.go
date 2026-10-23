@@ -270,8 +270,11 @@ func (e *Engine) snapshot(ctx context.Context, a *account) (owner.Snapshot, erro
 		return v, ErrUnavailable
 	}
 	material, err := load(a.config, false)
-	if err != nil || material.Digest != c.StoreDigest || digestToken(material.Token) != c.TokenDigest || !e.clock.materialValid(t, material.Expires) {
+	if err != nil || material.Digest != c.StoreDigest || digestToken(material.Token) != c.TokenDigest {
 		return v, ErrUnavailable
+	}
+	if err := e.clock.materialAvailable(ctx, e, a, a.checkpoint, t, material.Expires); err != nil {
+		return v, err
 	}
 	return owner.Snapshot{State: c.State, AccessToken: material.Token, AccountID: material.Account, PlanType: c.Plan, ExpiresAt: material.Expires, AuthorityUntil: t.AuthorityUntil, Generation: c.TokenGeneration, Trusted: true, Fresh: true, Qualified: true, PolicyGeneration: c.Policy, QualificationID: e.config.QualificationID, ExecutableSHA256: e.config.ExecutableSHA256}, nil
 }
@@ -301,6 +304,10 @@ func (e *Engine) Refresh(ctx context.Context, label string, generation uint64) (
 		return owner.Snapshot{State: owner.Unavailable}, err
 	}
 	if !e.clock.retryReady(now, a.checkpoint) {
+		if err := e.clock.materialAvailable(ctx, e, a, a.checkpoint, now, current.ExpiresAt); err != nil {
+			return owner.Snapshot{State: owner.Unavailable}, err
+		}
+		current.AuthorityUntil = now.AuthorityUntil
 		return current, nil
 	}
 	if err = e.attempt(ctx, a); err != nil {
@@ -329,7 +336,13 @@ func (e *Engine) Due(ctx context.Context, label string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return s.State != owner.Reauth && e.clock.due(t, a.checkpoint, s.ExpiresAt, e.config.ProactiveWindow), nil
+	if s.State == owner.Reauth {
+		return false, nil
+	}
+	if err := e.clock.materialAvailable(ctx, e, a, a.checkpoint, t, s.ExpiresAt); err != nil {
+		return false, err
+	}
+	return e.clock.due(t, a.checkpoint, s.ExpiresAt, e.config.ProactiveWindow), nil
 }
 
 // AdmitFreshHome checks only the lifecycle prerequisite for the separate
@@ -371,7 +384,7 @@ func (e *Engine) attempt(ctx context.Context, a *account) (resultErr error) {
 	if ctx.Err() != nil || a.blocked || e.retained(a) != nil || len(a.intents) >= e.config.MaxAttempts {
 		return ErrUnavailable
 	}
-	t, err := e.confidenceAt(ctx, a)
+	_, err := e.confidenceAt(ctx, a)
 	if err != nil {
 		return ErrUnavailable
 	}
@@ -384,7 +397,7 @@ func (e *Engine) attempt(ctx context.Context, a *account) (resultErr error) {
 		return ErrUnavailable
 	}
 	b := Binding{Installation: e.config.Installation, Account: a.config.Label, Attempt: attempt, Sequence: uint64(len(a.intents)) + 1, Revision: 1, Operation: "refresh", Daemon: e.config.DaemonInstance, Policy: e.config.PolicyGeneration, Identity: e.identity, Unit: e.config.WriterPrefix + attempt + ".service", Executable: e.config.ExecutableSHA256, Home: a.config.HomeID, StoreBefore: a.checkpoint.StoreGeneration, TokenBefore: a.checkpoint.TokenGeneration, StoreDigestBefore: old.Digest, TokenDigestBefore: digestToken(old.Token), PlanBefore: a.checkpoint.Plan, TokenExpiresBefore: old.Expires}
-	e.clock.stamp(t, &b, e.config.Runtime)
+	e.clock.stamp(a, &b, e.config.Runtime)
 	intent := Intent{Kind: "attempt-intent/1", Binding: b, Phase: "intent"}
 	pending := a.checkpoint
 	pending.State = owner.Unavailable

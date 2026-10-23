@@ -63,7 +63,7 @@ Independent confidence MUST come from outside the restored store's rollback
 domain; there is no shipped always-fresh provider. The process-wide effective
 time E is the maximum of every nonzero independently trusted sample observed in
 this process and every account watermark observed here. E MUST never decrease.
-Each account's durable decision time D is its persisted checkpoint watermark.
+Each account's durable time D is its persisted checkpoint watermark.
 Only trusted time may raise D; clock correction MUST NOT lower either floor.
 
 **Evaluate at E.** Every authority decision MUST use E, including the sample
@@ -120,6 +120,9 @@ in E even when the current confidence fails to cover it.
 | Post-vendor / recovered resolution | `resolve` → `timeAuthority.resolution` uses prospective generation, bounded watermark persistence, expiry at E and stamps at D; recorded resolution time remains sticky |
 
 `Engine.clock` owns the sole `timeAuthority` for all accounts in the process.
+Material decisions merge the process floor again after admission. A resolution
+refusal raise checks the prospective generation while persisting only the old
+checkpoint's watermark; it cannot publish an unresolved new generation.
 Only that type reads the injected `Confidence` provider, merges samples, compares
 current time with authority/expiry bounds, raises watermarks or makes numeric
 time decisions. The engine's existing private `admissionTime`, `confidenceAt`,
@@ -316,14 +319,25 @@ pending histories remain closed before time sampling; only valid restored
 watermarks enter a replacement's observed floor. Durable floors and expiry
 refusals are checked across restarts; unacted samples are process-local.
 `TestTimeAuthorityCompletionSequences` uses the same seeds to check the two-write
-grant bound, final-E expiry refusal and durable non-revival. `TestTimeAuthorityProcessFloor`
+grant bound, final-E expiry refusal and durable non-revival.
+`TestExpiryCatchupSequences` generates initial, first-completion and final-completion
+expiry crossings with covered and exclusive-authority neighbors for the same four
+seeds. `TestExpiryRefusalRaiseFailure` interrupts the extra raise before publication
+and at completion. `TestRetryExpirySequences` generates covered, expired and
+exclusive-authority retry returns without a second writer. The ported
+`TestFinalCompletionExpiryProbe` and `TestRefreshRetryExpiryProbe` retain the
+review reproductions. `TestResolutionRefusalContext` checks prospective-generation
+confidence for the refusal raise and durable resolution stamps.
+`TestMaterialDecisionProcessFloor` checks a later trusted sample from another
+account between admission and material decision, with covered and uncovered
+controls. `TestTimeAuthorityProcessFloor`
 checks that separate accounts share the observed floor. These finite sequences
 do not establish exhaustive schedule coverage or atomic asynchronous revocation.
 
 | Contract | Code | Tests |
 |---|---|---|
 | §4 stable locks, approved vendor, managed RPC and durable reload | `engine_linux.go`, `vendor_linux.go`, existing store locks | `TestStableHomeLock`, `TestIntentBeforeStartAndCommittedControl`, `TestDuplicateConfiguredVendorRefused` |
-| Durable time decisions and non-revival | `timeAuthority`, effective-time expiry/scheduling and durable refusals | `TestPostCommitClockCorrectionProbe`, `TestTimeAuthoritySequences`, `TestTimeAuthorityCompletionSequences`, `TestTimeAuthorityProcessFloor` |
+| Durable time decisions and non-revival | `timeAuthority`, effective-time expiry/scheduling and durable refusals | `TestPostCommitClockCorrectionProbe`, `TestTimeAuthoritySequences`, `TestTimeAuthorityCompletionSequences`, `TestTimeAuthorityProcessFloor`, `TestExpiryCatchupSequences`, `TestExpiryRefusalRaiseFailure`, `TestRetryExpirySequences`, `TestFinalCompletionExpiryProbe`, `TestRefreshRetryExpiryProbe` |
 | Completed persistence must revalidate before its successor | `commitThenRevalidate`, `commitCheckpoint`, `appendIntent`, `appendEvidence`, `durableMaterial` | `TestDurableEffectTimeBoundaryProbe`, `TestWatermarkCompletionAdmissionProbe`, `TestDurableStepTimeRevalidation`, `TestCommitTimeBoundary`, `TestMaterialDurabilityTimeRevalidation` |
 | §4 proactive window, unknown expiry, trusted time and watermark | `Due`, `confidenceAt`, `load` | `TestProactiveShortLifetime`, `TestStoreTimeAndFreshnessFences` |
 | §4 unchanged token and N=8/64 coalescing | `Refresh`, `resolve`, lease owner-error bridge | `TestUnchangedReportsRenewFailed`, `TestProbeUnchangedTokenMetadata`, `TestOwnerUnchangedRefusalPreserved`, `TestLeaseCoalescingCountsVendorUnits` |

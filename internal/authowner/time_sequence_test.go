@@ -180,12 +180,13 @@ func TestTimeAuthoritySequences(t *testing.T) {
 						event = sequenceEvent(rng, "missing", base, expires, good.Now)
 					}
 					auditing = true
+					var transition owner.Snapshot
 					switch target {
 					case "watermark":
 						good.Now = good.Now.Add(time.Millisecond)
 						source.set(good)
 						armed = true
-						current.Snapshot(context.Background(), label)
+						transition, _ = current.Snapshot(context.Background(), label)
 					case "material-flush":
 						source.mu.Lock()
 						source.atCall = source.calls + 2
@@ -194,7 +195,7 @@ func TestTimeAuthoritySequences(t *testing.T) {
 						current.durableMaterial(context.Background(), current.accounts[label])
 					default:
 						armed = true
-						current.Refresh(context.Background(), label, 1)
+						transition, _ = current.Refresh(context.Background(), label, 1)
 					}
 					armed = false
 					if !triggered {
@@ -202,6 +203,9 @@ func TestTimeAuthoritySequences(t *testing.T) {
 					}
 					durable := sequenceCheckpoint(t, f).Watermark
 					_, previous, _ := source.state()
+					if transition.AccessToken != "" && (!previous.Before(expires) || !source.allowed()) {
+						t.Fatal("transition served material invalid at effective time")
+					}
 					expired := !durable.Before(expires)
 					if mode != "live" {
 						source.set(good)
@@ -251,9 +255,12 @@ func TestTimeAuthoritySequences(t *testing.T) {
 								t.Fatal("admission outside independent authority")
 							}
 							if snapshot.AccessToken != "" {
-								if expired || !after.Watermark.Before(expires) {
+								if expired || !effective.Before(expires) || !after.Watermark.Before(expires) {
 									t.Fatal("expired material revived")
 								}
+							}
+							if (entry == 0 || entry == 2 || entry == 3) && source.allowed() && !effective.Before(expires) && errors.Is(err, ErrUnavailable) && before.Watermark.Before(expires) && after.Watermark.Before(effective) && !current.accounts[label].blocked {
+								t.Fatal("effective expiry refused without durable evidence or closed account")
 							}
 							if entry == 0 && errors.Is(err, ErrUnavailable) && !after.Watermark.Before(expires) {
 								expired = true
@@ -276,10 +283,9 @@ func TestTimeAuthoritySequences(t *testing.T) {
 	}
 }
 
-// Claim: even a source advancing at both watermark completions costs at most
-// two writes. An unpersisted final sample cannot itself expire material. On the
-// next admission its sticky process floor is persisted, and that durable expiry
-// cannot revive after a covered correction or public replacement restart.
+// Claim: a crossing at the final catch-up refuses material at E and persists
+// that refusal with one additional write. Correction and replacement cannot
+// revive it; the source remains fixed during the refusal raise.
 func TestTimeAuthorityCompletionSequences(t *testing.T) {
 	seeds := []int64{1, 7, 42, 20261023}
 	t.Logf("reproduction seeds: %v", seeds)
@@ -294,7 +300,7 @@ func TestTimeAuthorityCompletionSequences(t *testing.T) {
 					writes++
 					if writes == 1 {
 						f.t.advance(time.Duration(1+rng.Intn(250)) * time.Millisecond)
-					} else {
+					} else if writes == 2 {
 						f.t.advance(2 * time.Second)
 					}
 				}
@@ -306,15 +312,15 @@ func TestTimeAuthorityCompletionSequences(t *testing.T) {
 			armed = true
 			first, err := f.snapshot()
 			cp := sequenceCheckpoint(t, f)
-			if writes != 2 || err != nil || first.AccessToken != f.token || !cp.Watermark.Before(corrected.Add(time.Second)) {
-				t.Fatal("decision used unpersisted postcheck time or exceeded bounded writes", writes, err)
+			if writes != 3 || !errors.Is(err, ErrUnavailable) || first.AccessToken != "" || cp.Watermark.Before(f.t.now) {
+				t.Fatal("final effective expiry not durably refused within write bound", writes, err)
 			}
 			armed = false
 			f.t.mu.Lock()
 			f.t.now = corrected
 			f.t.mu.Unlock()
-			if s, err := f.snapshot(); !errors.Is(err, ErrUnavailable) || s.AccessToken != "" || sequenceCheckpoint(t, f).Watermark.Before(corrected.Add(time.Second)) {
-				t.Fatal("observed expiry floor lost before durable decision")
+			if s, err := f.snapshot(); !errors.Is(err, ErrUnavailable) || s.AccessToken != "" || sequenceCheckpoint(t, f).Watermark.Before(cp.Watermark) {
+				t.Fatal("durable expiry lost on correction")
 			}
 			r := f.replacement(t)
 			if s, err := r.Snapshot(context.Background(), f.c.Accounts[0].Label); !errors.Is(err, ErrUnavailable) || s.AccessToken != "" {
