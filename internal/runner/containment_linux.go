@@ -5,6 +5,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"golang.org/x/sys/unix"
 	"io"
 	"os"
@@ -164,7 +165,7 @@ func scanGroup(root string, group int) ([]int, error) {
 			continue
 		}
 		raw, e := os.ReadFile(root + "/" + entry.Name() + "/stat")
-		if os.IsNotExist(e) {
+		if processMetadataGone(e) {
 			continue
 		}
 		if e != nil {
@@ -284,8 +285,11 @@ func (p *process) stop(ctx context.Context) error {
 		return errors.New("guard failure")
 	}
 	members, err := groupMembers(p.group)
-	if err != nil || len(members) != 0 {
-		return errors.New("containment unknown")
+	if err != nil {
+		return fmt.Errorf("containment unknown: %w", err)
+	}
+	if len(members) != 0 {
+		return errors.New("containment unknown: observed group members")
 	}
 	if err = syscall.Kill(-p.group, 0); err != syscall.ESRCH {
 		return errors.New("group still present")
@@ -318,7 +322,7 @@ func signalOwned(pid, group, parent int, sig syscall.Signal) error {
 			return errors.New("group membership changed")
 		}
 		raw, e := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-		if os.IsNotExist(e) {
+		if processMetadataGone(e) {
 			return nil
 		}
 		if e != nil {
@@ -343,8 +347,9 @@ func signalOwned(pid, group, parent int, sig syscall.Signal) error {
 // adopted by the subreaper when their parents die. Direct adopted children are
 // also stopped, regardless of their session/group. ECHILD is required before
 // guard success, so a group escape cannot become false absence evidence.
-func ownedMembers(owner int) ([]int, error) {
-	entries, err := os.ReadDir("/proc")
+func ownedMembers(owner int) ([]int, error) { return scanOwned("/proc", owner) }
+func scanOwned(root string, owner int) ([]int, error) {
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
@@ -354,8 +359,8 @@ func ownedMembers(owner int) ([]int, error) {
 		if e != nil {
 			continue
 		}
-		raw, e := os.ReadFile("/proc/" + entry.Name() + "/stat")
-		if os.IsNotExist(e) {
+		raw, e := os.ReadFile(root + "/" + entry.Name() + "/stat")
+		if processMetadataGone(e) {
 			continue
 		}
 		if e != nil {
@@ -371,6 +376,14 @@ func ownedMembers(owner int) ([]int, error) {
 	}
 	return members, nil
 }
+
+// Only per-PID metadata reads may treat these errors as disappearance.
+// ESRCH can follow a successful open when the process is reaped before read.
+// Directory enumeration and all other metadata failures remain unknown.
+func processMetadataGone(err error) bool {
+	return errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ESRCH)
+}
+
 func metadata(raw []byte) (group, parent int, err error) {
 	end := strings.LastIndexByte(string(raw), ')')
 	if end < 0 {

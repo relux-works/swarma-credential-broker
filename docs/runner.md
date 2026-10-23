@@ -111,7 +111,10 @@ provides explicit pidfd open/send operations; unsupported kernels remain
 unqualified. Group membership is rechecked after opening each pidfd so PID
 reuse cannot signal another process. The runner requires a successful guard exit, a fresh successful `/proc` group scan and `ESRCH`
 from a group-existence probe after waiting for the guard. Child exit alone is
-insufficient; partial/unreadable process evidence remains unknown.
+insufficient; partial/unreadable process evidence remains unknown. Per-PID
+metadata reads returning `ENOENT` or `ESRCH` mean that PID disappeared, including
+a process reaped after its stat descriptor was opened. Enumeration failures
+remain unknown; the owned group still requires every absence check above.
 
 A descendant that changes its process group/session is adopted by the subreaper
 when its parent is stopped. The guard also discovers and stops its direct adopted
@@ -160,6 +163,9 @@ expire a later cleanup interrupt. Cancellation also expires the RPC scanner's
 read deadline; receive waits select on the context. The process stop path closes
 both pipes and confirms the guard and descendants absent. Stdout pipe writes use
 the same joined cancellation callback and clear the borrowed write deadline.
+When that deadline interrupts stdout, successful cleanup preserves status 130
+for cancellation or 124 for execution expiry. Genuine output failures retain 75,
+and cleanup or renewal failure still dominates cancellation.
 
 Broker calls, connection establishment and authority loading receive contexts.
 Their trusted adapters must honor them; an arbitrary blocking implementation

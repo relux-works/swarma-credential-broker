@@ -3,6 +3,7 @@ package runner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"time"
@@ -97,6 +98,21 @@ func (w contextWriter) Write(b []byte) (int, error) {
 			// deadline installed on its next use.
 			f.SetWriteDeadline(time.Time{})
 		}()
+		n, err := f.Write(b)
+		// Only a poll deadline induced by this context is cancellation.
+		// EPIPE and other real output failures retain their own cause even
+		// if cancellation arrives at the same time.
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			if cause := w.ctx.Err(); cause != nil {
+				return n, cause
+			}
+			// The descriptor deadline can fire just before the context timer
+			// publishes Err; the same expired deadline still caused this I/O.
+			if has && !time.Now().Before(deadline) {
+				return n, context.DeadlineExceeded
+			}
+		}
+		return n, err
 	}
 	return w.out.Write(b)
 }

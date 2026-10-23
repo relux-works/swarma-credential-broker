@@ -247,12 +247,21 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 		return refuse("teardown_unconfirmed", 75)
 	}
 	if err = stream.write("", true); err != nil {
-		return refuse("output_unavailable", 75)
+		return outputFailure(err)
 	}
 	if err = output.commit(final); err != nil {
 		return err
 	}
 	return nil
+}
+
+// Preserve the cause of interrupted stdout without allowing cancellation to
+// override genuine output failures or the cleanup/renewal dominance checks.
+func outputFailure(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return refuse("output_unavailable", 75)
 }
 
 var errContainment = errors.New("containment unknown")
@@ -423,7 +432,7 @@ func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
 			}
 			if p.ThreadID == s.thread && p.TurnID == s.turn {
 				if err = s.stream.write(p.Delta, false); err != nil {
-					return nil, refuse("output_unavailable", 75)
+					return nil, outputFailure(err)
 				}
 			}
 		case "item/completed":

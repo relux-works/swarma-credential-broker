@@ -19,7 +19,7 @@ import (
 
 type scenario struct {
 	InitFail, LoginFail, Hang, Spawn, Echo, PreviousMismatch, Duplicate, WrongTurn, Escape, RetryAfterError bool
-	HashEcho, StopReadAfterThread                                                                           bool
+	LargeOutput, HashEcho, StopReadAfterThread                                                              bool
 	RefreshCount                                                                                            int
 	Status                                                                                                  string
 	Approvals                                                                                               []string
@@ -113,6 +113,9 @@ func main() {
 			status = "completed"
 		}
 		text := "answer"
+		if s.LargeOutput {
+			text = strings.Repeat("x", 64<<10)
+		}
 		if s.Echo {
 			text = "safe "
 			for _, value := range tokens {
