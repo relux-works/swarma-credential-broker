@@ -41,10 +41,24 @@ func (SystemRunner) Run(ctx context.Context, path string, args []string, timeout
 	if !cleanPath(path) || timeout <= 0 || timeout > 10*time.Second || limit < 1 || limit > 65536 {
 		return nil, ErrUnavailable
 	}
+	operation, ok := collectorOperation(args)
+	if !ok || pathProtected(path, uint32(os.Geteuid())) != nil {
+		return nil, ErrUnavailable
+	}
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	executable := os.NewFile(uintptr(fd), "collector")
+	defer executable.Close()
+	if !collectorExecutable(fd) {
+		return nil, ErrUnavailable
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/proc/self/exe", append([]string{collectorExecMarker, path}, args...)...)
-	cmd.Env = []string{"LC_ALL=C", "LANG=C", "TZ=UTC"}
+	cmd := exec.CommandContext(ctx, "/proc/self/exe", collectorExecMarker, operation)
+	cmd.ExtraFiles = []*os.File{executable}
+	cmd.Env = collectorEnvironment()
 	cmd.Stdin = nil
 	cmd.WaitDelay = 100 * time.Millisecond
 	out := &boundedOutput{limit: limit}

@@ -35,7 +35,8 @@ pass the same ownership, mode, no-link and protected-ancestor checks as the main
 configuration. Unreadable, oversized or unsafe inputs refuse the whole sample.
 Directory paths must be clean and absolute. Following
 [chrony's directory semantics](https://chrony-project.org/doc/4.6/chrony.conf.html),
-each directive accepts up to ten directories, sorts the union by filename and
+each directive accepts up to ten directories, excludes leading-dot filenames,
+sorts the union by filename and
 uses the first directory's file for duplicate filenames. Source files permit
 only NTS `server`/`pool` directives and require newline-terminated lines;
 configuration files recursively use the same closed directive parser. Selection
@@ -48,19 +49,43 @@ bound and refuse. Ordinary ignored comment prose may contain quotes; effective
 quoted or escaped syntax still refuses. `leapseclist <file>` is a recognized
 non-source directive; the referenced leap metadata is not opened.
 
-On Linux, `SystemRunner` re-executes `/proc/self/exe` through a reserved internal
-initialization shim, locks its OS thread, then calls
-`close_range(3, ~0U, CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC)` before executing
-the target directly. The private descriptor table prevents changes to the
-parent; the target receives only stdin, stdout and stderr. The shim reuses the
-embedding executable, so embedding initialization must be safe to repeat before
-this package's initialization. No shell or external helper is needed. The
+On Linux, embedding executables must call `timeconf.CollectorEntry()` at the
+start of `main`, before their argument parser. The broker calls this hook before
+its supervisor and command dispatch; normal unsupported commands still exit 64.
+A test binary exercising `SystemRunner` calls it first in `TestMain`. Importing
+the package has no command-dispatch side effects. Re-execution repeats the
+embedding executable's initialization, so that initialization must be safe to
+repeat before the hook. An application using `SystemRunner` must install this
+entry hook and preserve failure for unsupported commands.
+
+`SystemRunner` accepts only the three compiled operations: `tracking`
+(`-c tracking`), `tracking-names` (`-c -N tracking`) and `authdata`
+(`-c authdata -a`). It checks the configured executable's protected ancestors,
+opens it without following links, and verifies a singly linked regular executable
+owned by root or the effective UID with no group/other write access. It then
+re-executes `/proc/self/exe`, passing only the reserved marker and operation name,
+with the verified executable at descriptor 3. No executable pathname or arbitrary
+arguments are taken from the shim command line. Unknown operations, wrong argument
+counts, missing/invalid executable descriptors and exec failures exit 125 without
+falling back to the application command parser.
+
+The hook locks its OS thread and calls
+`close_range(3, ~0U, CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC)` before executing the
+fixed `/proc/self/fd/3` descriptor reference. This pins the opened executable,
+using the [proc-based fexecve method](https://man7.org/linux/man-pages/man3/fexecve.3.html),
+and prevents pathname replacement from changing the target. The private descriptor
+table prevents changes to the parent. All descriptors above stderr, including the
+executable descriptor, close at target exec. Native executable collectors are
+supported; interpreter scripts fail closed because the descriptor is closed before
+the interpreter can reopen it. No shell or installed helper is used.
+
+The hook constructs the target environment itself: only `LC_ALL=C`, `LANG=C` and
+`TZ=UTC`. Parent environment values are never forwarded to the target. The
 [close-range CLOEXEC flag](https://man7.org/linux/man-pages/man2/close_range.2.html)
-requires **Linux 5.11 or later**; unavailable `/proc/self/exe`, unsupported or
-blocked isolation syscalls, and target exec failures refuse collection without a
-fallback. The same timeout, minimal environment and shared output limit cover
-both the shim and target. The reserved shim mode does not select a confidence
-source or load policy; only the protected policy supplies production selection.
+requires **Linux 5.11 or later**; unavailable proc paths and unsupported or blocked
+isolation syscalls refuse collection without a fallback. The deadline and shared
+output limit cover both shim and target. The reserved hook does not select a
+confidence source or load policy; production source selection remains protected.
 
 `LoadPolicy(path, uid)` reads a regular, singly linked mode-0600 file owned by
 that UID, rejects symlinks and unsafe ancestors, and strictly decodes JSON.
