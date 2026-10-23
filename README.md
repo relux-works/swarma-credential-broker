@@ -4,7 +4,7 @@ The credential broker is **Merovingian** in the platform's codenames.
 
 A credential broker for agent systems. It runs under its own OS user, holds subscription and API credentials in its own store, and leases them to authorised agent launches over a Unix socket whose peer it identifies through the kernel (`getpeereid` / `SO_PEERCRED`).
 
-**Status: design in progress.** Nothing is implemented yet. The specification is [`spec/broker.md`](spec/broker.md); diagrams are in [`diagrams/`](diagrams/). The proposed [Codex refresher v0 profile](spec/v0-codex-refresher.md) extracts the auth owner and external-token runner ahead of slice 0, with accepted interim rulings and pending release qualification.
+**Status: implementation in progress.** The Linux [external-token runner](docs/runner.md) is implemented behind protected-policy and broker-client interfaces; production transport and qualification integration remain pending. The specification is [`spec/broker.md`](spec/broker.md); diagrams are in [`diagrams/`](diagrams/). The proposed [Codex refresher v0 profile](spec/v0-codex-refresher.md) extracts the auth owner and external-token runner ahead of slice 0, with accepted interim rulings and pending release qualification.
 
 ## What it is for
 
@@ -53,12 +53,16 @@ The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at
 
 ## Tools
 
-This repository contains specifications, PlantUML sources and declarative JSON
-vectors; it has no implementation build or runtime test suite yet.
+This repository contains specifications, PlantUML sources, declarative JSON
+vectors and a Linux Go runner with fixture tests. The standalone command refuses
+execution until protected policy and broker transport are integrated.
 
 | Tool | Purpose and command | Outputs |
 |---|---|---|
 | Git | Review whitespace with `git diff --check`; verify signed changes with `git log --format='%G? %an %s' origin/main..HEAD` | Terminal; capture private evidence in a scratch `.tmp` directory outside the versioned tree |
+| Go 1.25+ | Build with `go build -o ../.tmp/swarma-credential-broker ./cmd/swarma-credential-broker`; build the fake with `go build -o ../.tmp/fake-app-server ./runner/testdata/appserver`; check with `go vet ./runner ./cmd/swarma-credential-broker`, `gofmt -l runner cmd/swarma-credential-broker`, and `go test -race ./runner` | Binary in private scratch; tests build the fake app-server and command under `TMPDIR` (set it to a scratch directory outside the versioned tree) |
+| x/sys/unix | Pin process identities with Linux pidfds before signalling owned descendants; pinned by `go.mod`, downloaded by Go commands | Go module cache |
+| go-toml/v2 | Parse credential-source configuration, including nested and quoted keys; pinned by `go.mod`, downloaded automatically by Go commands | Go module cache; no generated repository artifacts |
 | Python 3 | Parse vector JSON with the command in [vectors/v0](vectors/v0/README.md); strict canonical-byte/link checks use temporary validation scripts | Terminal and private scratch logs; scripts are not shipped tooling |
 | Codex CLI | Inspect a selected release with `codex --version`, `codex app-server --help`, `codex app-server generate-json-schema --experimental --out <scratch-schema-directory>` | Schema in the chosen scratch directory; always use a fresh empty HOME/CODEX_HOME, never an existing login |
 | systemd user tools (Linux) | Inspect containment with `systemctl --user show <probe-unit>`; a bounded probe can use `systemd-run --user --unit=<probe-unit> --property=KillMode=control-group --property=RuntimeMaxSec=5s /usr/bin/true` | User-manager state and private scratch evidence; stop only the probe's own unit |

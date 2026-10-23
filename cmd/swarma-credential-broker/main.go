@@ -1,0 +1,25 @@
+package main
+
+import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/relux-works/swarma-credential-broker/runner"
+)
+
+func main() {
+	if handled, code := runner.SupervisorMain(os.Args[1:]); handled {
+		os.Exit(code)
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	if len(os.Args) < 2 || os.Args[1] != "run-codex" {
+		os.Stderr.WriteString("runner: invalid_command\n")
+		os.Exit(64)
+	}
+	// Production authority and broker transport are connected by integration;
+	// no user-controlled flag can turn fixture qualification into admission.
+	os.Exit(runner.Command(ctx, os.Args[2:], runner.IO{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}, runner.Dependencies{Environment: os.Environ()}))
+}
