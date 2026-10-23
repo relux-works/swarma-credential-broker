@@ -827,230 +827,88 @@ the case changes that premise. Every refusal requires zero material delivery.
 
 ## Appendix A. Owner action for dedicated-user isolation
 
-**Preparation only; pending R2. These commands are not executed by this work.**
-A root administrator performs them in a maintenance window, outside a harness.
-The normal platform installer MUST instead use the service-account provisioning
-contract in [§15.1](broker.md#151-service-user-and-time). The manual Linux bootstrap
-below is for this interim deployment only; it MUST NOT create a second account
-if the platform installer already provisioned one.
+**Conditional migration; pending curator ruling R2. No migration tool ships here.**
+This procedure applies only if the accepted R2 deployment requires a dedicated
+service user and a root administrator is available. It is not a prerequisite
+for v0 in an accepted same-user mode; that mode retains §2.1's weaker guarantees.
+The normal platform installer MUST use the service-account provisioning
+contract in [§15.1](broker.md#151-service-user-and-time). If it has already
+provisioned the account, use its reviewed migration path; do not create a second
+identity or adopt pre-existing resources through this procedure.
 
-Run **script A alone**, then stop for operator reconciliation. The scripts are
-separate invocations; neither invokes the other. They assume the reviewed
-interim service is the only activation/listener unit. If socket activation,
-external restart jobs or other launch paths exist, first disable and verify all
-of them in a reviewed maintenance plan; these scripts MUST NOT be used until
-that precondition holds. Stopping the daemon closes its socket admission but
-does not prove descendant absence or safe rotation.
+### A.1 Ordered migration and gates
 
-### A.1 Script A: close old admission
+Before migration, the root administrator or platform installer MUST prepare
+`/opt/swarma/services` as a root-owned mode-0755 service parent and verify its
+trusted ancestors: protected ownership, no untrusted write access, links or
+unexpected mount points. This is an installation precondition, not an implicit
+creation step during migration. The operator supplies the old identity and
+source-store location privately. The tested tool required by A.2 MUST be
+available before any owner is asked to perform this procedure.
 
-Supply the old account privately as the sole argument. No store path or value
-is read. Failure leaves admission closed as far as the completed operations
-permit; resolve any failure before proceeding.
+| Step | Gate before the step | Required action and completion evidence |
+|---|---|---|
+| 1. Close old admission | Approved maintenance scope, complete activation inventory, root authority and successful tool preflight | In a dedicated invocation, close lease/launch admission, disable every automatic activation/restart path and stop the old daemon. Verify closed admission and disabled/inactive paths. Stopping the daemon alone does not establish writer absence or safe rotation. |
+| 2. Operator reconciliation | Step 1 verified; retained §5 attempt identities and evidence available | The operator MUST reconcile every writer's complete same-attempt absence and durable store/outcome under §5. Any unknown or ambiguous outcome blocks migration. Record explicit human confirmation of these gates; the migration invocation MUST be separate and require that confirmation, with current evidence and preflight rechecked. |
+| 3. Provision account and home | Step 2 confirmed; parent/ancestors trusted; account database and filesystem serialized against other changes; required absence of user, group, home and destination verified | Provision only the intended service account, group and protected home. Capture their identities and verify ownership/modes; a pre-existing or unexpected resource is not owned by this run. |
+| 4. Move the store offline | No writer or activation can run; source identity/metadata captured; destination absent; source and destination are on the same filesystem | Perform the reviewed offline store rename, preserving attempt/outcome records. Verify source absence and the same store identity at the destination. Never silently fall back to copy-and-delete or reconstruct a missing store. |
+| 5. Normalize ownership and modes | Store move reconciled and exact destination identity confirmed | Set and verify service ownership, directories mode 0700 and files mode 0600, with protected ancestors. Refuse links, unexpected mount points, hard-linked files or unsupported store structure. Metadata checks MUST NOT read credential contents. |
+| 6. Re-pin clients | Store ownership/modes verified; all retained old-manager attempts reconciled | Install the reviewed executable/service/configuration, update clients' pinned broker UID/socket and static policy, and invalidate old leases. A new manager's empty inventory is not old-writer absence evidence. |
+| 7. Start after readiness | Steps 1–6 verified; containment, store/outcome, policy and required qualification/readiness checks green while admission remains closed | Only then start the new manager/daemon and verify readiness before enabling new admission. Keep every old activation path disabled. Migration does not authorize enrolment, refresh or reinterpretation of an ambiguous outcome. |
 
-```sh
-#!/bin/sh
-set -eu
-test "$(id -u)" = 0
-test "$#" -eq 1
-OLD_USER=$1
-OLD_UID=$(id -u "$OLD_USER")
-test "$OLD_UID" -ne 0
-old_manager() {
-  runuser -u "$OLD_USER" -- env XDG_RUNTIME_DIR="/run/user/$OLD_UID" \
-    systemctl --user "$@"
-}
-# Stop the listener and disable/mask its only activation unit.
-old_manager disable --now swarma-credential-broker.service
-old_manager mask --now swarma-credential-broker.service
-test "$(old_manager show swarma-credential-broker.service -p UnitFileState --value)" = masked
-test "$(old_manager show swarma-credential-broker.service -p ActiveState --value)" = inactive
-test "$(old_manager show swarma-credential-broker.service -p MainPID --value)" = 0
-printf '%s\n' 'Admission closed; old service disabled, masked and inactive.'
-printf '%s\n' 'Operator confirmation of section 5 writer absence and outcomes is required before script B.'
-```
+Any failure MUST halt the procedure and prevent subsequent steps or
+reopening. Already closed admission/activation paths MUST stay closed; failure
+to establish closure requires operator resolution before any migration. During
+recovery both old and new admission MUST remain closed. Preserve uncertain
+resources/evidence and require explicit reconciliation; neither rollback nor
+restart is proof that vendor rotation was safe.
 
-The operator now resolves every retained writer through §5, records complete
-same-attempt absence and store/outcome reconciliation, and confirms no
-remaining activation paths. Stop alone is insufficient. Any unknown outcome
-keeps admission closed and blocks script B. The confirmation prompt below is
-an explicit human checkpoint, not automatic evidence of those gates.
+### A.2 Requirements for the future migration tool
 
-### A.2 Script B: provision and migrate offline
+The implementation slice MUST ship the migration tool as a tested script before
+any owner is asked to run it. This specification supplies requirements only:
 
-Invoke separately with the old account and absolute source-store directory as
-its two private arguments. It requires an exact confirmation line on standard
-input **after** the operator has recorded the §5 evidence. Root must serialize
-account provisioning/migration and exclude concurrent filesystem/account changes.
-The existing root-owned mode-0755 service parent and all ancestors must be
-trusted. Before invocation inspect metadata offline: no links, unexpected mount
-points, hard-linked files or untrusted parents; the homogeneous old ownership
-and modes checked below are mandatory. The commands never read file contents.
-Cross-filesystem migration needs a separately reviewed procedure.
-
-All user, group, home and destination absence checks precede mutation; only getent
-status 2 establishes a missing entry. Any existing entry/path, dangling link or
-lookup error aborts. The rollback trap is local to this invocation: it restores
-the original store path/ownership, removes only its newly created empty home,
-user and group after identity checks, and never recursively deletes data. A
-failed guard preserves resources for offline recovery. Do not rerun blindly.
-Successful migration disarms rollback; reversing a committed migration requires
-another reviewed maintenance plan. Neither script starts a new daemon, enables
-lingering, resumes admission or enrols an account.
-
-```sh
-#!/bin/sh
-set -eu
-test "$(id -u)" = 0
-test "$#" -eq 2
-OLD_USER=$1
-SOURCE_STORE=$2
-SERVICE=swarma-credential-broker
-PARENT=/opt/swarma/services
-SERVICE_HOME=$PARENT/$SERVICE
-DEST_STORE=$SERVICE_HOME/store
-case "$SOURCE_STORE" in /*) ;; *) exit 64 ;; esac
-case "$SOURCE_STORE/" in "$PARENT/"*|*/../*|*/./*|*//*) exit 64 ;; esac
-case "$PARENT/" in "$SOURCE_STORE/"*) exit 64 ;; esac
-test "$SOURCE_STORE" != /
-OLD_UID=$(id -u "$OLD_USER")
-OLD_GID=$(id -g "$OLD_USER")
-test "$OLD_UID" -ne 0
-printf '%s\n' 'Type SECTION5_ABSENCE_AND_OUTCOME_CONFIRMED only after the recorded section 5 gates pass.'
-IFS= read -r CONFIRMATION
-test "$CONFIRMATION" = SECTION5_ABSENCE_AND_OUTCOME_CONFIRMED
-old_manager() {
-  runuser -u "$OLD_USER" -- env XDG_RUNTIME_DIR="/run/user/$OLD_UID" \
-    systemctl --user "$@"
-}
-test "$(old_manager show swarma-credential-broker.service -p UnitFileState --value)" = masked
-test "$(old_manager show swarma-credential-broker.service -p ActiveState --value)" = inactive
-test "$(old_manager show swarma-credential-broker.service -p MainPID --value)" = 0
-require_absent_entry() {
-  if getent "$1" "$SERVICE" >/dev/null; then
-    exit 1
-  else
-    LOOKUP_STATUS=$?
-    test "$LOOKUP_STATUS" -eq 2 || exit 1
-  fi
-}
-require_absent_path() {
-  if test -e "$1" || test -L "$1"; then exit 1; fi
-}
-# All absence checks precede any mutation. A database failure is not absence.
-require_absent_entry passwd
-require_absent_entry group
-require_absent_path "$SERVICE_HOME"
-require_absent_path "$DEST_STORE"
-test -d "$PARENT"
-test ! -L "$PARENT"
-test "$(stat -c '%u:%a' "$PARENT")" = 0:755
-test -d "$SOURCE_STORE"
-test ! -L "$SOURCE_STORE"
-test "$(stat -c %d "$SOURCE_STORE")" = "$(stat -c %d "$PARENT")"
-# A homogeneous, link-free offline tree permits exact ownership rollback.
-BAD_ENTRIES=$(find -P "$SOURCE_STORE" -xdev \
-  \( ! -uid "$OLD_UID" -o ! -gid "$OLD_GID" -o \
-     \( -type d ! -perm 0700 \) -o \( -type f ! -perm 0600 \) -o \
-     \( ! -type d ! -type f \) -o \( -type f -links +1 \) \) -printf x)
-test -z "$BAD_ENTRIES"
-STORE_ID=$(stat -c '%d:%i' "$SOURCE_STORE")
-GROUP_CREATED=0
-USER_CREATED=0
-HOME_CREATED=0
-STORE_MOVED=0
-MIGRATION_COMMITTED=0
-NEW_UID=
-NEW_GID=
-HOME_ID=
-lookup_group_id() {
-  GROUP_ENTRY=$(getent group "$SERVICE") || return 1
-  GROUP_FIELDS=${GROUP_ENTRY#*:}
-  GROUP_FIELDS=${GROUP_FIELDS#*:}
-  printf '%s\n' "${GROUP_FIELDS%%:*}"
-}
-rollback() {
-  # Never remove pre-existing paths/accounts or overwrite a reappearing source.
-  test "$(id -u)" = 0 || return 1
-  test "$MIGRATION_COMMITTED" -eq 0 || return 1
-  if test "$STORE_MOVED" -eq 1; then
-    test "$(stat -c '%d:%i' "$DEST_STORE")" = "$STORE_ID" || return 1
-    if test -e "$SOURCE_STORE" || test -L "$SOURCE_STORE"; then return 1; fi
-    chown -R --no-dereference "$OLD_UID:$OLD_GID" "$DEST_STORE" || return 1
-    mv -T -- "$DEST_STORE" "$SOURCE_STORE" || return 1
-    test "$(stat -c '%d:%i' "$SOURCE_STORE")" = "$STORE_ID" || return 1
-  else
-    test "$(stat -c '%d:%i' "$SOURCE_STORE")" = "$STORE_ID" || return 1
-    if test -e "$DEST_STORE" || test -L "$DEST_STORE"; then return 1; fi
-  fi
-  if test "$HOME_CREATED" -eq 1; then
-    test "$(stat -c '%d:%i' "$SERVICE_HOME")" = "$HOME_ID" || return 1
-    rmdir -- "$SERVICE_HOME" || return 1
-  fi
-  if test "$USER_CREATED" -eq 1; then
-    test "$(id -u "$SERVICE")" = "$NEW_UID" || return 1
-    test "$(id -g "$SERVICE")" = "$NEW_GID" || return 1
-    userdel "$SERVICE" || return 1
-  fi
-  if test "$GROUP_CREATED" -eq 1; then
-    ROLLBACK_GID=$(lookup_group_id) || return 1
-    test "$ROLLBACK_GID" = "$NEW_GID" || return 1
-    groupdel "$SERVICE" || return 1
-  fi
-  printf '%s\n' 'Rollback verified; source store restored, created resources removed, admission closed.'
-}
-on_exit() {
-  RESULT=$1
-  trap - EXIT HUP INT TERM
-  if test "$MIGRATION_COMMITTED" -eq 0; then
-    if rollback; then :; else
-      printf '%s\n' 'Rollback refused or failed; preserve remaining resources for offline recovery.' >&2
-      exit 1
-    fi
-  fi
-  exit "$RESULT"
-}
-trap 'on_exit $?' EXIT
-trap 'exit 1' HUP INT TERM
-groupadd --system "$SERVICE"
-GROUP_CREATED=1
-NEW_GID=$(lookup_group_id)
-test -n "$NEW_GID"
-useradd --system --no-create-home --no-user-group --no-log-init \
-  --gid "$NEW_GID" --home-dir "$SERVICE_HOME" --shell /usr/sbin/nologin \
-  --key CREATE_MAIL_SPOOL=no "$SERVICE"
-USER_CREATED=1
-NEW_UID=$(id -u "$SERVICE")
-test "$(id -g "$SERVICE")" = "$NEW_GID"
-mkdir -m 0700 -- "$SERVICE_HOME"
-HOME_CREATED=1
-HOME_ID=$(stat -c '%d:%i' "$SERVICE_HOME")
-chown "$NEW_UID:$NEW_GID" "$SERVICE_HOME"
-mv -T -- "$SOURCE_STORE" "$DEST_STORE"
-STORE_MOVED=1
-chown -R --no-dereference "$NEW_UID:$NEW_GID" "$DEST_STORE"
-test "$(stat -c '%d:%i' "$DEST_STORE")" = "$STORE_ID"
-require_absent_path "$SOURCE_STORE"
-BAD_ENTRIES=$(find -P "$SERVICE_HOME" -xdev \
-  \( ! -uid "$NEW_UID" -o ! -gid "$NEW_GID" -o \
-     \( -type d ! -perm 0700 \) -o \( -type f ! -perm 0600 \) \) -printf x)
-test -z "$BAD_ENTRIES"
-test "$(old_manager show swarma-credential-broker.service -p ActiveState --value)" = inactive
-MIGRATION_COMMITTED=1
-printf '%s\n' 'Migration verified; ownership and modes checked, old admission remains closed.'
-printf '%s\n' 'New daemon and user manager have not been started; installation readiness gates remain.'
-```
-
-Before starting the new daemon, install the reviewed user service and executable
-under protected ownership, set its store path to DEST_STORE, update clients'
-pinned broker UID/socket and static policy, invalidate all old leases, and
-verify the new manager's writer containment while admission is closed. Reconcile
-all retained attempt identities against the old manager; a new manager's empty
-inventory is not absence evidence. Enable lingering/start the new user manager
-only in that reviewed installation step. Enable only the new service after
-readiness checks. The old service MUST remain disabled/masked. Account outcome
-ambiguity survives the user change. No command here reads, prints or imports
-credential values.
+- The tool MUST capture every observation's output and explicitly check its
+  command status **before** comparing the value. This includes the root check,
+  identity lookups, service-manager reads, and stat/ownership/identity guards,
+  including observations during rollback. A failed observation is **unknown**,
+  even with expected-looking output; it MUST NOT authorize mutation or a
+  success claim. Status handling MUST remain effective inside conditions,
+  traps and subshells; relying on shell errexit or a surrounding comparison
+  is insufficient.
+- All required absence checks MUST precede the first mutation. Absence MUST be
+  established only by the observation's documented not-found result; for
+  `getent`, only exit 2 means not found. Any other failure remains unknown.
+  Negated commands MUST NOT be used as checks. The tool MUST preserve captured
+  identities and the serialized preflight state for recovery.
+- Before **each** mutating command, the tool MUST record mutation intent. On
+  every error and signal path it MUST reconcile actual effects against captured
+  identities and preflight state, including a command that changed state before
+  failing or before its success bookkeeping ran. If the effect or ownership
+  cannot be established, it MUST preserve resources and report recovery as
+  **incomplete/unknown**. It MUST check the final resource post-state before
+  reporting verified cleanup; post-success flags alone are not evidence.
+- Closing admission and performing migration MUST be separate invocations,
+  with the explicit operator confirmation in A.1 between them. Neither
+  invocation may treat a stop result or confirmation text alone as §5 evidence.
+- Rollback MUST touch only resources created by this run, with captured identity
+  guards; restore the store to its source only when that is proven safe. It
+  MUST NOT overwrite a reappearing source, remove unrelated resources or reopen
+  admission. A failed rollback guard MUST preserve resources and report an
+  incomplete/unknown result rather than verified cleanup.
+- The tool MUST NOT read or print credential material in any step, diagnostic
+  or evidence output. Observations are limited to required identity/state/metadata;
+  errors and success reports MUST be sanitized.
+- Tests MUST execute the shipped script in isolated fixtures, with fake account,
+  filesystem and manager effects, and include each of these regressions with a
+  nearby successful positive control: failed observations with expected-looking
+  output; mutation followed by an error after its effect; and TERM delivered
+  between an effect and its bookkeeping. They MUST assert refusal/unknown
+  recovery, preserved unrelated resources and truthful final post-state. A
+  narrowing control that removes only observation-status validation while
+  retaining value comparison MUST fail the observation regression. These tests
+  MUST pass before owner use; fixture success does not qualify real provisioning
+  or the §5 writer lifecycle.
 
 ## Appendix B. Research evidence
 
