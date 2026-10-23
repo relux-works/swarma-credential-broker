@@ -38,6 +38,9 @@ func (conversionFault) Unwrap() error { panic("foreign Unwrap called") }
 // have adjacent success controls. Assertions cover resource obligations before
 // status: exactly one release after acquisition, child ESRCH and old output.
 // Protocol failures model unexpected vendor errors, not arbitrary runtime faults.
+// Ordinary rows retain the normal fixture budget so setup is not their subject.
+// The authority-expiry row has a shorter lease than execution budget, allowing
+// child startup before testing expiry; own-deadline rows still wait for expiry.
 func TestCommandStatusTable(t *testing.T) {
 	type row struct {
 		phase, origin string
@@ -169,7 +172,6 @@ func TestCommandStatusTable(t *testing.T) {
 				scenario["LargeOutput"] = true
 			}
 			f := newFixture(t, scenario)
-			f.o.Timeout = 500 * time.Millisecond
 			if r.origin == "own-deadline" {
 				f.o.Timeout = 250 * time.Millisecond
 			}
@@ -241,7 +243,7 @@ func TestCommandStatusTable(t *testing.T) {
 				}()
 			}
 			if r.phase == "turn" && r.origin == "authority-expiry" {
-				f.b.expiry = time.Now().Add(300 * time.Millisecond)
+				f.b.expiry = time.Now().Add(2 * time.Second)
 			}
 			if r.phase == "refresh" {
 				switch r.origin {

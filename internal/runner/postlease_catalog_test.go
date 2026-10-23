@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -46,14 +47,18 @@ func (a *probeCatalogAuthority) Resolve(ctx context.Context, o Options) (Policy,
 
 // Claim: a protected policy catalog change after lease acquisition is a post-lease
 // configuration refusal; an observed own stop retains precedence when cleanup succeeds.
+// Non-expiry controls keep the normal fixture budget. The expiry row runs before
+// any child starts and advances virtual time only after reaching the recheck.
 func TestProbePostLeaseCatalog(t *testing.T) { postLeaseCatalog(t) }
 
 // These cases also drive the normative status table's post-lease input row.
 func postLeaseCatalog(t *testing.T) {
 	for _, mode := range []string{"valid", "changed", "model-missing", "cancel", "deadline", "cancel-valid", "generation", "release-failure"} {
-		t.Run(mode, func(t *testing.T) {
+		run := func(t *testing.T) {
 			f := newFixture(t, nil)
-			f.o.Timeout = 100 * time.Millisecond
+			if mode == "deadline" {
+				f.o.Timeout = 100 * time.Millisecond
+			}
 			if mode == "release-failure" {
 				f.b.releaseErr = errors.New("synthetic release failure")
 			}
@@ -112,6 +117,13 @@ func postLeaseCatalog(t *testing.T) {
 			}
 			t.Logf("status=%d want=%d releases=%d", got, want, releases)
 			requireStatus(t, got, want, f.err.String())
+		}
+		t.Run(mode, func(t *testing.T) {
+			if mode == "deadline" {
+				synctest.Test(t, run)
+			} else {
+				run(t)
+			}
 		})
 	}
 }
