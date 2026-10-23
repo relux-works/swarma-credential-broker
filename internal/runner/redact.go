@@ -75,6 +75,14 @@ func (s *textStream) erase() {
 	s.pending = nil
 }
 
+// executionOutputStop is issued only when contextWriter observes its own
+// execution context stopping the write. Underlying writer errors never receive
+// this marker, even when they wrap a context error from an independent source.
+type executionOutputStop struct{ cause error }
+
+func (e *executionOutputStop) Error() string { return e.cause.Error() }
+func (e *executionOutputStop) Unwrap() error { return e.cause }
+
 // File-backed streams honor cancellation even when a consumer stops reading.
 // Embedders supplying other io.Writers must provide bounded Write calls.
 type contextWriter struct {
@@ -84,7 +92,7 @@ type contextWriter struct {
 
 func (w contextWriter) Write(b []byte) (int, error) {
 	if err := w.ctx.Err(); err != nil {
-		return 0, err
+		return 0, &executionOutputStop{err}
 	}
 	if f, ok := w.out.(*os.File); ok {
 		deadline, has := w.ctx.Deadline()
@@ -104,12 +112,12 @@ func (w contextWriter) Write(b []byte) (int, error) {
 		// if cancellation arrives at the same time.
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			if cause := w.ctx.Err(); cause != nil {
-				return n, cause
+				return n, &executionOutputStop{cause}
 			}
 			// The descriptor deadline can fire just before the context timer
 			// publishes Err; the same expired deadline still caused this I/O.
 			if has && !time.Now().Before(deadline) {
-				return n, context.DeadlineExceeded
+				return n, &executionOutputStop{context.DeadlineExceeded}
 			}
 		}
 		return n, err

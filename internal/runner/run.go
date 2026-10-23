@@ -258,8 +258,9 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 // Preserve the cause of interrupted stdout without allowing cancellation to
 // override genuine output failures or the cleanup/renewal dominance checks.
 func outputFailure(err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
+	var stopped *executionOutputStop
+	if errors.As(err, &stopped) {
+		return stopped
 	}
 	return refuse("output_unavailable", 75)
 }

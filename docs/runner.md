@@ -149,6 +149,23 @@ in-process fake broker, privately qualified fake executable and synthetic tokens
 They include real process-group observation and `/proc` child argv/environment
 inspection. No production qualification is created by these tests.
 
+Development runs explicitly skip the proc-disappearance tests when `strace` is
+missing. For qualification evidence, require their observations with:
+
+```sh
+RUNNER_QUALIFICATION=1 GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -count=1
+```
+
+The required rows are all four `TestCommandProcDisappearance` cases and
+`TestStopProcDisappearance`, together with their parent test. Each registers
+`requiredEvidenceRow` before any possible skip. In this mode, missing `strace`
+fails immediately; any required row calling `Skip` also fails in cleanup. Both
+paths name the row as `UNVERIFIED`. New required rows must register the same
+guard at entry, including parent tests. `TestQualificationMode` controls missing
+strace and an explicit required-row skip in subprocesses: development permits
+the skips, qualification rejects them. This test mode does not grant production
+release qualification or alter runtime admission.
+
 Real-release qualification remains gated by the profile. In particular, full
 runner inference against a fake backend requires overrides the production runner
 must refuse. Separate empty-home binary probes can establish protocol behavior;
@@ -165,7 +182,10 @@ both pipes and confirms the guard and descendants absent. Stdout pipe writes use
 the same joined cancellation callback and clear the borrowed write deadline.
 When that deadline interrupts stdout, successful cleanup preserves status 130
 for cancellation or 124 for execution expiry. Genuine output failures retain 75,
-and cleanup or renewal failure still dominates cancellation.
+and cleanup or renewal failure still dominates cancellation. Only stops observed
+from the execution context or its own descriptor deadline carry an internal
+provenance marker. A bounded embedding writer's independent context error is an
+output failure (75), for both streaming and final-buffer flush.
 
 Broker calls, connection establishment and authority loading receive contexts.
 Their trusted adapters must honor them; an arbitrary blocking implementation

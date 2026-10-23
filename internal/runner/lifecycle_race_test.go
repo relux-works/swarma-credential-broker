@@ -25,9 +25,11 @@ import (
 // the test reaps only its own helper after the successful open. Separate cases
 // exercise the parent scan and guard scan, with a live-helper positive control.
 func TestCommandProcDisappearance(t *testing.T) {
+	requiredEvidenceRow(t)
 	for _, follow := range []bool{false, true} {
 		for _, disappear := range []bool{false, true} {
 			t.Run(fmt.Sprintf("follow=%v/disappear=%v", follow, disappear), func(t *testing.T) {
+				requiredEvidenceRow(t)
 				f := newFixture(t, nil)
 				self, err := os.Executable()
 				must(t, err)
@@ -45,6 +47,7 @@ func TestCommandProcDisappearance(t *testing.T) {
 // Replay the formerly failing stop test under the same real ESRCH race. This
 // establishes a causal reproduction, not the provenance of an untraced old run.
 func TestStopProcDisappearance(t *testing.T) {
+	requiredEvidenceRow(t)
 	self, err := os.Executable()
 	must(t, err)
 	traceProcRead(t, false, true, self, "-test.run=^TestStopRequiresAbsentGroup$", "-test.v")
@@ -54,7 +57,10 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 	t.Helper()
 	tracer, err := exec.LookPath("strace")
 	if err != nil {
-		t.Skip("deterministic proc disappearance regression requires strace")
+		if os.Getenv("RUNNER_QUALIFICATION") == "1" {
+			t.Fatalf("UNVERIFIED: %s requires strace: %v", t.Name(), err)
+		}
+		t.Skipf("UNVERIFIED: %s requires strace: %v", t.Name(), err)
 	}
 	helper := exec.Command("/bin/sleep", "30")
 	must(t, helper.Start())
