@@ -36,6 +36,7 @@ const socketName = "qualification.sock"
 type privateSocket struct {
 	listener                    *net.UnixListener
 	parent, directory, entry    *os.File
+	raw                         *os.File
 	path, directoryName         string
 	directoryInfo, socketInfo   unix.Stat_t
 	directoryVerified, bound    bool
@@ -109,14 +110,20 @@ func (d driver) reserve(ctx context.Context, dir, digest string) (socket *privat
 	s.path = filepath.Join(dir, s.directoryName, socketName)
 	// Binding through the held descriptor avoids re-resolving the evidence path
 	// and keeps the sockaddr independent of the caller's directory path length.
-	if err = d.syscall("bind:socket", func() (e error) {
-		s.listener, e = net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(descriptorPath(s.directory), socketName), Net: "unix"})
+	if err = d.syscall("socket:unix", func() (e error) {
+		fd, e = unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 		return
 	}); err != nil {
 		return nil, err
 	}
+	s.raw = os.NewFile(uintptr(fd), "qualification-listener")
+	if err = d.syscall("bind:socket", func() error {
+		return unix.Bind(int(s.raw.Fd()), &unix.SockaddrUnix{Name: filepath.Join(descriptorPath(s.directory), socketName)})
+	}); err != nil {
+		return nil, err
+	}
+	// Bind created the entry even if Listen or FileListener later fails.
 	s.bound = true
-	s.listener.SetUnlinkOnClose(false)
 	if err = d.syscall("open:socket-entry", func() (e error) {
 		fd, e = unix.Openat(int(s.directory.Fd()), socketName, unix.O_PATH|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 		return
@@ -132,6 +139,31 @@ func (d driver) reserve(ctx context.Context, dir, digest string) (socket *privat
 	}
 	s.socketVerified = true
 	if err = d.syscall("chmod:socket", func() error { return unix.Fchmodat(int(s.directory.Fd()), socketName, 0600, 0) }); err != nil {
+		return nil, err
+	}
+	if err = d.syscall("listen:socket", func() error { return unix.Listen(int(s.raw.Fd()), unix.SOMAXCONN) }); err != nil {
+		return nil, err
+	}
+	if err = d.syscall("listener:socket", func() error {
+		listener, e := net.FileListener(s.raw)
+		if e != nil {
+			return e
+		}
+		var ok bool
+		s.listener, ok = listener.(*net.UnixListener)
+		if !ok {
+			return errors.Join(qualification.ErrUnavailable, listener.Close())
+		}
+		s.listener.SetUnlinkOnClose(false)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	// FileListener owns a duplicate. Close the original exactly once, including
+	// on a Close error; retrying could close a descriptor reused by another call.
+	raw := s.raw
+	s.raw = nil
+	if err = d.syscall("close:raw-socket", raw.Close); err != nil {
 		return nil, err
 	}
 	s.stop = context.AfterFunc(ctx, func() { s.closeListener() })
@@ -162,6 +194,9 @@ func (s *privateSocket) cleanup() (err error) {
 	// Each descriptor closes even when a lookup/unlink refuses. Cleanup errors
 	// cannot turn a failed reservation or report into success.
 	defer func() {
+		if s.raw != nil {
+			err = errors.Join(err, s.raw.Close())
+		}
 		if s.entry != nil {
 			err = errors.Join(err, s.entry.Close())
 		}

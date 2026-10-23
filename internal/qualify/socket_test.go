@@ -18,10 +18,11 @@ import (
 // This syscall implementation and its constructor are compiled only in tests.
 // A matched boundary must be reached exactly once; no environment selector exists.
 type fixtureCommandSyscalls struct {
-	name  string
-	err   error
-	hits  int
-	after bool
+	name   string
+	err    error
+	hits   int
+	after  bool
+	before func() error
 }
 
 func (f *fixtureCommandSyscalls) run(name string, call func() error) error {
@@ -29,6 +30,11 @@ func (f *fixtureCommandSyscalls) run(name string, call func() error) error {
 		return call()
 	}
 	f.hits++
+	if f.before != nil {
+		if e := f.before(); e != nil {
+			return e
+		}
+	}
 	if f.after {
 		if e := call(); e != nil {
 			return e
