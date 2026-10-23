@@ -47,8 +47,10 @@ func (a *probeCatalogAuthority) Resolve(ctx context.Context, o Options) (Policy,
 
 // Claim: a protected policy catalog change after lease acquisition is a post-lease
 // configuration refusal; an observed own stop retains precedence when cleanup succeeds.
-// Non-expiry controls keep the normal fixture budget. The expiry row runs before
-// any child starts and advances virtual time only after reaching the recheck.
+// Non-expiry controls keep the normal fixture budget. In the expiry row, no
+// app-server child starts; the pre-lease --version supervisor or helper has
+// stopped before the post-lease recheck wait, which uses virtual time.
+// The testing/synctest bubbles do not qualify real-clock external I/O latency.
 func TestProbePostLeaseCatalog(t *testing.T) { postLeaseCatalog(t) }
 
 // These cases also drive the normative status table's post-lease input row.
