@@ -66,9 +66,12 @@ nonzero `Now`, and cover `max(Now, checkpoint.Watermark)` strictly before
 `AuthorityUntil`. Equality is refused. Retained metadata supplies only a lower
 bound; it cannot establish independent time authority. A covered sticky watermark
 remains valid after clock correction. `confidenceAt` persists any accepted
-advance before admission, after retained-history and manager-identity checks;
-resolution persists the accepted effective time with its outcome checkpoint.
-Recovery checks time before reconciliation and rechecks at resolution publication.
+advance before admission, after retained-history and manager-identity checks.
+After that write it samples independent confidence again; this later sample may
+advance without forcing an unbounded loop of watermark writes. The persisted
+sample remains a lower bound. Resolution persists its accepted effective time
+with its outcome checkpoint. Recovery checks time before reconciliation and
+uses the same durable-operation boundary during resolution.
 
 | Admission | Shared time rule call sites |
 |---|---|
@@ -79,6 +82,40 @@ Recovery checks time before reconciliation and rechecks at resolution publicatio
 | Proactive decision | `Due` → `snapshot` and `confidenceAt` → `admissionTime`; actual proactive work calls `Refresh` |
 | Replacement recovery | `New` → `restore` → `recover` → `admissionTime`, before recovery effects; `restore` alone is history validation, not admission |
 | Post-vendor / recovered resolution | `resolve` → `admissionTime` using the prospective generation before publishing resolved evidence or its checkpoint |
+
+Every completed durable operation passes through `commitThenRevalidate`: the
+shared `admissionTime` rule must hold before the operation and again after its
+successful completion, before the next protected effect. The operation publishes
+its completed record in memory before the recheck, so refusal cannot forget a
+write that already happened. A failed operation never authorizes its successor.
+
+| Durable operation | Effect requiring the completion recheck |
+|---|---|
+| Admission watermark checkpoint | Material release, fresh-home admission, refresh or proactive decision |
+| Protected material flush and reload | Pending checkpoint or resolution publication |
+| Pending checkpoint | Intent publication |
+| Intent | Starting the recorded writer unit |
+| Submitted evidence | Running evidence and managed exchange |
+| Running evidence | Managed exchange and stopping evidence |
+| Stopping evidence | Absence evidence; containment stop remains permitted |
+| Confirmed absence evidence | Material reconciliation and resolved evidence |
+| Resolved evidence | Final checkpoint |
+| Final checkpoint | Material release or fresh-home admission; containment unload remains permitted |
+
+These are boundaries between completed logical operations, not atomic revocation
+of an operation already in progress. Refusal preserves every completed record
+and prevents later protected writes or admission. Before the final checkpoint,
+the pending prefix remains unavailable until independent confidence and retained
+evidence permit recovery. If the final checkpoint itself completed before the
+refusal, its settled history stays intact; it is never rolled back. An already
+started writer on a time-admission refusal is stopped using its qualified identity,
+without publishing new
+evidence or unloading pending retention. Storage interruption keeps its existing
+retained recovery path, including its live-child uncertainty; it is distinguished
+from withdrawn time authority internally while both expose the same unavailable
+error. An attempted stop is never retried to
+compensate for an uncertain reference reply. Recovery preserves ambiguous prefixes
+and reuses the recorded resolution time for scheduling conclusive outcomes.
 
 No admission path checks independent time flags or authority bounds separately.
 JWT expiry is a conservative bound on vendor-supplied material, not signature
@@ -229,6 +266,7 @@ These names identify executable claims, rather than native-vendor qualification.
 | Contract | Code | Tests |
 |---|---|---|
 | §4 stable locks, approved vendor, managed RPC and durable reload | `engine_linux.go`, `vendor_linux.go`, existing store locks | `TestStableHomeLock`, `TestIntentBeforeStartAndCommittedControl`, `TestDuplicateConfiguredVendorRefused` |
+| Completed persistence must revalidate before its successor | `commitThenRevalidate`, `commitCheckpoint`, `appendIntent`, `appendEvidence`, `durableMaterial` | `TestDurableEffectTimeBoundaryProbe`, `TestWatermarkCompletionAdmissionProbe`, `TestDurableStepTimeRevalidation`, `TestCommitTimeBoundary`, `TestMaterialDurabilityTimeRevalidation` |
 | §4 proactive window, unknown expiry, trusted time and watermark | `Due`, `confidenceAt`, `load` | `TestProactiveShortLifetime`, `TestStoreTimeAndFreshnessFences` |
 | §4 unchanged token and N=8/64 coalescing | `Refresh`, `resolve`, lease owner-error bridge | `TestUnchangedReportsRenewFailed`, `TestProbeUnchangedTokenMetadata`, `TestOwnerUnchangedRefusalPreserved`, `TestLeaseCoalescingCountsVendorUnits` |
 | §4.2 safe backoff, rejection, ambiguity and cancellation | `resolve`, `managed` | `TestSafeBackoffRejectionAndExpiry`, `TestSafeBackoffCompletionAndReplacement`, `TestAmbiguousRotationNoRetry`, `TestCancelledRPCNoRetry` |

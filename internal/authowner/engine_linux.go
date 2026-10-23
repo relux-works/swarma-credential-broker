@@ -201,6 +201,69 @@ func (e *Engine) checkpoint(a *account, c Checkpoint) error {
 	return nil
 }
 
+// timeAdmissionRefusal distinguishes withdrawn authority from a failed or
+// interrupted durable operation. Both remain the same public unavailable error,
+// but only the former authorizes this call's additional containment cleanup.
+type timeAdmissionRefusal struct{}
+
+func (timeAdmissionRefusal) Error() string { return ErrUnavailable.Error() }
+func (timeAdmissionRefusal) Unwrap() error { return ErrUnavailable }
+
+// commitThenRevalidate encloses one durable operation. A successful write is
+// retained even if the independent authority check after completion refuses the
+// next effect. In-memory publication belongs to commit, before the recheck.
+func (e *Engine) commitThenRevalidate(ctx context.Context, a *account, c Checkpoint, commit func() error) (TimeEvidence, error) {
+	if _, err := e.admissionTime(ctx, a, c); err != nil {
+		return TimeEvidence{}, timeAdmissionRefusal{}
+	}
+	if err := commit(); err != nil {
+		return TimeEvidence{}, ErrUnavailable
+	}
+	t, err := e.admissionTime(ctx, a, c)
+	if err != nil {
+		return TimeEvidence{}, timeAdmissionRefusal{}
+	}
+	return t, nil
+}
+
+func (e *Engine) commitCheckpoint(ctx context.Context, a *account, c Checkpoint) (TimeEvidence, error) {
+	return e.commitThenRevalidate(ctx, a, c, func() error {
+		if err := e.checkpoint(a, c); err != nil {
+			return err
+		}
+		if c.PendingAttempt != "" {
+			a.blocked = true
+		}
+		return nil
+	})
+}
+
+func (e *Engine) durableMaterial(ctx context.Context, a *account) (material, error) {
+	var m material
+	_, err := e.commitThenRevalidate(ctx, a, a.checkpoint, func() error {
+		var err error
+		m, err = load(a.config, true)
+		return err
+	})
+	if err != nil {
+		return material{}, err
+	}
+	return m, nil
+}
+
+func (e *Engine) appendIntent(ctx context.Context, a *account, v Intent) error {
+	_, err := e.commitThenRevalidate(ctx, a, a.checkpoint, func() error {
+		if a.config.Disk.Healthy() != nil || a.config.Disk.Append(evidenceName(v.Attempt, v.Revision), v) != nil {
+			a.blocked = true
+			return ErrUnavailable
+		}
+		a.intents[v.Attempt] = v
+		a.blocked = true
+		return nil
+	})
+	return err
+}
+
 // admissionTime is the sole trusted-time rule for every admission and
 // resolution. The checkpoint supplies a lower bound, never independent authority.
 // It does not publish a watermark: callers persist the returned effective time
@@ -234,7 +297,8 @@ func (e *Engine) confidenceAt(ctx context.Context, a *account) (TimeEvidence, er
 	if t.Now.After(a.checkpoint.Watermark) {
 		c := a.checkpoint
 		c.Watermark = t.Now.UTC()
-		if e.checkpoint(a, c) != nil {
+		t, err = e.commitCheckpoint(ctx, a, c)
+		if err != nil {
 			return TimeEvidence{}, ErrUnavailable
 		}
 	}
@@ -288,6 +352,9 @@ func (e *Engine) Refresh(ctx context.Context, label string, generation uint64) (
 		return current, nil
 	}
 	if err = e.attempt(ctx, a); err != nil {
+		if _, refused := err.(timeAdmissionRefusal); refused {
+			err = ErrUnavailable
+		}
 		return owner.Snapshot{State: owner.Unavailable}, err
 	}
 	return e.snapshot(ctx, a)
@@ -327,24 +394,27 @@ func (e *Engine) AdmitFreshHome(ctx context.Context, label string) error {
 func evidenceName(id string, rev uint64) string {
 	return fmt.Sprintf("owner-attempt-%s-%06d.json", id, rev)
 }
-func (e *Engine) evidence(a *account, b Binding, phase string, o Observation, absence string, rpc, outcome Disposition, store uint64, plan ...string) error {
+func (e *Engine) evidence(ctx context.Context, a *account, b Binding, phase string, o Observation, absence string, rpc, outcome Disposition, store uint64, plan ...string) error {
 	b.Revision = uint64(len(a.attempts[b.Attempt])) + 2
 	p := ""
 	if len(plan) > 0 {
 		p = plan[0]
 	}
 	v := Evidence{Plan: p, Kind: "attempt-evidence/1", Binding: b, Phase: phase, Observation: o, Absence: absence, RPC: rpc, Outcome: outcome, StoreAfter: store}
-	return e.appendEvidence(a, v)
+	return e.appendEvidence(ctx, a, v, a.checkpoint)
 }
-func (e *Engine) appendEvidence(a *account, v Evidence) error {
-	if a.config.Disk.Healthy() != nil || a.config.Disk.Append(evidenceName(v.Attempt, v.Revision), v) != nil {
-		a.blocked = true
-		return ErrUnavailable
-	}
-	a.attempts[v.Attempt] = append(a.attempts[v.Attempt], v)
-	return nil
+func (e *Engine) appendEvidence(ctx context.Context, a *account, v Evidence, c Checkpoint) error {
+	_, err := e.commitThenRevalidate(ctx, a, c, func() error {
+		if a.config.Disk.Healthy() != nil || a.config.Disk.Append(evidenceName(v.Attempt, v.Revision), v) != nil {
+			a.blocked = true
+			return ErrUnavailable
+		}
+		a.attempts[v.Attempt] = append(a.attempts[v.Attempt], v)
+		return nil
+	})
+	return err
 }
-func (e *Engine) attempt(ctx context.Context, a *account) error {
+func (e *Engine) attempt(ctx context.Context, a *account) (resultErr error) {
 	// Retained attempts are never evicted to make room for a new writer.
 	if ctx.Err() != nil || a.blocked || e.retained(a) != nil || len(a.intents) >= e.config.MaxAttempts {
 		return ErrUnavailable
@@ -353,7 +423,7 @@ func (e *Engine) attempt(ctx context.Context, a *account) error {
 	if err != nil {
 		return ErrUnavailable
 	}
-	old, err := load(a.config, false)
+	old, err := e.durableMaterial(ctx, a)
 	if err != nil || old.Digest != a.checkpoint.StoreDigest {
 		return ErrUnavailable
 	}
@@ -366,16 +436,12 @@ func (e *Engine) attempt(ctx context.Context, a *account) error {
 	pending := a.checkpoint
 	pending.State = owner.Unavailable
 	pending.PendingAttempt = attempt
-	if _, err = load(a.config, true); err != nil || e.checkpoint(a, pending) != nil {
+	if _, err = e.commitCheckpoint(ctx, a, pending); err != nil {
 		return ErrUnavailable
 	}
-	if a.config.Disk.Healthy() != nil || a.config.Disk.Append(evidenceName(attempt, 1), intent) != nil {
-		a.blocked = true
+	if e.appendIntent(ctx, a, intent) != nil {
 		return ErrUnavailable
 	}
-	a.intents[attempt] = intent
-	// Once intent exists every failure remains closed until complete reconciliation.
-	a.blocked = true
 	input, write, err := os.Pipe()
 	if err != nil {
 		return ErrUnavailable
@@ -392,18 +458,39 @@ func (e *Engine) attempt(ctx context.Context, a *account) error {
 	defer cancel()
 	s := UnitSpec{Name: b.Unit, Daemon: e.config.DaemonUnit, Executable: e.config.Executable, ExecutableSHA256: e.config.ExecutableSHA256, Args: []string{"app-server"}, Home: a.config.Home, Environment: []string{"HOME=" + a.config.Home, "CODEX_HOME=" + a.config.Home, "LANG=C.UTF-8", "PATH=/usr/bin:/bin"}, Runtime: e.config.Runtime, Input: input, Output: output}
 	startErr := e.manager.Start(runtime, s)
+	// Cleanup remains permitted after authority is withdrawn. A storage failure
+	// preserves the existing interruption/recovery path. Never retry an
+	// attempted stop (including an uncertain reference reply), publish substitute
+	// evidence, or unload a unit whose terminal checkpoint is still pending.
+	var before Observation
+	stopAttempted := false
+	defer func() {
+		_, refused := resultErr.(timeAdmissionRefusal)
+		if stopAttempted || !refused {
+			return
+		}
+		if !validRunning(b, before) {
+			var err error
+			before, err = e.manager.Observe(runtime, b.Unit)
+			if err != nil || !validRunning(b, before) {
+				return
+			}
+		}
+		_, _ = e.manager.Stop(runtime, b.Unit, before)
+	}()
 	input.Close()
 	output.Close()
 	// An uncertain reply is followed only by lookup of this durable unit name.
-	if e.evidence(a, b, "submitted", Observation{}, "unknown", Unknown, Unknown, 0) != nil {
-		return ErrUnavailable
+	if err := e.evidence(runtime, a, b, "submitted", Observation{}, "unknown", Unknown, Unknown, 0); err != nil {
+		return err
 	}
 	o, err := e.manager.Observe(runtime, b.Unit)
+	before = o
 	if err != nil || !validRunning(b, o) || o.Active != "active" || o.Substate != "running" || o.MainPID == 0 || o.ProcessStart == 0 {
 		return ErrUnavailable
 	}
-	if e.evidence(a, b, "running", o, "unknown", Unknown, Unknown, 0) != nil {
-		return ErrUnavailable
+	if err := e.evidence(runtime, a, b, "running", o, "unknown", Unknown, Unknown, 0); err != nil {
+		return err
 	}
 	// Do not exchange over uncertain FD ownership. Still stop and reconcile, with
 	// an unknown RPC result; never create a replacement unit or retry this call.
@@ -420,15 +507,16 @@ func (e *Engine) attempt(ctx context.Context, a *account) error {
 		result = managed(rpcctx, read, write, e.classifier)
 		rpccancel()
 	}
-	if e.evidence(a, b, "stopping", o, "unknown", result.Outcome, Unknown, 0, result.Plan) != nil {
-		return ErrUnavailable
+	if err := e.evidence(runtime, a, b, "stopping", o, "unknown", result.Outcome, Unknown, 0, result.Plan); err != nil {
+		return err
 	}
+	stopAttempted = true
 	absent, err := e.manager.Stop(runtime, b.Unit, o)
 	if err != nil || !confirmed(b, o, absent) {
 		return ErrUnavailable
 	}
-	if e.evidence(a, b, "absent", absent, "confirmed", result.Outcome, Unknown, 0, result.Plan) != nil {
-		return ErrUnavailable
+	if err := e.evidence(runtime, a, b, "absent", absent, "confirmed", result.Outcome, Unknown, 0, result.Plan); err != nil {
+		return err
 	}
 	return e.resolve(runtime, a, b, absent, result)
 }
@@ -447,7 +535,7 @@ func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Obse
 	if e.validateChain(a) != nil {
 		return ErrUnavailable
 	}
-	material, err := load(a.config, true)
+	material, err := e.durableMaterial(ctx, a)
 	if err != nil {
 		return ErrUnavailable
 	}
@@ -524,11 +612,16 @@ func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Obse
 	if len(list) == 0 || list[len(list)-1].Phase != "resolved" {
 		b.Revision = uint64(len(list)) + 2
 		v := Evidence{Kind: "attempt-evidence/1", Binding: b, Phase: "resolved", Observation: absent, Absence: "confirmed", RPC: result.Outcome, Outcome: outcome, StoreAfter: c.StoreGeneration, Plan: result.Plan, ResolvedAt: resolvedAt, TokenExpires: material.Expires, StoreDigestAfter: material.Digest, TokenDigestAfter: digestToken(material.Token)}
-		if e.appendEvidence(a, v) != nil {
+		if e.appendEvidence(ctx, a, v, c) != nil {
 			return ErrUnavailable
 		}
 	}
-	if e.checkpoint(a, c) != nil {
+	if _, err := e.commitCheckpoint(ctx, a, c); err != nil {
+		// If the checkpoint completed before withdrawal, its full history is
+		// already durable. Release containment retention, but refuse admission.
+		if a.checkpoint.PendingAttempt == "" && a.checkpoint.LastAttempt == b.Attempt {
+			_ = e.manager.Unload(ctx, b.Unit)
+		}
 		return ErrUnavailable
 	}
 	a.blocked = false
@@ -650,7 +743,7 @@ func (e *Engine) recover(ctx context.Context, a *account) error {
 		// Durable response proof is essential. Absence alone cannot resolve rotation.
 		last := list[len(list)-1]
 		if last.Phase != "absent" && last.Phase != "resolved" {
-			if e.evidence(a, b, "absent", absent, "confirmed", rpc, Unknown, 0, plan) != nil {
+			if e.evidence(ctx, a, b, "absent", absent, "confirmed", rpc, Unknown, 0, plan) != nil {
 				return ErrUnavailable
 			}
 		}
