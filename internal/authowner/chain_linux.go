@@ -3,6 +3,7 @@
 package authowner
 
 import (
+	"encoding/hex"
 	"path/filepath"
 	"time"
 
@@ -51,8 +52,15 @@ func (e *Engine) validateChain(a *account) error {
 	sg, tg := uint64(1), uint64(1)
 	var failures uint64
 	var retryAt, nextProactive, resolvedAt, expires time.Time
+	storeDigest, tokenDigest, generationPlan := c.StoreDigest, c.TokenDigest, c.Plan
+	if len(ordered) > 0 {
+		first := ordered[0]
+		storeDigest, tokenDigest, generationPlan, expires = first.StoreDigestBefore, first.TokenDigestBefore, first.PlanBefore, first.TokenExpiresBefore
+	}
+	prefixStore, prefixToken, prefixPlan := storeDigest, tokenDigest, generationPlan
+	latestPhase := ""
 	for _, intent := range ordered {
-		if intent.StoreBefore != sg || intent.TokenBefore != tg {
+		if intent.StoreBefore != sg || intent.TokenBefore != tg || intent.StoreDigestBefore != storeDigest || intent.TokenDigestBefore != tokenDigest || intent.PlanBefore != generationPlan || !intent.TokenExpiresBefore.Equal(expires) || !validDigest(storeDigest) || !validDigest(tokenDigest) || !validPlan(generationPlan) || expires.IsZero() {
 			return ErrUnavailable
 		}
 		list := a.attempts[intent.Attempt]
@@ -71,19 +79,21 @@ func (e *Engine) validateChain(a *account) error {
 			if !allowed {
 				return ErrUnavailable
 			}
-			if v.Phase != "resolved" && (!v.ResolvedAt.IsZero() || !v.TokenExpires.IsZero()) {
+			if v.Phase != "resolved" && (!v.ResolvedAt.IsZero() || !v.TokenExpires.IsZero() || v.StoreDigestAfter != "" || v.TokenDigestAfter != "") {
 				return ErrUnavailable
 			}
 			o := v.Observation
 			terminal := v.Phase == "absent" || v.Phase == "resolved"
-			if v.Phase != "submitted" || o != (Observation{}) {
+			if v.Phase != "submitted" || suppliedObservation(o) {
 				if !validRunning(intent.Binding, o) || !filepath.IsAbs(o.Cgroup) || filepath.Clean(o.Cgroup) != o.Cgroup || o.Cgroup == "/" || observed.Complete && !sameWriter(observed, o) {
 					return ErrUnavailable
 				}
 				if terminal {
-					if !confirmed(intent.Binding, observed, o) {
+					if !confirmed(intent.Binding, observed, o) || previous == "absent" && o.Active != observed.Active {
 						return ErrUnavailable
 					}
+				} else if observed.Complete && observed.Active == "active" && (o.MainPID != observed.MainPID || o.ProcessStart != observed.ProcessStart) {
+					return ErrUnavailable
 				} else if o.Active != "active" || o.Substate != "running" || o.MainPID == 0 || o.ProcessStart == 0 || o.StopCompleted || o.Empty || o.PopulatedZero || o.CgroupRemoved {
 					return ErrUnavailable
 				}
@@ -113,10 +123,18 @@ func (e *Engine) validateChain(a *account) error {
 					if v.ResolvedAt.IsZero() || v.ResolvedAt.Before(intent.Created) || v.ResolvedAt.Before(resolvedAt) || v.TokenExpires.IsZero() || rpc == Committed && !v.ResolvedAt.Before(v.TokenExpires) || rpc != Committed && !expires.IsZero() && !v.TokenExpires.Equal(expires) {
 						return ErrUnavailable
 					}
+					if !validDigest(v.StoreDigestAfter) || !validDigest(v.TokenDigestAfter) || rpc == Committed && (v.StoreDigestAfter == storeDigest || v.TokenDigestAfter == tokenDigest) || rpc != Committed && (v.StoreDigestAfter != storeDigest || v.TokenDigestAfter != tokenDigest) {
+						return ErrUnavailable
+					}
+					storeDigest, tokenDigest = v.StoreDigestAfter, v.TokenDigestAfter
+					if rpc == Committed {
+						generationPlan = v.Plan
+					}
 					resolvedAt, expires = v.ResolvedAt, v.TokenExpires
 					// Only the checkpointed prefix determines checkpoint scheduling;
 					// a durable pending resolution is replayed by recovery.
 					if intent.Sequence <= c.RetainedAttempts {
+						prefixStore, prefixToken, prefixPlan = storeDigest, tokenDigest, generationPlan
 						switch rpc {
 						case Committed:
 							failures, retryAt = 0, time.Time{}
@@ -146,6 +164,7 @@ func (e *Engine) validateChain(a *account) error {
 			}
 			previous = v.Phase
 		}
+		latestPhase = previous
 		if intent.Sequence <= c.RetainedAttempts && previous != "resolved" {
 			return ErrUnavailable
 		}
@@ -155,13 +174,19 @@ func (e *Engine) validateChain(a *account) error {
 			}
 			if c.PendingAttempt == "" {
 				want := map[Disposition]string{Committed: owner.Active, Safe: owner.Transient, Rejected: owner.Reauth}[rpc]
-				if c.State != want || rpc == Committed && c.Plan != plan {
+				if c.State != want {
 					return ErrUnavailable
 				}
 			}
 		}
 	}
 	if c.RetainedAttempts == 0 && (c.LastAttempt != "" || c.StoreGeneration != 1 || c.TokenGeneration != 1) {
+		return ErrUnavailable
+	}
+	if c.Plan != prefixPlan { // The checkpointed generation survives non-commit and pending outcomes.
+		return ErrUnavailable
+	}
+	if c.StoreDigest != prefixStore || c.TokenDigest != prefixToken {
 		return ErrUnavailable
 	}
 	if c.Failures != failures {
@@ -173,13 +198,24 @@ func (e *Engine) validateChain(a *account) error {
 	if !c.NextProactive.Equal(nextProactive) {
 		return ErrUnavailable
 	}
-	if c.PendingAttempt == "" && !expires.IsZero() {
-		material, err := load(a.config, true)
-		if err != nil || !material.Expires.Equal(expires) {
+	if c.PendingAttempt == "" || latestPhase == "resolved" {
+		material, err := load(a.config, false)
+		if err != nil || material.Digest != storeDigest || digestToken(material.Token) != tokenDigest || !expires.IsZero() && !material.Expires.Equal(expires) {
 			return ErrUnavailable
 		}
 	}
 	return nil
+}
+
+// Diagnostics alone never turn an unobserved submitted record into authority.
+func suppliedObservation(o Observation) bool {
+	o.Result, o.ExitStatus, o.Observed = "", 0, time.Time{}
+	return o != (Observation{})
+}
+
+func validDigest(v string) bool {
+	b, err := hex.DecodeString(v)
+	return err == nil && len(b) == 32 && v == hex.EncodeToString(b)
 }
 
 func safeBackoff(failures uint64) time.Duration {

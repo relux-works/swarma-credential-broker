@@ -354,7 +354,7 @@ func (e *Engine) attempt(ctx context.Context, a *account, t TimeEvidence) error 
 	if attempt == "" {
 		return ErrUnavailable
 	}
-	b := Binding{Installation: e.config.Installation, Account: a.config.Label, Attempt: attempt, Sequence: uint64(len(a.intents)) + 1, Revision: 1, Operation: "refresh", Daemon: e.config.DaemonInstance, Policy: e.config.PolicyGeneration, Identity: e.identity, Unit: e.config.WriterPrefix + attempt + ".service", Executable: e.config.ExecutableSHA256, Home: a.config.HomeID, StoreBefore: a.checkpoint.StoreGeneration, TokenBefore: a.checkpoint.TokenGeneration, Created: t.Now.UTC(), Deadline: t.Now.Add(e.config.Runtime).UTC()}
+	b := Binding{Installation: e.config.Installation, Account: a.config.Label, Attempt: attempt, Sequence: uint64(len(a.intents)) + 1, Revision: 1, Operation: "refresh", Daemon: e.config.DaemonInstance, Policy: e.config.PolicyGeneration, Identity: e.identity, Unit: e.config.WriterPrefix + attempt + ".service", Executable: e.config.ExecutableSHA256, Home: a.config.HomeID, StoreBefore: a.checkpoint.StoreGeneration, TokenBefore: a.checkpoint.TokenGeneration, StoreDigestBefore: old.Digest, TokenDigestBefore: digestToken(old.Token), PlanBefore: a.checkpoint.Plan, TokenExpiresBefore: old.Expires, Created: t.Now.UTC(), Deadline: t.Now.Add(e.config.Runtime).UTC()}
 	intent := Intent{Kind: "attempt-intent/1", Binding: b, Phase: "intent"}
 	pending := a.checkpoint
 	pending.State = owner.Unavailable
@@ -505,7 +505,7 @@ func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Obse
 	list := a.attempts[b.Attempt]
 	if len(list) > 0 && list[len(list)-1].Phase == "resolved" {
 		last := list[len(list)-1]
-		if last.Outcome != outcome || last.StoreAfter != c.StoreGeneration || !last.TokenExpires.Equal(material.Expires) {
+		if last.Outcome != outcome || last.StoreAfter != c.StoreGeneration || !last.TokenExpires.Equal(material.Expires) || last.StoreDigestAfter != material.Digest || last.TokenDigestAfter != digestToken(material.Token) {
 			return ErrUnavailable
 		}
 		resolvedAt = last.ResolvedAt
@@ -521,7 +521,7 @@ func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Obse
 	}
 	if len(list) == 0 || list[len(list)-1].Phase != "resolved" {
 		b.Revision = uint64(len(list)) + 2
-		v := Evidence{Kind: "attempt-evidence/1", Binding: b, Phase: "resolved", Observation: absent, Absence: "confirmed", RPC: result.Outcome, Outcome: outcome, StoreAfter: c.StoreGeneration, Plan: result.Plan, ResolvedAt: resolvedAt, TokenExpires: material.Expires}
+		v := Evidence{Kind: "attempt-evidence/1", Binding: b, Phase: "resolved", Observation: absent, Absence: "confirmed", RPC: result.Outcome, Outcome: outcome, StoreAfter: c.StoreGeneration, Plan: result.Plan, ResolvedAt: resolvedAt, TokenExpires: material.Expires, StoreDigestAfter: material.Digest, TokenDigestAfter: digestToken(material.Token)}
 		if e.appendEvidence(a, v) != nil {
 			return ErrUnavailable
 		}

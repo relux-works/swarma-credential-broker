@@ -95,8 +95,8 @@ Every supplied observation has a complete read, `RestartNo=true`, a nonempty
 invocation, absolute clean non-root cgroup path, cgroup identity and property
 digest. It binds the intent identity/unit and every other observation in that
 attempt. No later observation can replace this tuple. `MainPID`, `ProcessStart`,
-`Substate`, `Result`, `ExitStatus`, and `Observed` are diagnostics outside the
-running-state requirements below; they do not independently certify absence.
+`Substate`, `Result`, `ExitStatus`, and `Observed` have the phase-specific
+classes below; none independently certifies absence.
 
 | Phase | Required state and identity evidence | RPC, outcome and plan | Revisions, sequences and generations |
 |---|---|---|---|
@@ -106,7 +106,7 @@ running-state requirements below; they do not independently certify absence.
 | stopping | Same binding and running observation; stable tuple unchanged | RPC one of `committed`, `safe_no_rotation`, `reauth_required`, `unknown`; outcome `unknown`; valid plan for committed, otherwise empty; absence `unknown` | Next revision; StoreAfter 0; follows running |
 | absent | Same binding and stable tuple; Active `inactive` or `failed`; Complete, RestartNo, StopCompleted, Empty and PopulatedZero all true; CgroupRemoved may be true only with this complete stop evidence | RPC and plan equal stopping; outcome `unknown`; absence `confirmed`; unknown RPC is ambiguous, never resolved or admitted | Next revision; StoreAfter 0; follows stopping, or running for recovery with RPC unknown and empty plan |
 | resolved | Same binding and stable tuple; same complete stop evidence as absent, with Active `inactive` or `failed`; trusted `resolved_at` and known `token_expires_at` obey the scheduling table | RPC and plan equal stopping and absent; RPC equals outcome, one of committed/safe/rejected; absence `confirmed`; no unknown outcome-bearing evidence anywhere in a resolved chain | Next revision; follows absent; committed increments store/token generations by one each, safe/rejected leave both unchanged; StoreAfter is resulting store generation |
-| checkpoint | Kind `account-checkpoint/1`; configured installation, account, vendor, home and policy; nonempty store/token digests, valid plan and nonzero watermark; active/transient/reauth follows committed/safe/rejected respectively | LastAttempt binds the last retained resolution; active plan equals that committed resolution; pending account is unavailable, never material authority | Positive revision at least 1 + twice retained count + one if pending; retained count covers a contiguous resolved prefix; store/token generations equal that prefix; at most one additional pending intent, explicitly named; no pending means all attempts checkpointed |
+| checkpoint | Kind `account-checkpoint/1`; configured installation, account, vendor, home and policy; nonempty store/token digests, valid plan and nonzero watermark; active/transient/reauth follows committed/safe/rejected respectively | LastAttempt binds the last retained resolution; plan and material digests equal the last committed generation across safe/rejected/pending prefixes; pending account is unavailable, never material authority | Positive revision at least 1 + twice retained count + one if pending; retained count covers a contiguous resolved prefix; store/token generations equal that prefix; at most one additional pending intent, explicitly named; no pending means all attempts checkpointed |
 
 Scheduling is authority under profile §§4 and 4.2, validated with the whole
 chain before every admission. Resolution evidence carries `resolved_at`, sampled
@@ -129,6 +129,55 @@ A recovered resolution reuses its durable trusted time and expiry rather than
 moving its schedule forward on each restart. Contradictory scheduling fields
 make the account `owner_unavailable`; no material or fresh-home authority is
 released and no writer or proactive work is admitted.
+
+
+## Retained record field classification
+
+This inventory is exhaustive for `Intent`, all five `Evidence` phases (including
+`resolved`), `Checkpoint`, flattened `Binding`, and nested `Observation`/`Identity`.
+There are no other owner record types. The generated inventory test reflects the
+Go schemas and fails for a missing, duplicate, removed or newly unclassified path.
+Identity fields must match their configured identity and/or immutable attempt
+binding. Authority fields must obey the stated history rule; their ordinary type
+or enum validity is insufficient. Bounded rules intentionally allow multiple
+coherent values: a later conservative retry, a higher CAS revision after trusted
+watermark writes, and legal terminal diagnostics are not contradictions.
+
+The protected initial enrollment checkpoint is supplied by the separate trusted
+ceremony. With no retained attempt its valid plan and digests are the initial
+root, reconciled against protected material before admission. The first intent
+captures that root's plan, digests and expiry; every evidence binding repeats it.
+Subsequent generation metadata is derived only from complete resolved history.
+No initial plan is hard-coded, and a genuine later committed plan change is valid.
+
+| Record / phases | Field paths | Class | Rule and decision readers |
+|---|---|---|---|
+| Intent, all Evidence | `installation_id`, `account`, `policy_generation`, `boot_id`, `manager_uid`, `manager_epoch`, `executable_sha256`, `vendor_home_id` | identity | `Engine.binding` and `validateChain`: configured/current qualified identity, repeated immutable binding in every phase. |
+| Intent, all Evidence | `attempt_id`, `unit_name`, `daemon_instance_id` | identity | Named intent/map key and never-reused derived unit; original daemon nonempty; every phase repeats original binding, not replacement daemon identity. |
+| Intent, all Evidence | `attempt_sequence`, `revision`, `operation`, `created_at`, `deadline` | authority | Contiguous account sequence; intent revision 1 and evidence revisions contiguous from 2; refresh operation; nonzero creation, deadline later; all copies bind intent. `validateChain`, recovery and writer admission read these. |
+| Intent, all Evidence | `store_generation_before`, `token_generation_before` | authority | Equal the preceding resolved generation, initially 1/1; all copies match intent. `validateChain`, `resolve`. |
+| Intent, all Evidence | `store_digest_before`, `token_digest_before`, `plan_before`, `token_expires_before` | authority | Equal preceding resolved material metadata, initially enrollment root; valid digests/plan and known expiry; immutable across phases. `validateChain` reconstructs checkpoint authority and `resolve` reconciles material. |
+| Intent | `kind`, `phase` | authority | Exactly attempt-intent/1 and intent; filename/revision and transition checks in restore/validateChain. |
+| All Evidence | `kind`, `phase`, `absence` | authority | Exactly attempt-evidence/1, allowed next phase, confirmed absence only in absent/resolved; restore/validateChain/recover use these. |
+| All Evidence | `observation` | authority | Required object; submitted may have no authority observation, other phases require the phase evidence. `validateChain` ignores diagnostic-only values when deciding whether submitted observation is supplied. |
+| All Evidence | `observation.manager`, `observation.manager.boot_id`, `observation.manager.manager_uid`, `observation.manager.manager_epoch`, `observation.unit_name`, `observation.invocation_id`, `observation.cgroup_path`, `observation.cgroup_identity`, `observation.verified_property_digest` | identity | Empty only for unobserved submitted; otherwise complete stable writer tuple across supplied observations, matching intent manager/unit and an absolute clean non-root cgroup. `validRunning`, `sameWriter`, `confirmed`, validateChain and recovery. |
+| All Evidence | `observation.complete_read`, `observation.restart_no` | authority | True whenever an authority observation is supplied; false in empty submitted. `validRunning`, `confirmed`, validateChain. |
+| All Evidence | `observation.active_state` | authority | Active for running observations; inactive/failed for terminal observations, with resolved state identical to preceding absent state. validateChain/confirmed use it. |
+| Submitted, running, stopping Evidence | `observation.main_pid`, `observation.process_start`, `observation.substate` | authority | Positive PID/start and running substate when supplied; same PID/start through running observations; empty submitted has zero/empty values. validateChain and attempt readiness read these. |
+| Absent, resolved Evidence | `observation.main_pid`, `observation.process_start`, `observation.substate` | diagnostic | Retained values are only decoded/serialized; validateChain/confirmed/recover never branch on these terminal values, and they are never returned as material authority. Live Systemd.Observe reads typed properties before writing evidence. |
+| Submitted, running, stopping Evidence | `observation.cgroup_removed_after_stop` | authority | False; an observed active writer cannot claim prior cgroup removal. validateChain reads it. |
+| Absent, resolved Evidence | `observation.cgroup_removed_after_stop` | diagnostic | Only decoded/serialized in retained history; confirmed/validateChain/recover never use it to replace complete stop/empty evidence. Live Systemd.Stop may annotate it after qualified stop evidence. |
+| All Evidence | `observation.stop_completed`, `observation.subtree_empty`, `observation.populated_zero` | authority | False for nonterminal observed phases, true for terminal phases; empty submitted is false. validateChain/confirmed use the complete stop tuple. |
+| All Evidence | `observation.result`, `observation.exit_status`, `observation.observed_at` | diagnostic | Only decode/serialization in the retained-chain path; validRunning/sameWriter/confirmed/recover ignore them. Systemd.Observe obtains these live diagnostics; no retained diagnostic is used to classify RPC, time, outcome or absence. |
+| All Evidence | `rpc_outcome`, `outcome`, `plan_type`, `store_generation_after` | authority | Phase-specific RPC/outcome/plan rules and exact generation transitions in the phase table; stopping/absent/resolved agree; unknown cannot resolve. validateChain/recover/resolve use these. |
+| All Evidence | `resolved_at`, `token_expires_at`, `store_digest_after`, `token_digest_after` | authority | Explicit zero/empty before resolved. Resolution has trusted time, known expiry and matching current material digests; safe/rejected preserve before-metadata, commit replaces store/token digests and may change plan/expiry. validateChain/resolve use these; timing obeys scheduling table. |
+| Checkpoint | `kind`, `revision` | authority | account-checkpoint/1; positive CAS revision at least phase-table floor, including additional trusted-watermark writes. restore/validateChain and Disk.Put read these. |
+| Checkpoint | `installation_id`, `account`, `vendor_account_id`, `vendor_home_id`, `policy_generation` | identity | Exactly configured installation, account, vendor, home and policy. validateChain, confidence validation and material reload use these. |
+| Checkpoint | `state`, `pending_attempt`, `retained_attempts`, `last_resolved_attempt` | authority | Exact contiguous resolved prefix and at most one named pending intent; state follows final prefix outcome or unavailable while pending. validateChain/retained/recover and admission use these. |
+| Checkpoint | `store_generation`, `token_generation` | authority | Exact result of checkpointed prefix, initially 1/1. validateChain, confidence validation and material publication use these. |
+| Checkpoint | `vendor_store_digest`, `current_token_digest`, `plan_type` | authority | Exact last checkpointed committed generation metadata, preserved across safe/rejected and pending prefixes; initial root captured by first intent; settled digests also equal protected current material. validateChain checks before Snapshot/fresh-home/recovery/writer admission; Snapshot returns only checked plan. |
+| Checkpoint | `watermark` | authority | Nonzero trusted durable watermark at least all checkpointed resolution times; confidence validation must cover it before admission. validateChain/confidenceAt/resolve read it. |
+| Checkpoint | `next_proactive`, `retry_at`, `safe_failures` | authority | Derived checkpointed-prefix schedule/count, including permitted conservative retry lower bound, as in scheduling table. validateChain checks; Refresh/Due/resolve consume only checked values. |
 
 Unknown RPC placeholders before the response (`submitted` and `running`) are
 expected, not successful RPC evidence. Unknown in `stopping` or `absent` makes

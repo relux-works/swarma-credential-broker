@@ -17,13 +17,17 @@ type Binding struct {
 	Daemon       string `json:"daemon_instance_id"`
 	Policy       uint64 `json:"policy_generation"`
 	Identity
-	Unit        string    `json:"unit_name"`
-	Executable  string    `json:"executable_sha256"`
-	Home        string    `json:"vendor_home_id"`
-	StoreBefore uint64    `json:"store_generation_before"`
-	TokenBefore uint64    `json:"token_generation_before"`
-	Created     time.Time `json:"created_at"`
-	Deadline    time.Time `json:"deadline"`
+	Unit               string    `json:"unit_name"`
+	Executable         string    `json:"executable_sha256"`
+	Home               string    `json:"vendor_home_id"`
+	StoreBefore        uint64    `json:"store_generation_before"`
+	TokenBefore        uint64    `json:"token_generation_before"`
+	StoreDigestBefore  string    `json:"store_digest_before"`
+	TokenDigestBefore  string    `json:"token_digest_before"`
+	PlanBefore         string    `json:"plan_before"`
+	TokenExpiresBefore time.Time `json:"token_expires_before"`
+	Created            time.Time `json:"created_at"`
+	Deadline           time.Time `json:"deadline"`
 }
 type Intent struct {
 	Kind string `json:"kind"`
@@ -33,15 +37,17 @@ type Intent struct {
 type Evidence struct {
 	Kind string `json:"kind"`
 	Binding
-	Phase        string      `json:"phase"`
-	Observation  Observation `json:"observation"`
-	Absence      string      `json:"absence"`
-	Outcome      Disposition `json:"outcome"`
-	RPC          Disposition `json:"rpc_outcome"`
-	Plan         string      `json:"plan_type"`
-	StoreAfter   uint64      `json:"store_generation_after"`
-	ResolvedAt   time.Time   `json:"resolved_at"`
-	TokenExpires time.Time   `json:"token_expires_at"`
+	Phase            string      `json:"phase"`
+	Observation      Observation `json:"observation"`
+	Absence          string      `json:"absence"`
+	Outcome          Disposition `json:"outcome"`
+	RPC              Disposition `json:"rpc_outcome"`
+	Plan             string      `json:"plan_type"`
+	StoreAfter       uint64      `json:"store_generation_after"`
+	ResolvedAt       time.Time   `json:"resolved_at"`
+	TokenExpires     time.Time   `json:"token_expires_at"`
+	StoreDigestAfter string      `json:"store_digest_after"`
+	TokenDigestAfter string      `json:"token_digest_after"`
 }
 type Checkpoint struct {
 	Kind             string    `json:"kind"`
