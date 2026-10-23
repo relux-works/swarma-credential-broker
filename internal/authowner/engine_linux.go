@@ -37,7 +37,8 @@ type account struct {
 type Engine struct {
 	config     Config
 	manager    Manager
-	confidence Confidence
+	confidence Confidence // Injection slot; only timeAuthority reads this provider.
+	clock      timeAuthority
 	classifier Classifier
 	identity   Identity
 	accounts   map[string]*account
@@ -213,29 +214,11 @@ func (timeAdmissionRefusal) Unwrap() error { return ErrUnavailable }
 // retained even if the independent authority check after completion refuses the
 // next effect. In-memory publication belongs to commit, before the recheck.
 func (e *Engine) commitThenRevalidate(ctx context.Context, a *account, c Checkpoint, commit func() error) (TimeEvidence, error) {
-	if _, err := e.admissionTime(ctx, a, c); err != nil {
-		return TimeEvidence{}, timeAdmissionRefusal{}
-	}
-	if err := commit(); err != nil {
-		return TimeEvidence{}, ErrUnavailable
-	}
-	t, err := e.admissionTime(ctx, a, c)
-	if err != nil {
-		return TimeEvidence{}, timeAdmissionRefusal{}
-	}
-	return t, nil
+	return e.clock.commit(ctx, e, a, c, commit)
 }
 
 func (e *Engine) commitCheckpoint(ctx context.Context, a *account, c Checkpoint) (TimeEvidence, error) {
-	return e.commitThenRevalidate(ctx, a, c, func() error {
-		if err := e.checkpoint(a, c); err != nil {
-			return err
-		}
-		if c.PendingAttempt != "" {
-			a.blocked = true
-		}
-		return nil
-	})
+	return e.clock.checkpoint(ctx, e, a, c)
 }
 
 func (e *Engine) durableMaterial(ctx context.Context, a *account) (material, error) {
@@ -264,46 +247,15 @@ func (e *Engine) appendIntent(ctx context.Context, a *account, v Intent) error {
 	return err
 }
 
-// admissionTime is the sole trusted-time rule for every admission and
-// resolution. The checkpoint supplies a lower bound, never independent authority.
-// It does not publish a watermark: callers persist the returned effective time
-// only together with their normal admission or resolution checkpoint.
+// Compatibility adapters keep fixture callers on the same time authority.
 func (e *Engine) admissionTime(ctx context.Context, a *account, c Checkpoint) (TimeEvidence, error) {
-	t, err := e.confidence.Validate(ctx, a.config.Label, a.config.HomeID, c.StoreGeneration, c.Watermark)
-	if err != nil || !t.Trusted || !t.Fresh || t.Now.IsZero() {
-		return TimeEvidence{}, ErrUnavailable
-	}
-	if t.Now.Before(c.Watermark) {
-		t.Now = c.Watermark
-	}
-	if !t.Now.Before(t.AuthorityUntil) {
-		return TimeEvidence{}, ErrUnavailable
-	}
-	return t, nil
+	return e.clock.sample(ctx, e, a, c)
 }
 
 func (e *Engine) confidenceAt(ctx context.Context, a *account) (TimeEvidence, error) {
-	if a.blocked || e.retained(a) != nil || a.config.Disk.Healthy() != nil {
-		return TimeEvidence{}, ErrUnavailable
-	}
-	t, err := e.admissionTime(ctx, a, a.checkpoint)
-	if err != nil {
-		return TimeEvidence{}, ErrUnavailable
-	}
-	current, err := e.manager.Identity(ctx)
-	if err != nil || current != e.identity {
-		return TimeEvidence{}, ErrUnavailable
-	}
-	if t.Now.After(a.checkpoint.Watermark) {
-		c := a.checkpoint
-		c.Watermark = t.Now.UTC()
-		t, err = e.commitCheckpoint(ctx, a, c)
-		if err != nil {
-			return TimeEvidence{}, ErrUnavailable
-		}
-	}
-	return t, nil
+	return e.clock.admission(ctx, e, a)
 }
+
 func (e *Engine) snapshot(ctx context.Context, a *account) (owner.Snapshot, error) {
 	v := owner.Snapshot{State: owner.Unavailable}
 	t, err := e.confidenceAt(ctx, a)
@@ -318,7 +270,7 @@ func (e *Engine) snapshot(ctx context.Context, a *account) (owner.Snapshot, erro
 		return v, ErrUnavailable
 	}
 	material, err := load(a.config, false)
-	if err != nil || material.Digest != c.StoreDigest || digestToken(material.Token) != c.TokenDigest || !t.Now.Before(material.Expires) {
+	if err != nil || material.Digest != c.StoreDigest || digestToken(material.Token) != c.TokenDigest || !e.clock.materialValid(t, material.Expires) {
 		return v, ErrUnavailable
 	}
 	return owner.Snapshot{State: c.State, AccessToken: material.Token, AccountID: material.Account, PlanType: c.Plan, ExpiresAt: material.Expires, AuthorityUntil: t.AuthorityUntil, Generation: c.TokenGeneration, Trusted: true, Fresh: true, Qualified: true, PolicyGeneration: c.Policy, QualificationID: e.config.QualificationID, ExecutableSHA256: e.config.ExecutableSHA256}, nil
@@ -348,7 +300,7 @@ func (e *Engine) Refresh(ctx context.Context, label string, generation uint64) (
 	if err != nil {
 		return owner.Snapshot{State: owner.Unavailable}, err
 	}
-	if now.Now.Before(a.checkpoint.RetryAt) {
+	if !e.clock.retryReady(now, a.checkpoint) {
 		return current, nil
 	}
 	if err = e.attempt(ctx, a); err != nil {
@@ -377,7 +329,7 @@ func (e *Engine) Due(ctx context.Context, label string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return s.State != owner.Reauth && !t.Now.Before(a.checkpoint.NextProactive) && !t.Now.Before(a.checkpoint.RetryAt) && !t.Now.Before(s.ExpiresAt.Add(-e.config.ProactiveWindow)), nil
+	return s.State != owner.Reauth && e.clock.due(t, a.checkpoint, s.ExpiresAt, e.config.ProactiveWindow), nil
 }
 
 // AdmitFreshHome checks only the lifecycle prerequisite for the separate
@@ -431,7 +383,8 @@ func (e *Engine) attempt(ctx context.Context, a *account) (resultErr error) {
 	if attempt == "" {
 		return ErrUnavailable
 	}
-	b := Binding{Installation: e.config.Installation, Account: a.config.Label, Attempt: attempt, Sequence: uint64(len(a.intents)) + 1, Revision: 1, Operation: "refresh", Daemon: e.config.DaemonInstance, Policy: e.config.PolicyGeneration, Identity: e.identity, Unit: e.config.WriterPrefix + attempt + ".service", Executable: e.config.ExecutableSHA256, Home: a.config.HomeID, StoreBefore: a.checkpoint.StoreGeneration, TokenBefore: a.checkpoint.TokenGeneration, StoreDigestBefore: old.Digest, TokenDigestBefore: digestToken(old.Token), PlanBefore: a.checkpoint.Plan, TokenExpiresBefore: old.Expires, Created: t.Now.UTC(), Deadline: t.Now.Add(e.config.Runtime).UTC()}
+	b := Binding{Installation: e.config.Installation, Account: a.config.Label, Attempt: attempt, Sequence: uint64(len(a.intents)) + 1, Revision: 1, Operation: "refresh", Daemon: e.config.DaemonInstance, Policy: e.config.PolicyGeneration, Identity: e.identity, Unit: e.config.WriterPrefix + attempt + ".service", Executable: e.config.ExecutableSHA256, Home: a.config.HomeID, StoreBefore: a.checkpoint.StoreGeneration, TokenBefore: a.checkpoint.TokenGeneration, StoreDigestBefore: old.Digest, TokenDigestBefore: digestToken(old.Token), PlanBefore: a.checkpoint.Plan, TokenExpiresBefore: old.Expires}
+	e.clock.stamp(t, &b, e.config.Runtime)
 	intent := Intent{Kind: "attempt-intent/1", Binding: b, Phase: "intent"}
 	pending := a.checkpoint
 	pending.State = owner.Unavailable
@@ -585,29 +538,18 @@ func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Obse
 	c.LastAttempt = b.Attempt
 	c.PendingAttempt = ""
 	c.RetainedAttempts = uint64(len(a.intents))
-	// Trusted time is revalidated after vendor I/O before checkpoint publication.
-	t, err := e.admissionTime(ctx, a, c)
-	if err != nil {
-		return ErrUnavailable
-	}
-	c.Watermark = t.Now.UTC()
-	resolvedAt := c.Watermark
 	list := a.attempts[b.Attempt]
+	var recorded time.Time
 	if len(list) > 0 && list[len(list)-1].Phase == "resolved" {
 		last := list[len(list)-1]
 		if last.Outcome != outcome || last.StoreAfter != c.StoreGeneration || !last.TokenExpires.Equal(material.Expires) || last.StoreDigestAfter != material.Digest || last.TokenDigestAfter != digestToken(material.Token) {
 			return ErrUnavailable
 		}
-		resolvedAt = last.ResolvedAt
+		recorded = last.ResolvedAt
 	}
-	if outcome == Safe {
-		c.RetryAt = resolvedAt.Add(backoff)
-	}
-	if outcome == Committed {
-		if !c.Watermark.Before(material.Expires) {
-			return ErrUnavailable
-		}
-		c.NextProactive = proactiveAt(resolvedAt, material.Expires, e.config.ProactiveWindow)
+	resolvedAt, err := e.clock.resolution(ctx, e, a, &c, recorded, material.Expires, outcome, backoff)
+	if err != nil {
+		return ErrUnavailable
 	}
 	if len(list) == 0 || list[len(list)-1].Phase != "resolved" {
 		b.Revision = uint64(len(list)) + 2

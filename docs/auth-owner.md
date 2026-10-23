@@ -73,9 +73,10 @@ owner MUST raise that account's watermark successfully. A failed or interrupted
 raise MUST refuse the action. After replacement, D is restored before admission;
 observations that have not affected an action need not survive the old process.
 
-A time admission MAY perform one initial watermark raise and at most one
-catch-up raise to incorporate an observed completion sample. Every successful
-raise MUST retain the shared before/after confidence checks. The final postcheck
+A time admission MUST persist its initial effective time when it exceeds D.
+If completion observes a later time, it MUST perform one catch-up raise. It
+MUST NOT perform another catch-up in that admission. Every successful raise
+MUST retain the shared before/after confidence checks. The final postcheck
 MUST update E and require fresh, trusted, nonzero evidence whose exclusive
 AuthorityUntil covers E. It MUST NOT substitute its later Now for D in any
 numeric decision. A later valid sample is carried forward to the next time
@@ -97,19 +98,26 @@ effect and do not infer expiry of the material. Retained metadata supplies a
 lower bound, never independent authority. Previously observed trusted time stays
 in E even when the current confidence fails to cover it.
 
-
-| Admission | Shared time rule call sites |
+| Admission | Time-authority call sites |
 |---|---|
-| Material snapshot | `Snapshot` → `snapshot` → `confidenceAt` → `admissionTime` |
-| Fresh-home lifecycle prerequisite | `AdmitFreshHome` → `confidenceAt` → `admissionTime` |
-| Refresh / retry decision | `Refresh` → `snapshot` and `confidenceAt` → `admissionTime` |
-| New writer | `Refresh` → `attempt` → `confidenceAt` → `admissionTime`, revalidated before publishing intent or starting a unit |
-| Proactive decision | `Due` → `snapshot` and `confidenceAt` → `admissionTime`; actual proactive work calls `Refresh` |
-| Replacement recovery | `New` → `restore` → `recover` → `admissionTime`, before recovery effects; `restore` alone is history validation, not admission |
-| Post-vendor / recovered resolution | `resolve` → `admissionTime` using the prospective generation before publishing resolved evidence or its checkpoint |
+| Material snapshot | `Snapshot` → `snapshot` → `confidenceAt` → `timeAuthority.admission`; expiry uses `materialValid` and D |
+| Fresh-home lifecycle prerequisite | `AdmitFreshHome` → `confidenceAt` → `timeAuthority.admission` |
+| Refresh / retry decision | `Refresh` → `snapshot` and `confidenceAt`; `timeAuthority.retryReady` uses D |
+| New writer | `attempt` → `confidenceAt`; `timeAuthority.stamp` uses D; intent completion fences start |
+| Proactive decision | `Due` → `snapshot` and `confidenceAt`; `timeAuthority.due` uses D; actual work calls `Refresh` |
+| Replacement recovery | `recover` → `admissionTime` → `timeAuthority.sample`; invalid restoration remains closed before sampling |
+| Post-vendor / recovered resolution | `resolve` → `timeAuthority.resolution` uses prospective generation, bounded watermark persistence and D; recorded resolution time remains sticky |
 
-Every completed durable operation passes through `commitThenRevalidate`: the
-shared `admissionTime` rule must hold before the operation and again after its
+`Engine.clock` owns the sole `timeAuthority` for all accounts in the process.
+Only that type reads the injected `Confidence` provider, merges samples, compares
+current time with authority/expiry bounds, raises watermarks or makes numeric
+time decisions. The engine's existing private `admissionTime`, `confidenceAt`,
+`commitThenRevalidate` and `commitCheckpoint` names are forwarding adapters for
+existing fixture callers. History validators still compare retained timestamps
+for consistency; they neither sample time nor authorize actions.
+
+Every completed durable operation passes through `timeAuthority.commit` (also
+exposed by the `commitThenRevalidate` adapter): its shared sample rule must hold before the operation and again after its
 successful completion, before the next protected effect. The operation publishes
 its completed record in memory before the recheck, so refusal cannot forget a
 write that already happened. A failed operation never authorizes its successor.
@@ -134,12 +142,10 @@ the pending prefix remains unavailable until independent confidence and retained
 evidence permit recovery. If the final checkpoint itself completed before the
 refusal, its settled history stays intact; it is never rolled back. An already
 started writer on a time-admission refusal is stopped using its qualified identity,
-without publishing new
-evidence or unloading pending retention. Storage interruption keeps its existing
+without publishing new evidence or unloading pending retention. Storage interruption keeps its existing
 retained recovery path, including its live-child uncertainty; it is distinguished
 from withdrawn time authority internally while both expose the same unavailable
-error. An attempted stop is never retried to
-compensate for an uncertain reference reply. Recovery preserves ambiguous prefixes
+error. An attempted stop is never retried to compensate for an uncertain reference reply. Recovery preserves ambiguous prefixes
 and reuses the recorded resolution time for scheduling conclusive outcomes.
 
 No admission path checks independent time flags or authority bounds separately.
@@ -288,9 +294,25 @@ from an RPC error.
 
 These names identify executable claims, rather than native-vendor qualification.
 
+`TestTimeAuthoritySequences` logs seeds `1`, `7`, `42`, `20261023`. It generates
+112 histories: eight owner-record completions across live, replacement and
+pending recovery, plus watermark completion and material flush across live and
+replacement. Each history interleaves forward/backward samples, missing instants,
+staleness, expiry crossings and exclusive authority-end faults with all five
+admission paths in generated order. Its independent oracle checks observed and
+durable floors, stable-source progress, non-revival and forbidden effects. Invalid
+pending histories remain closed before time sampling; only valid restored
+watermarks enter a replacement's observed floor. Durable floors and expiry
+refusals are checked across restarts; unacted samples are process-local.
+`TestTimeAuthorityCompletionSequences` uses the same seeds to check the two-write
+bound and the durable-only final decision. `TestTimeAuthorityProcessFloor`
+checks that separate accounts share the observed floor. These finite sequences
+do not establish exhaustive schedule coverage or atomic asynchronous revocation.
+
 | Contract | Code | Tests |
 |---|---|---|
 | §4 stable locks, approved vendor, managed RPC and durable reload | `engine_linux.go`, `vendor_linux.go`, existing store locks | `TestStableHomeLock`, `TestIntentBeforeStartAndCommittedControl`, `TestDuplicateConfiguredVendorRefused` |
+| Durable time decisions and non-revival | `timeAuthority`, durable-only expiry/scheduling | `TestPostCommitClockCorrectionProbe`, `TestTimeAuthoritySequences`, `TestTimeAuthorityCompletionSequences`, `TestTimeAuthorityProcessFloor` |
 | Completed persistence must revalidate before its successor | `commitThenRevalidate`, `commitCheckpoint`, `appendIntent`, `appendEvidence`, `durableMaterial` | `TestDurableEffectTimeBoundaryProbe`, `TestWatermarkCompletionAdmissionProbe`, `TestDurableStepTimeRevalidation`, `TestCommitTimeBoundary`, `TestMaterialDurabilityTimeRevalidation` |
 | §4 proactive window, unknown expiry, trusted time and watermark | `Due`, `confidenceAt`, `load` | `TestProactiveShortLifetime`, `TestStoreTimeAndFreshnessFences` |
 | §4 unchanged token and N=8/64 coalescing | `Refresh`, `resolve`, lease owner-error bridge | `TestUnchangedReportsRenewFailed`, `TestProbeUnchangedTokenMetadata`, `TestOwnerUnchangedRefusalPreserved`, `TestLeaseCoalescingCountsVendorUnits` |
