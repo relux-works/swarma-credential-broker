@@ -4,7 +4,6 @@ package timeconf
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 )
@@ -16,7 +15,12 @@ func TestHostTimeConfidenceSmoke(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	p := testPolicy()
-	p.Timeout = time.Second
+	p.Timeout = 2 * time.Second
+	p.MaxSyncAge = PlatformMaxSyncAge
+	p.MaxOffset = PlatformMaxOffset
+	p.MaxRootDistance = PlatformMaxRootDistance
+	p.AuthorityWindow = PlatformAuthorityWindow
+	p.BackwardTolerance = PlatformBackwardTolerance
 	p.MaxOutputBytes = 65536
 	runner := SystemRunner{}
 	b, err := runner.Run(ctx, p.Chronyc, []string{"-c", "tracking"}, p.Timeout, p.MaxOutputBytes)
@@ -30,16 +34,11 @@ func TestHostTimeConfidenceSmoke(t *testing.T) {
 	} else {
 		t.Log("tracking: evidence_unavailable")
 	}
-	b, err = protectedRead(p.SourceFiles[0], uint32(os.Geteuid()), p.MaxOutputBytes, false)
-	if err == nil {
-		v, parseErr := ParseSources(b)
-		if parseErr == nil {
-			t.Logf("source configuration parsed: count=%d all_nts=%t", v.Count, v.AllNTS)
-		} else {
-			t.Log("source configuration: evidence_unavailable")
-		}
-	} else {
+	sources, sourceErr := collectSources(ctx, p)
+	if sourceErr != nil {
 		t.Log("source configuration: evidence_unavailable")
+	} else {
+		t.Logf("source configuration parsed: count=%d all_nts=%t", sources.Count, sources.AllNTS)
 	}
 	b, err = runner.Run(ctx, p.Chronyc, []string{"-c", "authdata", "-a"}, p.Timeout, p.MaxOutputBytes)
 	if err == nil {
@@ -59,6 +58,17 @@ func TestHostTimeConfidenceSmoke(t *testing.T) {
 			t.Logf("source mode %s: evidence_unavailable", source)
 		} else {
 			t.Logf("source mode %s: collection_available", source)
+		}
+		provider, providerErr := Production(&p, func(Incident) {})
+		if providerErr != nil {
+			t.Logf("source mode %s: provider_unavailable", source)
+			continue
+		}
+		sample, sampleErr := provider.StartSample(ctx)
+		if sampleErr != nil {
+			t.Logf("source mode %s: provider_unavailable", source)
+		} else {
+			t.Logf("source mode %s: trusted=%t fresh=%t uncertainty_ns=%d authority_seconds=%.3f", source, sample.Trusted, sample.Fresh, sample.Uncertainty.Nanoseconds(), sample.AuthorityUntil.Sub(sample.Now).Seconds())
 		}
 	}
 	if v, err := (SystemClock{}).Read(ctx); err != nil {

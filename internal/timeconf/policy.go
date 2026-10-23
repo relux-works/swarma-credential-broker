@@ -92,17 +92,9 @@ func (p *Policy) UnmarshalJSON(b []byte) error {
 	if len(b) > 65536 {
 		return ErrUnavailable
 	}
+	// Validate the complete exact member inventory before typed decoding. Go's
+	// struct decoder alone accepts case variants of JSON tags.
 	d := json.NewDecoder(bytes.NewReader(b))
-	d.DisallowUnknownFields()
-	if d.Decode(&value) != nil {
-		return ErrUnavailable
-	}
-	q := Policy(value)
-	if q.Validate() != nil {
-		return ErrUnavailable
-	}
-	// Duplicate/null detection is independent of the destination type.
-	d = json.NewDecoder(bytes.NewReader(b))
 	t, err := d.Token()
 	if err != nil || t != json.Delim('{') {
 		return ErrUnavailable
@@ -111,7 +103,7 @@ func (p *Policy) UnmarshalJSON(b []byte) error {
 	for d.More() {
 		t, err = d.Token()
 		key, ok := t.(string)
-		if err != nil || !ok || seen[key] {
+		if err != nil || !ok || !policyMember(key) || seen[key] {
 			return ErrUnavailable
 		}
 		seen[key] = true
@@ -123,11 +115,31 @@ func (p *Policy) UnmarshalJSON(b []byte) error {
 	if _, err = d.Token(); err != nil || d.Decode(new(any)) != io.EOF {
 		return ErrUnavailable
 	}
+	d = json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
+	if d.Decode(&value) != nil {
+		return ErrUnavailable
+	}
+	q := Policy(value)
+	if q.Validate() != nil {
+		return ErrUnavailable
+	}
 	if q.Source != Off && !seen["backward_tolerance_ns"] {
 		return ErrUnavailable
 	}
 	*p = q
 	return nil
+}
+
+// policyMember is case-sensitive and intentionally independent of json's
+// struct field matching. New policy fields must enter this closed inventory.
+func policyMember(key string) bool {
+	switch key {
+	case "source", "chronyc", "source_files", "max_sync_age_ns", "max_offset_ns", "max_root_distance_ns", "authority_window_ns", "backward_tolerance_ns", "step_tolerance_ns", "timeout_ns", "max_output_bytes", "resync":
+		return true
+	default:
+		return false
+	}
 }
 
 // ServicePolicy accepts only restrictions of a separately loaded shared policy.

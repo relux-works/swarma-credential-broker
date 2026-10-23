@@ -153,21 +153,52 @@ func ParseAuthData(b []byte) (Authentication, error) {
 }
 
 // ParseSources accepts an intentionally closed chrony configuration subset.
-// Dynamic/include mechanisms and alternate clock sources are refused, rather
-// than pretending a partial file list describes the daemon's entire authority.
+// Filesystem directives require the protected recursive reader used by the
+// system collector; this standalone parser refuses them without that reader.
 func ParseSources(b []byte) (Sources, error) {
+	return parseSources(b, false, nil)
+}
+
+type expandDirectory func(string, []string) (Sources, error)
+
+func parseSources(b []byte, sourceOnly bool, expand expandDirectory) (Sources, error) {
 	var out Sources
-	if len(b) > 65536 || strings.ContainsAny(string(b), "\x00\r\\\"'") {
+	if len(b) > 65536 || strings.ContainsAny(string(b), "\x00\r") {
+		return out, ErrUnavailable
+	}
+	if sourceOnly && len(b) > 0 && b[len(b)-1] != '\n' {
 		return out, ErrUnavailable
 	}
 	for _, line := range strings.Split(string(b), "\n") {
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, ";") || strings.HasPrefix(trimmed, "%") {
+			continue
+		}
 		line, _, _ = strings.Cut(line, "#")
 		line, _, _ = strings.Cut(line, "!")
+		// Comments may contain ordinary prose and quotes; only effective syntax
+		// is subject to the closed token grammar.
+		if strings.ContainsAny(line, "\\\"'") {
+			return Sources{}, ErrUnavailable
+		}
 		f := strings.Fields(line)
 		if len(f) == 0 {
 			continue
 		}
+		f[0] = strings.ToLower(f[0])
+		if sourceOnly && f[0] != "server" && f[0] != "pool" {
+			return Sources{}, ErrUnavailable
+		}
 		switch f[0] {
+		case "sourcedir", "confdir":
+			if expand == nil || len(f) < 2 || len(f) > 11 {
+				return Sources{}, ErrUnavailable
+			}
+			more, err := expand(f[0], f[1:])
+			if err != nil {
+				return Sources{}, ErrUnavailable
+			}
+			out.Count += more.Count
+			out.Entries = append(out.Entries, more.Entries...)
 		case "server", "pool":
 			if len(f) < 3 || len(f[1]) > 253 || strings.HasPrefix(f[1], "-") {
 				return Sources{}, ErrUnavailable
@@ -212,7 +243,7 @@ func ParseSources(b []byte) (Sources, error) {
 			if len(f) != 1 {
 				return Sources{}, ErrUnavailable
 			}
-		case "driftfile", "logdir", "leapsectz", "ntsdumpdir", "keyfile", "bindcmdaddress", "user":
+		case "driftfile", "logdir", "leapsectz", "ntsdumpdir", "keyfile", "bindcmdaddress", "user", "leapseclist":
 			if len(f) != 2 {
 				return Sources{}, ErrUnavailable
 			}
