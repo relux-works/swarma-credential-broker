@@ -104,3 +104,69 @@ func TestRefusalRedaction(t *testing.T) {
 		t.Fatal("valid refusal changed")
 	}
 }
+
+// bodyCapture retains only the allocation passed to the body read, allowing the
+// test to observe its erasure after Read has returned an error.
+type bodyCapture struct {
+	header   []byte
+	body     []byte
+	captured []byte
+}
+
+func (r *bodyCapture) Read(p []byte) (int, error) {
+	if len(r.header) != 0 {
+		n := copy(p, r.header)
+		r.header = r.header[n:]
+		return n, nil
+	}
+	r.captured = p
+	n := copy(p, r.body)
+	if n < len(p) {
+		return n, io.ErrUnexpectedEOF
+	}
+	return n, nil
+}
+
+// Claim: partial-body and canonical-parse failures erase the mutable wire-owned
+// allocation before dropping it; a canonical success transfers its bytes intact.
+// This observes that allocation only, not immutable parser/runtime copies.
+func TestReadBodyErasure(t *testing.T) {
+	for _, mode := range []string{"partial", "malformed", "noncanonical", "valid"} {
+		t.Run(mode, func(t *testing.T) {
+			body := []byte(`{"fixture":"body-canary"}`)
+			n := len(body)
+			switch mode {
+			case "partial":
+				n++
+			case "malformed":
+				body[len(body)-1] = ':'
+			case "noncanonical":
+				body = append([]byte(" "), body...)
+				n++
+			}
+			var header [4]byte
+			binary.BigEndian.PutUint32(header[:], uint32(n))
+			r := &bodyCapture{header: header[:], body: body}
+			raw, err := Read(r)
+			if len(r.captured) != n {
+				t.Fatal("body allocation was not observed")
+			}
+			if mode == "valid" {
+				if err != nil || !bytes.Equal(raw, body) || !bytes.Equal(r.captured, body) {
+					t.Fatal("successful body was changed")
+				}
+				return
+			}
+			expected := ErrMalformed
+			if mode == "partial" {
+				expected = io.ErrUnexpectedEOF
+			}
+			if !errors.Is(err, expected) || raw != nil {
+				t.Fatal("wrong failed-read result")
+			}
+			if !bytes.Equal(r.captured, make([]byte, n)) {
+				t.Fatal("failed-read body allocation was not cleared")
+			}
+		})
+	}
+}

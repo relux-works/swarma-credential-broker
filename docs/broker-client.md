@@ -37,7 +37,11 @@ One exchange at a time owns the socket; queued callers share their original
 call deadline. IDs increase monotonically and cannot collide among outstanding
 calls. Close interrupts both socket I/O and queued callers. A partial frame,
 EOF, correlation failure, malformed response or cutoff closes the uncertain
-stream; it is never retried on that connection.
+stream; it is never retried on that connection. If a write fails, the same
+exchange reads one frame within its existing deadline and wire size bound. Only
+a complete, canonical null-ID terminal error can retain its code on that path;
+all other responses keep the phase's transport refusal. The stream then closes,
+without retry or reconnect.
 
 | Response | Required members and semantic checks |
 |---|---|
@@ -54,8 +58,9 @@ Unknown, duplicate, missing, incorrectly typed and null members are refused,
 including nested members. The runner additionally checks expiry, exact vendor
 account identity and unchanged lease/account/authorization limit on renewal.
 Token bytes transfer to the runner; the adapter keeps no material cache and
-clears owned response buffers and unsuccessful results. Runtime/JSON immutable
-copies prevent a physical memory-erasure claim.
+clears owned response buffers and unsuccessful results. The wire reader clears
+its mutable body allocation before returning a partial-read or canonical-parse
+failure. Runtime/JSON immutable copies prevent a physical memory-erasure claim.
 
 ## Refusal and deadline mapping
 

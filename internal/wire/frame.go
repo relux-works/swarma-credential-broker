@@ -31,9 +31,11 @@ func Read(r io.Reader) ([]byte, error) {
 	b := make([]byte, n)
 	_, e := io.ReadFull(r, b)
 	if e != nil {
+		clear(b)
 		return nil, e
 	}
 	if _, e = Parse(b); e != nil {
+		clear(b)
 		return nil, e
 	}
 	return b, nil

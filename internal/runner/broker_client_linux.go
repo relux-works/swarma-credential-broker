@@ -149,8 +149,13 @@ func (c *SocketClient) exchange(parent context.Context, method string, params an
 	if e != nil {
 		return bad()
 	}
-	if wire.Write(c.conn, wire.Request{Method: method, Params: b, ID: id}) != nil {
-		return bad()
+	// A peer may queue an accept-time terminal refusal and close before our
+	// write. Read exactly one frame even after a failed/short write, using the
+	// same deadline and wire size bound. Only the terminal exception may then
+	// be retained; the stream is always closed and no request is retried.
+	writeFailed := wire.Write(c.conn, wire.Request{Method: method, Params: b, ID: id}) != nil
+	if writeFailed {
+		defer c.Close()
 	}
 	raw, e := wire.Read(c.conn)
 	defer clear(raw)
@@ -172,7 +177,7 @@ func (c *SocketClient) exchange(parent context.Context, method string, params an
 	}
 	var replyID string
 	nullID := string(reply.ID) == "null"
-	if !nullID && (json.Unmarshal(reply.ID, &replyID) != nil || replyID != id) {
+	if !nullID && (writeFailed || json.Unmarshal(reply.ID, &replyID) != nil || replyID != id) {
 		return bad()
 	}
 	if errorPresent {
