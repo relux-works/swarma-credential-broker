@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -81,133 +82,138 @@ func TestAdmissionVectors(t *testing.T) {
 }
 
 // Claim: every non-runner renewal vector drives the core using private random-token/UID instantiation; no future lifecycle or runner assertion is counted here.
+// Virtual time isolates arrival budgets from fixture I/O and scheduling. Held
+// owners and quiescence barriers establish admission before overflow or expiry;
+// real-clock deadline enforcement remains covered by the deadline regressions.
 func TestRenewalVectors(t *testing.T) {
 	for _, c := range testutil.Vectors(t, "renewal") {
 		t.Run(c.ID, func(t *testing.T) {
-			if c.ID == "fifo-progress" || c.ID == "fifo-starvation" {
-				testFIFO(t, c)
-				return
-			}
-			timeout := 3 * time.Second
-			if c.ID == "renew-late" {
-				timeout = 25 * time.Millisecond
-			}
-			e := testutil.NewPolicy(t, lease.Options{RenewTimeout: timeout}, func(p *policy.Policy) {
-				if c.ID == "owner-mismatch" {
-					p.Accounts[1].AllowedUIDs = []uint32{p.BrokerUID + 1}
+			synctest.Test(t, func(t *testing.T) {
+				if c.ID == "fifo-progress" || c.ID == "fifo-starvation" {
+					testFIFO(t, c)
+					return
 				}
-			})
-			r := e.Issue(t)
-			initial := r.Payload.AccessToken
-			if trusted, ok := c.Setup["trusted_time"].(bool); ok && !trusted {
-				v := e.Owner.View()
-				v.Trusted = false
-				e.Owner.Set(v)
-			}
-			if c.ID == "renew-superseded" {
-				v := e.Owner.View()
-				v.AccessToken = testutil.Token()
-				v.Generation++
-				e.Owner.Set(v)
-			}
-			if c.Setup["lease_state"] == "released" {
-				out := e.Manager.Call(context.Background(), e.UID, "lease.release", wire.Release{LeaseID: r.LeaseID}, time.Now())
-				if out.Err != nil {
-					t.Fatal("release setup failed")
-				}
-			}
-			if c.ID == "lease-capacity" || c.ID == "lease-capacity-available" {
-				target := int(c.Setup["active_lease_count"].(float64))
-				for i := 1; i < target; i++ {
-					e.Issue(t)
-				}
-			}
-			if c.ID == "many-lease-independent" {
-				other := e.Issue(t)
-				if other.LeaseID == r.LeaseID || other.Account != r.Account {
-					t.Fatal("records not independent")
-				}
-				disk, err := e.Store.Account(e.Account, false)
-				if err != nil {
-					t.Fatal("metadata unavailable")
-				}
-				records, err := disk.Records()
-				if err != nil || len(records) != 2 {
-					t.Fatal("independent records missing")
-				}
-				return
-			}
-			if c.ID == "many-lease-release" {
-				other := e.Issue(t)
-				out := e.Manager.Call(context.Background(), e.UID, "lease.release", wire.Release{LeaseID: r.LeaseID}, time.Now())
-				if out.Err != nil {
-					t.Fatal("release refused")
-				}
-				renew := e.Renew(context.Background(), other, lease.Digest(other.Payload.AccessToken))
-				if renew.Err != nil || renew.Result.(wire.LeaseResult).AuthorizedUntil != other.AuthorizedUntil {
-					t.Fatal("other record changed")
-				}
-				return
-			}
-			if n, ok := c.Setup["concurrent_requests"].(float64); ok {
-				testVectorContention(t, e, r, int(n), c)
-				return
-			}
-			if c.ID == "queue-full" || c.ID == "queue-slot" {
-				testVectorQueue(t, e, r, c)
-				return
-			}
-			var out lease.Outcome
-			if c.ID == "owner-mismatch" {
-
-				out = e.Manager.Call(context.Background(), e.UID+1, "lease.renew", wire.Renew{LeaseID: r.LeaseID, RejectedSHA256: lease.Digest(initial)}, time.Now())
-			} else {
-				params := instantiate(t, c, e, r.LeaseID, initial)
-				method := c.Request["method"].(string)
+				timeout := 3 * time.Second
 				if c.ID == "renew-late" {
-					gate := make(chan struct{})
-					e.Owner.Gate(gate)
-					out = e.Manager.Call(context.Background(), e.UID, method, params, time.Now())
-					close(gate)
-					testutil.Await(t, func() bool { p, _ := e.Manager.Stats(e.Account); return p == 0 })
+					timeout = 25 * time.Millisecond
+				}
+				e := testutil.NewPolicy(t, lease.Options{RenewTimeout: timeout}, func(p *policy.Policy) {
+					if c.ID == "owner-mismatch" {
+						p.Accounts[1].AllowedUIDs = []uint32{p.BrokerUID + 1}
+					}
+				})
+				r := e.Issue(t)
+				initial := r.Payload.AccessToken
+				if trusted, ok := c.Setup["trusted_time"].(bool); ok && !trusted {
+					v := e.Owner.View()
+					v.Trusted = false
+					e.Owner.Set(v)
+				}
+				if c.ID == "renew-superseded" {
+					v := e.Owner.View()
+					v.AccessToken = testutil.Token()
+					v.Generation++
+					e.Owner.Set(v)
+				}
+				if c.Setup["lease_state"] == "released" {
+					out := e.Manager.Call(context.Background(), e.UID, "lease.release", wire.Release{LeaseID: r.LeaseID}, time.Now())
+					if out.Err != nil {
+						t.Fatal("release setup failed")
+					}
+				}
+				if c.ID == "lease-capacity" || c.ID == "lease-capacity-available" {
+					target := int(c.Setup["active_lease_count"].(float64))
+					for i := 1; i < target; i++ {
+						e.Issue(t)
+					}
+				}
+				if c.ID == "many-lease-independent" {
+					other := e.Issue(t)
+					if other.LeaseID == r.LeaseID || other.Account != r.Account {
+						t.Fatal("records not independent")
+					}
+					disk, err := e.Store.Account(e.Account, false)
+					if err != nil {
+						t.Fatal("metadata unavailable")
+					}
+					records, err := disk.Records()
+					if err != nil || len(records) != 2 {
+						t.Fatal("independent records missing")
+					}
+					return
+				}
+				if c.ID == "many-lease-release" {
+					other := e.Issue(t)
+					out := e.Manager.Call(context.Background(), e.UID, "lease.release", wire.Release{LeaseID: r.LeaseID}, time.Now())
+					if out.Err != nil {
+						t.Fatal("release refused")
+					}
+					renew := e.Renew(context.Background(), other, lease.Digest(other.Payload.AccessToken))
+					if renew.Err != nil || renew.Result.(wire.LeaseResult).AuthorizedUntil != other.AuthorizedUntil {
+						t.Fatal("other record changed")
+					}
+					return
+				}
+				if n, ok := c.Setup["concurrent_requests"].(float64); ok {
+					testVectorContention(t, e, r, int(n), c)
+					return
+				}
+				if c.ID == "queue-full" || c.ID == "queue-slot" {
+					testVectorQueue(t, e, r, c)
+					return
+				}
+				var out lease.Outcome
+				if c.ID == "owner-mismatch" {
+
+					out = e.Manager.Call(context.Background(), e.UID+1, "lease.renew", wire.Renew{LeaseID: r.LeaseID, RejectedSHA256: lease.Digest(initial)}, time.Now())
 				} else {
-					if c.ID == "renew-in-budget" {
+					params := instantiate(t, c, e, r.LeaseID, initial)
+					method := c.Request["method"].(string)
+					if c.ID == "renew-late" {
 						gate := make(chan struct{})
 						e.Owner.Gate(gate)
-						time.AfterFunc(100*time.Millisecond, func() { close(gate) })
-					}
-					out = e.Manager.Call(context.Background(), e.UID, method, params, time.Now())
-				}
-			}
-			if code, ok := c.Expect["error_code"].(string); ok {
-				if out.Result != nil || lease.ErrorCode(out.Err) != code {
-					t.Fatal("wrong renewal refusal")
-				}
-			} else {
-				if out.Err != nil {
-					t.Fatal("positive vector refused:", lease.ErrorCode(out.Err))
-				}
-				if result, ok := out.Result.(wire.LeaseResult); ok {
-					if result.Account != e.Account || result.AuthorizedUntil != r.AuthorizedUntil {
-						t.Fatal("renewal widened authority")
-					}
-					if c.ID == "renew-superseded" && result.Payload.AccessToken != e.Owner.View().AccessToken {
-						t.Fatal("superseded result stale")
+						out = e.Manager.Call(context.Background(), e.UID, method, params, time.Now())
+						close(gate)
+						testutil.Await(t, func() bool { p, _ := e.Manager.Stats(e.Account); return p == 0 })
+					} else {
+						if c.ID == "renew-in-budget" {
+							gate := make(chan struct{})
+							e.Owner.Gate(gate)
+							time.AfterFunc(100*time.Millisecond, func() { close(gate) })
+						}
+						out = e.Manager.Call(context.Background(), e.UID, method, params, time.Now())
 					}
 				}
-			}
-			if c.ID == "lease-capacity" {
-				if e.Manager.Call(context.Background(), e.UID, "lease.release", wire.Release{LeaseID: r.LeaseID}, time.Now()).Err != nil {
-					t.Fatal("capacity release failed")
+				if code, ok := c.Expect["error_code"].(string); ok {
+					if out.Result != nil || lease.ErrorCode(out.Err) != code {
+						t.Fatal("wrong renewal refusal")
+					}
+				} else {
+					if out.Err != nil {
+						t.Fatal("positive vector refused:", lease.ErrorCode(out.Err))
+					}
+					if result, ok := out.Result.(wire.LeaseResult); ok {
+						if result.Account != e.Account || result.AuthorizedUntil != r.AuthorizedUntil {
+							t.Fatal("renewal widened authority")
+						}
+						if c.ID == "renew-superseded" && result.Payload.AccessToken != e.Owner.View().AccessToken {
+							t.Fatal("superseded result stale")
+						}
+					}
 				}
-				e.Issue(t)
-			}
-			if expected, ok := c.Expect["vendor_writers_started"].(float64); ok {
-				calls, _ := e.Owner.Counts()
-				if calls != int(expected) {
-					t.Fatal("wrong refresh count")
+				if c.ID == "lease-capacity" {
+					if e.Manager.Call(context.Background(), e.UID, "lease.release", wire.Release{LeaseID: r.LeaseID}, time.Now()).Err != nil {
+						t.Fatal("capacity release failed")
+					}
+					e.Issue(t)
 				}
-			}
+				if expected, ok := c.Expect["vendor_writers_started"].(float64); ok {
+					calls, _ := e.Owner.Counts()
+					if calls != int(expected) {
+						t.Fatal("wrong refresh count")
+					}
+				}
+			})
 		})
 	}
 }
@@ -229,6 +235,7 @@ func testVectorContention(t *testing.T, e *testutil.Env, first wire.LeaseResult,
 			answers <- e.Renew(context.Background(), r, lease.Digest(r.Payload.AccessToken))
 		}(records[i])
 	}
+	synctest.Wait()
 	testutil.Await(t, func() bool { p, _ := e.Manager.Stats(e.Account); return p == admit })
 	if n > 64 {
 		out := e.Renew(context.Background(), records[64], lease.Digest(records[64].Payload.AccessToken))
@@ -269,6 +276,7 @@ func testVectorQueue(t *testing.T, e *testutil.Env, r wire.LeaseResult, c testut
 			answers <- e.Renew(context.Background(), v, lease.Digest(v.Payload.AccessToken))
 		}(record)
 	}
+	synctest.Wait()
 	testutil.Await(t, func() bool { p, _ := e.Manager.Stats(e.Account); return p == n })
 	if c.ID == "queue-full" {
 		out := e.Renew(context.Background(), r, lease.Digest(r.Payload.AccessToken))
@@ -277,6 +285,7 @@ func testVectorQueue(t *testing.T, e *testutil.Env, r wire.LeaseResult, c testut
 		}
 	} else {
 		go func() { answers <- e.Renew(context.Background(), r, lease.Digest(r.Payload.AccessToken)) }()
+		synctest.Wait()
 		testutil.Await(t, func() bool { p, _ := e.Manager.Stats(e.Account); return p == 64 })
 		n++
 	}
@@ -314,6 +323,7 @@ func testFIFO(t *testing.T, c testutil.Vector) {
 			answers <- e.Renew(context.Background(), v, lease.Digest(v.Payload.AccessToken))
 		}(r)
 		target := i + 1
+		synctest.Wait()
 		testutil.Await(t, func() bool { p, _ := e.Manager.Stats(e.Account); return p == target })
 	}
 	if due, _ := c.Setup["proactive_refresh_due"].(bool); due {

@@ -14,7 +14,8 @@ import (
 
 // Claim: a peer that has consumed a complete response can reuse that request ID
 // for its next sequential request; distinct IDs are the nearby valid control.
-// This probes observed schedules, not a universal ordering proof.
+// This probes observed schedules, not a universal ordering proof. Each pair
+// gets a fresh fixture I/O budget; aggregate throughput is not asserted.
 func TestSequentialRequestIDReuseProbe(t *testing.T) {
 	for _, reuse := range []bool{false, true} {
 		name := "distinct-control"
@@ -26,8 +27,8 @@ func TestSequentialRequestIDReuseProbe(t *testing.T) {
 			path := start(t, e, nil)
 			c := dial(t, path)
 			hello(t, c)
-			c.SetDeadline(time.Now().Add(30 * time.Second))
 			for i := 0; i < 500; i++ {
+				c.SetDeadline(time.Now().Add(30 * time.Second))
 				id := fmt.Sprintf("issue-%d", i)
 				raw, _ := wire.Encode(e.Request)
 				if err := wire.Write(c, wire.Request{Method: "lease.request", ID: id, Params: raw}); err != nil {
@@ -62,7 +63,8 @@ func TestSequentialRequestIDReuseProbe(t *testing.T) {
 }
 
 // Claim: after consuming a status response, sequential reuse of its ID remains
-// legal; the empty params object is unchanged across these requests.
+// legal; the empty params object is unchanged across these requests. Each frame
+// has its own fixture I/O budget rather than sharing an aggregate throughput cap.
 func TestSequentialStatusIDReuseProbe(t *testing.T) {
 	for _, reuse := range []bool{false, true} {
 		name := "distinct-control"
@@ -73,8 +75,8 @@ func TestSequentialStatusIDReuseProbe(t *testing.T) {
 			e := testutil.New(t, lease.Options{})
 			c := dial(t, start(t, e, nil))
 			hello(t, c)
-			c.SetDeadline(time.Now().Add(30 * time.Second))
 			for i := 0; i < 3000; i++ {
+				c.SetDeadline(time.Now().Add(30 * time.Second))
 				id := "status"
 				if !reuse {
 					id = fmt.Sprintf("status-%d", i)
