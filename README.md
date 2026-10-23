@@ -4,7 +4,7 @@ The credential broker is **Merovingian** in the platform's codenames.
 
 A credential broker for agent systems. It runs under its own OS user, holds subscription and API credentials in its own store, and leases them to authorised agent launches over a Unix socket whose peer it identifies through the kernel (`getpeereid` / `SO_PEERCRED`).
 
-**Status: design in progress.** Nothing is implemented yet. The specification is [`spec/broker.md`](spec/broker.md); diagrams are in [`diagrams/`](diagrams/). The proposed [Codex refresher v0 profile](spec/v0-codex-refresher.md) extracts the auth owner and external-token runner ahead of slice 0, pending curator rulings and release qualification.
+**Status: design in progress.** Nothing is implemented yet. The specification is [`spec/broker.md`](spec/broker.md); diagrams are in [`diagrams/`](diagrams/). The proposed [Codex refresher v0 profile](spec/v0-codex-refresher.md) extracts the auth owner and external-token runner ahead of slice 0, with accepted interim rulings and pending release qualification.
 
 ## What it is for
 

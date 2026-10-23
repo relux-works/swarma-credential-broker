@@ -42,13 +42,15 @@ store isolation in same-user mode, or node-wide containment. Accounts requiring
 a network profile MUST refuse `lease_network_enforcement_unavailable` rather
 than silently ignoring that requirement.
 
-### 1.1 Decisions requiring curator disposition
+### 1.1 Accepted curator rulings
 
-- **R1 — pending curator ruling R1:** static operator-owned UID/account policy
-  replaces grants, bindings and their generation checks for this extraction
-  (§2), narrowing the deployment but differing from §§4.2, 7–8 and 13.2.
-- **R2 — pending curator ruling R2:** same-user operation is permitted only with
+- **R1 — accepted:** a static, operator-owned UID allowlist per account, checked
+  by `SO_PEERCRED`, replaces grants, bindings and their generation checks for
+  this extraction (§2), narrowing the deployment but differing from §§4.2, 7–8 and 13.2.
+- **R2 — accepted interim mode:** same-user operation is permitted only with
   the explicitly weaker guarantees in §2.1; it differs from §§3, 12.1 and 15.1.
+  Leaving this mode requires the dedicated service-user step in Appendix A
+  after the migration tool is reviewed.
   The Linux user-manager containment proposed here is an interim realization,
   not qualification of the system-unit or macOS deployments in §15.2.
 - **R3 — accepted curator ruling:** fresh-home device-code enrolment by the owner
@@ -61,15 +63,15 @@ than silently ignoring that requirement.
   record below are implementation choices submitted for content review; no
   additional named curator ruling is invented for them.
 
-No pending ruling authorizes real-account tests. Separate explicit curator
-approval and an owner-controlled account are required for those tests. The
+The accepted rulings do not authorize real-account tests. Separate explicit
+curator approval and an owner-controlled account are required for those tests. The
 existing native login MUST remain intact during research and qualification
 planning; only an explicitly approved maintenance cutover may retire it.
 
 ## 2. Interim authority and identities
 
-**Pending curator ruling R1.** The daemon MUST load a protected static policy
-containing a never-reused random installation ID, monotonic policy generation,
+**Accepted curator ruling R1.** The daemon MUST load a protected, operator-owned
+static policy containing a never-reused random installation ID, monotonic policy generation,
 configured broker UID, approved executable absolute path and SHA-256 digest,
 finite maximum lease duration (default 3600 seconds), and account entries. Each
 entry contains its public account label, expected vendor account ID after
@@ -107,8 +109,8 @@ or observer role is inferred from this interim read permission.
 
 ### 2.1 Interim run identity
 
-**Pending curator ruling R2.** The daemon MAY initially run as the same OS user
-as its launches. For cooperative approved processes, the account lock and
+**Accepted curator ruling R2 (interim mode).** The daemon MAY initially run as
+the same OS user as its launches. For cooperative approved processes, the account lock and
 lifecycle gate establish a single writer; launch homes hold no `auth.json`;
 access tokens travel only in private pipes and process memory, never argv,
 credential files, diagnostics or logs. Refresh tokens remain only in the
@@ -119,8 +121,8 @@ with the same UID. Such a process can read or alter the store, contact the same
 user manager, or violate the single-writer policy. No protection against a
 malicious same-UID process, root, debugger or compromised daemon is claimed.
 Dedicated service-user isolation remains the required platform target. Appendix
-A prepares that transition; permission changes alone do not make same-UID
-operation isolated.
+A defines the required exit from this interim mode, after the migration tool
+is reviewed; permission changes alone do not make same-UID operation isolated.
 
 ## 3. Enrolment and existing logins
 
@@ -170,7 +172,10 @@ unsupported.
 
 ### 3.1 Cutover from a shared native login
 
-The owner controls a maintenance window. The order is **new broker enrolment →
+The owner MUST schedule the maintenance window in advance through the platform
+curator. Every Codex launch on the machine MUST be quiesced for that window.
+The owner MUST perform fresh-home device-code enrolment inside that window.
+The order is **new broker enrolment →
 move launches to the runner → retire the old native login**. Preserving the old
 login during preparation is not permission to leave its refreshers running.
 The new enrolment is a distinct vendor login, not a copy of the native login;
@@ -179,7 +184,7 @@ the same vendor account still has only one admitted live refresher at a time.
 1. **Prepare without touching the live login.** Inventory every old consumer,
    launcher, restart/watch path and native-login writer. Stage the reviewed
    daemon/runner, complete fake qualification and record the approved executable
-   and routing. Verify R1/R2 disposition and live-test approval before proceeding.
+   and routing. Verify live-test approval before proceeding.
    Do not inspect, copy, refresh or revoke the existing credential file as a
    qualification shortcut. If no maintenance window is authorized, stop here
    with a reviewed cutover plan and keep the current login unchanged.
@@ -827,10 +832,12 @@ the case changes that premise. Every refusal requires zero material delivery.
 
 ## Appendix A. Owner action for dedicated-user isolation
 
-**Conditional migration; pending curator ruling R2. No migration tool ships here.**
-This procedure applies only if the accepted R2 deployment requires a dedicated
-service user and a root administrator is available. It is not a prerequisite
-for v0 in an accepted same-user mode; that mode retains §2.1's weaker guarantees.
+**Accepted R2 exit path: dedicated service-user migration after review of the
+migration tool. No migration tool ships here.**
+Leaving the accepted R2 interim mode MUST use this dedicated service-user step
+after the migration tool is reviewed and a root administrator is available.
+It is not a prerequisite for v0 in the accepted same-user mode; that mode
+retains §2.1's weaker guarantees.
 The normal platform installer MUST use the service-account provisioning
 contract in [§15.1](broker.md#151-service-user-and-time). If it has already
 provisioned the account, use its reviewed migration path; do not create a second
@@ -926,5 +933,5 @@ These observations and artifact validation are research evidence only. No
 implementation qualification, genuine multi-UID broker-process test, managed
 real-account refresh or live cutover was executed by this specification work.
 The mandatory procedure in [§8.2](#82-mandatory-01630-qualification-procedure)
-and approved live rows remain pending. R1/R2 remain pending; R3 and runner
-scope are accepted as recorded in §1.1.
+and approved live rows remain pending. R1, interim R2, R3 and runner scope
+are accepted as recorded in §1.1.
