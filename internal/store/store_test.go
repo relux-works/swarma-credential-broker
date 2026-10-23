@@ -193,3 +193,30 @@ func TestPolicyWatermarkProtection(t *testing.T) {
 		})
 	}
 }
+
+// Claim: owner history appends retain attempt-wide revisions and cannot replace
+// an existing filename; wrong installation, zero revision and foreign names fail.
+func TestOwnerAppendImmutableAndFenced(t *testing.T) {
+	_, a := fresh(t, nil)
+	good := record{"fixture-install", 7, "resolved"}
+	if a.Append("owner-example-7.json", good) != nil {
+		t.Fatal("valid history refused")
+	}
+	before, _ := a.Records()
+	for _, v := range []record{good, {"other", 8, "resolved"}, {"fixture-install", 0, "resolved"}} {
+		name := "owner-example-7.json"
+		if v.Installation != "fixture-install" || v.Revision == 0 {
+			name = "owner-other.json"
+		}
+		if a.Append(name, v) == nil {
+			t.Fatal("invalid append accepted")
+		}
+	}
+	if a.Append("lease-foreign.json", good) == nil {
+		t.Fatal("foreign namespace accepted")
+	}
+	after, e := a.Records()
+	if e != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("history overwritten")
+	}
+}

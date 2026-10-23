@@ -59,11 +59,13 @@ vectors, a Linux Go daemon and runner with fixture tests, and a
 runner command refuses execution until protected policy and broker transport
 are integrated. Only isolated fixture tests are supplied for the migration tool;
 real installation and writer-lifecycle qualification remain pending.
-The daemon uses Go 1.25 or later and only the standard library.
-Development checks use Go 1.26.10 through `CURATOR_GO`, with `GOTOOLCHAIN=local`;
-preserve the configured `GOCACHE` and `GOPATH`. All tests use random synthetic
-tokens and local fixtures. They never start a vendor executable or use a
-logged-in home.
+The daemon uses Go 1.25 or later. The contained owner adds the pinned
+`github.com/godbus/dbus/v5 v5.1.0` dependency for user-manager D-Bus and private
+Unix descriptor passing; production never invokes `systemd-run`. Development
+checks use Go 1.26.10 through `CURATOR_GO`, with `GOTOOLCHAIN=local`; preserve the
+configured `GOCACHE` and `GOPATH`. Tests use synthetic tokens and local
+fixtures. Default tests run a synthetic Go vendor; tagged manager tests run only
+isolated helpers and that fake vendor, with fresh homes. No logged-in home is used.
 
 | Tool | Purpose and command | Outputs |
 |---|---|---|
@@ -79,6 +81,7 @@ logged-in home.
 | Python 3 | Parse vector JSON with the command in [vectors/v0](vectors/v0/README.md); strict canonical-byte/link checks use temporary validation scripts | Terminal and private scratch logs; scripts are not shipped tooling |
 | Codex CLI | Inspect a selected release with `codex --version`, `codex app-server --help`, `codex app-server generate-json-schema --experimental --out <scratch-schema-directory>` | Schema in the chosen scratch directory; always use a fresh empty HOME/CODEX_HOME, never an existing login |
 | systemd user tools (Linux) | Inspect containment with `systemctl --user show <probe-unit>`; a bounded probe can use `systemd-run --user --unit=<probe-unit> --property=KillMode=control-group --property=RuntimeMaxSec=5s /usr/bin/true` | User-manager state and private scratch evidence; stop only the probe's own unit |
+| godbus/dbus v5.1.0 | Direct D-Bus transport in `internal/authowner`; fetch with `"$CURATOR_GO" mod download github.com/godbus/dbus/v5`; checks below exercise it | Module cache and `go.sum`; no token material in unit properties |
 | Go | Build with `"$CURATOR_GO" build -o "$TMPDIR/swarma-credential-broker" ./cmd/swarma-credential-broker`; vet with `"$CURATOR_GO" vet ./...`; format-check with `"$("$CURATOR_GO" env GOROOT)/bin/gofmt" -l .` | Binary and captured logs in the selected private scratch directory; format-check output must be empty |
 
 Create a short, real scratch path outside the versioned tree (no symlink),
@@ -213,7 +216,8 @@ Within account directories, `lease-<id>.json` belongs to the lease engine and
 and qualification). The store still checks canonical bytes and protection for
 all records. The owner must validate and reconcile its namespace before returning
 a usable snapshot; the lease engine ignores that namespace and rejects unknown
-non-owner records. Both use the existing expected-revision atomic `Account.Put`.
+non-owner records. Checkpoints use expected-revision atomic `Account.Put`;
+attempt history uses immutable `Account.Append` with attempt-wide increasing revisions.
 
 Lease metadata contains only protected digests, generations and authority. Tokens
 remain in memory and framed socket responses. The canary lifecycle test scans
@@ -227,10 +231,47 @@ The vector tests instantiate role UIDs, binding digests and access tokens from
 fixtures. All transport and renewal vectors exercise their core contracts;
 `renew-late` uses a shortened deadline and the real eight-second default has its
 own test. Runner callback/turn effects and admission source/home-conflict vectors are
-covered by the runner fixture tests; live release qualification remains pending. Lifecycle recovery,
-enrolment and cutover vectors belong to the real owner; eight lifecycle cases
-currently test only the core's reaction to resolved/unavailable owner snapshots
-and static mapping uniqueness, not recovery or enrolment itself. These distinctions must remain explicit in review evidence.
+covered by the runner fixture tests; live release qualification remains pending. The contained owner
+now exercises refresh recovery with a fake manager and vendor; the core's older
+snapshot tests remain separate evidence. Enrolment, cutover, independent restore
+reconciliation and actual vendor qualification remain deferred. See the
+[owner coverage and limits](docs/auth-owner.md).
+
+## Contained owner checks
+
+`internal/authowner` implements the refresh adapter as a library. The daemon
+command still uses its stopped adapter: enrolment, exact release qualification
+and independent time/restore confidence must precede activation. The library
+constructor performs recovery before admitting snapshots. A real manager also
+requires a successful empty-home `Probe` using an approved token-free echo helper,
+and the owner process must belong to the configured daemon service. The helper
+is supplied explicitly by installation; no ambient executable is selected.
+
+Run only the affected packages. Put `TMPDIR` in an absolute private scratch
+directory outside the checkout and preserve the configured caches:
+
+```bash
+export GOTOOLCHAIN=local
+"$CURATOR_GO" test -race -short -count=1 -timeout=90s ./internal/authowner ./internal/store ./internal/owner ./internal/lease
+"$CURATOR_GO" test -race -tags=realmanager -count=1 -timeout=60s ./internal/authowner -run '^TestReal'
+"$CURATOR_GO" vet ./internal/authowner ./internal/store ./internal/owner ./internal/lease ./cmd/swarma-credential-broker
+```
+
+The second command needs a reachable systemd user bus, cgroup v2 and required
+service sandbox features. Failure is a failed gate, never a skipped success.
+Each test creates a random `scb-test-<random>-` prefix for its own daemon,
+readiness probes and writers. Daemon unit and writer prefix are configurable.
+Cleanup stops and unloads only allocated names on every test path, then requires
+an exact not-found response for each name. Never substitute a deployed daemon
+name or perform manager-wide cleanup. Verbose test logs contain each allocated
+name and its cleanup result; capture those logs in private scratch.
+
+Real-manager tests verify the 120-second configured ceiling and exercise runtime
+expiry using a shorter control. They measure the two-second stop timeout with a
+SIGTERM-ignoring grandchild and confirm recursive cgroup absence. They do not
+measure a full 120-second elapsed run or qualify the native vendor. Native-vendor
+refresh rows remain PENDING: a refresh URL override does not isolate background
+vendor egress, so no native-vendor test entry point is shipped.
 
 ## License
 

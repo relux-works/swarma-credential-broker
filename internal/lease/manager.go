@@ -585,6 +585,9 @@ func (m *Manager) execute(label string, a *account, op *operation) Outcome {
 			return Outcome{Err: deadline(op.method)}
 		}
 		snapshot, err = m.owner.Refresh(m.ctx, label, snapshot.Generation)
+		if errors.Is(err, owner.ErrRenewFailed) {
+			return Outcome{Err: wire.Refuse("renew_failed")}
+		}
 		if err != nil {
 			return Outcome{Err: wire.Refuse("lease_owner_unavailable")}
 		}

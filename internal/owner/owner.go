@@ -3,8 +3,12 @@ package owner
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrRenewFailed reports unchanged rejected material without permitting retry.
+var ErrRenewFailed = errors.New("renew_failed")
 
 const (
 	Active      = "active"

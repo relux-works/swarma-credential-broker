@@ -30,10 +30,11 @@ provide no real vendor or lifecycle qualification credit.
 
 Implementation integration questions:
 
-- Account `owner-*.json` is reserved for owner records beside lease metadata.
-  Which startup reconciliation entry point will the contained owner expose? Its
-  adapter must validate those records and provide independent freshness and the
-  conservative authorization clock before issuance.
+- `authowner.New` now validates and reconciles `owner-*.json` before snapshots.
+  Activation still needs protected fresh-enrolment checkpoints, an independently
+  implemented time/restore confidence provider, configured service identities,
+  and installation of the approved empty-home echo helper for manager readiness.
+  No existing login is adopted and no qualification is manufactured locally.
 - Which configured accounts and intended socket access will supply genuine
   foreign-UID qualification? The optional gate returns PENDING until that fixture
   can run; same-UID kernel coverage does not close this row.
@@ -49,3 +50,15 @@ Implementation integration questions:
   daemon in interim R2 mode. A dedicated-service deployment needs a protected
   client-readable policy contract; unreadable policy remains refused, with no
   copied policy or permission weakening in this slice.
+
+- Native 0.163.0 fixture qualification remains PENDING. The refresh URL override
+  alone does not confine unsolicited model-service requests; a clean, complete
+  vendor egress boundary is needed before retrying. Sandbox startup capability
+  also needs qualification under the required service properties. No live
+  account or issuer evidence is supplied by fake-vendor success.
+- Refresh RPC error codes are ambiguous without exact-release classification.
+  The default owner treats them as unknown; qualified nonrotation/rejection
+  classification is an integration input, not an operator retry override.
+- Protected executable installation and approved routing configuration remain
+  installation/enrolment gates. The refresh library rechecks the pinned digest
+  and uses an explicit minimal environment; it adds no endpoint override path.

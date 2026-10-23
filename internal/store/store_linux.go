@@ -506,3 +506,26 @@ func (s *Store) Close() error {
 }
 func LeaseName(id string) string  { return fmt.Sprintf("lease-%s.json", id) }
 func IsAbsolute(path string) bool { return filepath.IsAbs(path) }
+
+// Append retains an immutable owner evidence record with its attempt-wide
+// revision. The owner validates sequential revisions across these distinct names.
+// Exclusive lifetime locks and this account fence serialize cooperating writers.
+func (a *Account) Append(name string, v any) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !validName(name) || !strings.HasPrefix(name, "owner-") {
+		return ErrUnavailable
+	}
+	if _, err := read(a.root, name, a.uid); !os.IsNotExist(err) {
+		return ErrConflict
+	}
+	b, err := wire.Encode(v)
+	var header struct {
+		Installation string `json:"installation_id"`
+		Revision     uint64 `json:"revision"`
+	}
+	if err != nil || json.Unmarshal(b, &header) != nil || header.Installation != a.installation || header.Revision == 0 {
+		return ErrConflict
+	}
+	return replace(a.root, name, v, a.hook)
+}
