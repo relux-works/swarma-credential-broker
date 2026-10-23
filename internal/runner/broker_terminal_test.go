@@ -236,7 +236,9 @@ func TestSocketClosedTerminalWritePoints(t *testing.T) {
 }
 
 // Claim: a failed write followed by an incomplete, still-open terminal frame
-// uses the existing caller cutoff, returns no terminal code, and closes the stream.
+// returns at or after the absolute caller deadline and within a one-second
+// scheduling margin, returns no terminal code, and closes the stream. Socket
+// deadline completion need not wait for the context timer to publish Err.
 func TestSocketFailedWriteReadDeadline(t *testing.T) {
 	ready := make(chan struct{})
 	finish := make(chan struct{})
@@ -260,13 +262,14 @@ func TestSocketFailedWriteReadDeadline(t *testing.T) {
 	t.Cleanup(func() { close(finish) })
 	must(t, c.VerifyServer(context.Background(), uint32(os.Geteuid())))
 	<-ready
-	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
+	deadline, _ := ctx.Deadline()
 	_, err := c.Hello(ctx, HelloRequest{[]int{1}, ProtocolProfile})
+	returned := time.Now()
 	refusalCode(t, err, "credential_injection_unavailable", 69)
-	if ctx.Err() != context.DeadlineExceeded || time.Since(start) > 2*time.Second {
-		t.Fatal("failed-write read did not use caller cutoff")
+	if returned.Before(deadline) || returned.After(deadline.Add(time.Second)) {
+		t.Fatalf("failed-write read returned %s from caller cutoff", returned.Sub(deadline))
 	}
 	select {
 	case <-c.closed:
