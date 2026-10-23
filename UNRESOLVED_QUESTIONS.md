@@ -39,3 +39,13 @@ Implementation integration questions:
   can run; same-UID kernel coverage does not close this row.
 - Which release evidence will establish safe transient backoff and unknown-expiry
   handling? The core rejects unknown expiry and delegates retries to the owner.
+
+- The qualification slice must define the machine-readable `qualification/1`
+  evidence schema, protected storage and exact-tuple reader, and the §8.2 procedure that publishes its
+  qualified release set. The runner's `protectedAuthority.qualifiedSet` seam
+  currently returns an empty production set; `qualification_id` alone is never
+  admission. Test-only qualification providers are excluded from the command.
+- The runner currently reads the same broker-owned 0600 configuration as the
+  daemon in interim R2 mode. A dedicated-service deployment needs a protected
+  client-readable policy contract; unreadable policy remains refused, with no
+  copied policy or permission weakening in this slice.

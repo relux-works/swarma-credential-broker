@@ -22,7 +22,5 @@ func main() {
 		os.Stderr.WriteString("runner: invalid_command\n")
 		os.Exit(64)
 	}
-	// Production authority and broker transport are connected by integration;
-	// no user-controlled flag can turn fixture qualification into admission.
-	os.Exit(runner.Command(ctx, os.Args[2:], runner.IO{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}, runner.Dependencies{Environment: os.Environ()}))
+	os.Exit(runner.Command(ctx, os.Args[2:], runner.IO{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}, runner.ProtectedDependencies(runner.DefaultPolicyPath, os.Environ())))
 }

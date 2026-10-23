@@ -318,6 +318,12 @@ func resolve(ctx context.Context, d Dependencies, o Options) (Policy, error) {
 	}
 	p, e := d.Authority.Resolve(ctx, o)
 	if e != nil {
+		if r, ok := e.(*Refusal); ok && r != nil {
+			switch r.Code {
+			case "lease_harness_unqualified", "lease_not_authorised", "lease_account_unknown", "lease_network_enforcement_unavailable":
+				return Policy{}, refuse(r.Code, 69)
+			}
+		}
 		return Policy{}, refuse("lease_binding_mismatch", 69)
 	}
 	return p, validatePolicy(o, p)

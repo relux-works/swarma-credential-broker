@@ -369,11 +369,8 @@ func validLease(l Lease, p Policy, old *Lease) bool {
 	return true
 }
 func brokerFailure(err error, status int) error {
-	if e, ok := err.(*Refusal); ok && e != nil {
-		switch e.Code {
-		case "server_identity_mismatch", "role_not_permitted", "peer_identity_unavailable", "version_unsupported", "lease_not_authorised", "lease_account_unknown", "lease_harness_mismatch", "lease_account_revoked", "lease_reauth_required", "lease_owner_unavailable", "lease_channel_unsupported", "lease_harness_unqualified", "lease_binding_mismatch", "lease_network_enforcement_unavailable", "lease_not_owner", "lease_not_active", "renew_not_current", "renew_timeout", "renew_failed", "request_deadline_exceeded":
-			return refuse(e.Code, status)
-		}
+	if e, ok := err.(*Refusal); ok && e != nil && profileCode(e.Code) {
+		return refuse(e.Code, status)
 	}
 	return refuse("lease_owner_unavailable", status)
 }

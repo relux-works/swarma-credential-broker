@@ -73,6 +73,9 @@ func main() {
 		os.Exit(1)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		if os.WriteFile(filepath.Join(home, "version-probe"), []byte("observed\n"), 0600) != nil {
+			os.Exit(1)
+		}
 		v := s.Version
 		if v == "" {
 			v = "codex-cli 0.163.0"

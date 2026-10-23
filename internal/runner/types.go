@@ -1,5 +1,5 @@
 // Package runner implements the external-token, one-turn Codex executor.
-// Broker transport and protected policy loading belong to the embedding host.
+// Linux integration uses protected static policy and the broker/1 wire codec.
 package runner
 
 import (
@@ -76,7 +76,8 @@ type Policy struct {
 }
 
 // Authority must re-read protected policy and qualification evidence on each
-// Resolve. A later integration supplies this and the real broker wire adapter.
+// Resolve. The Linux integration keeps production qualification closed until
+// its protected release-evidence provider is supplied.
 type Authority interface {
 	Resolve(context.Context, Options) (Policy, error)
 }
