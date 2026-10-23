@@ -170,8 +170,10 @@ The write deadline also ends at the lease/token/account authorization limit.
 
 Arrival deadlines start before lookup. A lease-label index avoids locking
 unrelated accounts, state admission is cancellable, and expired-waiter cleanup
-never holds up the caller's timeout response. Per-connection writer contention
-keeps the original request deadline; a non-draining socket cannot serialize
+never holds up the caller's timeout response. When the last waiter leaves a
+queued operation, cleanup removes both its admission entry and physical FIFO
+entry while preserving the order of remaining operations. Per-connection writer
+contention keeps the original request deadline; a non-draining socket cannot serialize
 other leases' state transitions. Filesystem publication also uses revision CAS
 outside the request state lock. The owner scheduler
 uses the shared proactive gate; admitted demand suppresses proactive work.

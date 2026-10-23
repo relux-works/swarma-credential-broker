@@ -443,6 +443,16 @@ func (m *Manager) detach(a *account, op *operation, w *waiter) {
 	}
 	if len(op.waiters) == 0 && !op.running && a.pending[op.key] == op {
 		delete(a.pending, op.key)
+		// Reclaim physical storage together with admission capacity. Stable
+		// compaction preserves FIFO order and clears the removed reference.
+		for i, queued := range a.queue {
+			if queued == op {
+				copy(a.queue[i:], a.queue[i+1:])
+				a.queue[len(a.queue)-1] = nil
+				a.queue = a.queue[:len(a.queue)-1]
+				break
+			}
+		}
 	}
 }
 func (m *Manager) worker(label string, a *account) {
@@ -460,6 +470,7 @@ func (m *Manager) worker(label string, a *account) {
 				break
 			}
 			op := a.queue[0]
+			a.queue[0] = nil
 			a.queue = a.queue[1:]
 			if len(op.waiters) == 0 {
 				a.mu.Unlock()
