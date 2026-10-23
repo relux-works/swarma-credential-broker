@@ -67,3 +67,14 @@ Implementation integration questions:
 - Protected executable installation and approved routing configuration remain
   installation/enrolment gates. The refresh library rechecks the pinned digest
   and uses an explicit minimal environment; it adds no endpoint override path.
+
+- The [platform time policy](docs/time-policy.md) selects configuration-based NTS
+  evidence for v0, with matching selected source and the published bounds.
+  Authdata is required before the dedicated service identity. Production source
+  selection and owner wiring stay off until activation. Activation must establish
+  protected shared upper bounds, the complete running source inventory and
+  monitoring permission. A backward step spanning process replacement within the
+  same boot is an activation integration gate: the owner retains its durable
+  watermark, while consumers without one must decide hold and prior-decision
+  continuity separately. Durable hold storage is outside this slice and must
+  not be placed in the rollback domain. Broker backward tolerance is zero.
