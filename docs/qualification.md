@@ -112,7 +112,10 @@ missing unrelated record refuses the entire list, regardless of entry order.
 
 Publication holds the exclusive lock. Readers hold a nonblocking shared lock.
 The following state table describes failures and crash recovery; a marker being
-visible never substitutes for validated evidence.
+visible never substitutes for validated evidence. The final activation rename can
+be visible before its directory entry is durable; a filesystem crash can turn a
+successful admission into refusal. This availability rollback is accepted: no
+surviving activation admits a tuple without all of its verified evidence.
 
 | Step | State after an error or crash | `Read` verdict |
 |---|---|---|

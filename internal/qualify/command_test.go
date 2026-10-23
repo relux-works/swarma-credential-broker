@@ -169,27 +169,38 @@ func TestCommandPending(t *testing.T) {
 }
 
 // Claim: private reservation expires with its context and teardown preserves a
-// replacement path; an already-existing endpoint is never adopted or removed.
+// replacement path; independent reservations never adopt an existing endpoint.
 func TestPrivateSocketLifetime(t *testing.T) {
 	dir := t.TempDir()
+	if e := os.Chmod(dir, 0700); e != nil {
+		t.Fatal(e)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s, e := reserve(ctx, dir, qualification.Hash([]byte("fixture candidate")))
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e := reserve(ctx, dir, qualification.Hash([]byte("fixture candidate"))); e == nil {
-		t.Fatal("existing socket adopted")
+	other, e := reserve(ctx, dir, qualification.Hash([]byte("fixture candidate")))
+	if e != nil || other.path == s.path {
+		t.Fatal("independent reservation failed")
+	}
+	if e := other.close(); e != nil {
+		t.Fatal(e)
 	}
 	cancel()
 	_, e = s.listener.AcceptUnix()
 	if e == nil {
 		t.Fatal("expired socket accepted")
 	}
-	os.Remove(s.path)
+	if e := os.Remove(s.path); e != nil {
+		t.Fatal(e)
+	}
 	if os.WriteFile(s.path, []byte("replacement"), 0600) != nil {
 		t.Fatal("replacement fixture")
 	}
-	s.close()
+	if e := s.close(); e == nil {
+		t.Fatal("replacement was not reported")
+	}
 	if b, e := os.ReadFile(s.path); e != nil || string(b) != "replacement" {
 		t.Fatal("replacement removed")
 	}

@@ -5,9 +5,9 @@ package qualify
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,6 +57,7 @@ type driver struct {
 	path        string
 	environment []string
 	observer    func(policy.Config) qualification.IdentityObserver
+	ops         commandSyscalls
 }
 
 func Command(ctx context.Context, args []string, configPath string, environment []string, out io.Writer) int {
@@ -116,48 +117,6 @@ func privateDirectory(path string) bool {
 	return ok && st.Uid == uint32(os.Geteuid()) && s.Mode() == os.ModeDir|0700
 }
 
-// privateSocket is a bounded reservation for future row dispatch, not an
-// ordinary lease endpoint. No row implementation or lease authority ships here.
-type privateSocket struct {
-	listener        *net.UnixListener
-	path            string
-	info            os.FileInfo
-	stop            func() bool
-	candidateDigest string
-}
-
-func reserve(ctx context.Context, dir string, digest string) (*privateSocket, error) {
-	if ctx.Err() != nil || !policy.Hash(digest) {
-		return nil, qualification.ErrUnavailable
-	}
-	path := filepath.Join(dir, "qualification.sock")
-	if _, e := os.Lstat(path); !os.IsNotExist(e) {
-		return nil, qualification.ErrUnavailable
-	}
-	l, e := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
-	if e != nil {
-		return nil, qualification.ErrUnavailable
-	}
-	l.SetUnlinkOnClose(false)
-	s := &privateSocket{listener: l, path: path, candidateDigest: digest}
-	s.info, _ = os.Lstat(path)
-	if os.Chmod(path, 0600) != nil {
-		l.Close()
-		if current, e := os.Lstat(path); e == nil && s.info != nil && os.SameFile(current, s.info) {
-			os.Remove(path)
-		}
-		return nil, qualification.ErrUnavailable
-	}
-	s.stop = context.AfterFunc(ctx, func() { l.Close() })
-	return s, nil
-}
-func (s *privateSocket) close() {
-	s.stop()
-	s.listener.Close()
-	if now, e := os.Lstat(s.path); e == nil && s.info != nil && os.SameFile(now, s.info) {
-		os.Remove(s.path)
-	}
-}
 func (d driver) run(parent context.Context, args []string, out io.Writer) int {
 	o, e := parse(args)
 	if e != nil {
@@ -186,7 +145,13 @@ func (d driver) run(parent context.Context, args []string, out io.Writer) int {
 	defer cancel()
 	repository := qualification.Repository{Path: qualification.Directory(d.path), UID: c.Policy.BrokerUID, Observer: observer}
 	var outcome report
-	e = repository.WhileClosed(ctx, func() error {
+	e = repository.WhileClosed(ctx, func() (runError error) {
+		var socket *privateSocket
+		defer func() {
+			if socket != nil {
+				runError = errors.Join(runError, socket.close())
+			}
+		}()
 		identity, _, missing := qualification.Observe(ctx, observer)
 		if identity.Version != "" && identity.Version != "0.163.0" {
 			return qualification.ErrUnavailable
@@ -195,11 +160,11 @@ func (d driver) run(parent context.Context, args []string, out io.Writer) int {
 			return qualification.ErrUnavailable
 		}
 		if policy.Hash(identity.Executable.SHA256) {
-			socket, e := reserve(ctx, o.evidence, identity.Executable.SHA256)
+			var e error
+			socket, e = d.reserve(ctx, o.evidence, identity.Executable.SHA256)
 			if e != nil {
 				return e
 			}
-			defer socket.close()
 		}
 		// Every required body is pending. -1 denotes no execution, not an exit.
 		pending := qualification.Pending(identity)
@@ -226,6 +191,16 @@ func (d driver) run(parent context.Context, args []string, out io.Writer) int {
 		if e != nil {
 			return qualification.ErrUnavailable
 		}
+		if socket != nil {
+			closeError := socket.close()
+			socket = nil
+			if closeError != nil {
+				return closeError
+			}
+		}
+		if ctx.Err() != nil {
+			return qualification.ErrUnavailable
+		}
 		f, e := os.OpenFile(filepath.Join(o.evidence, "run.json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0600)
 		if e != nil {
 			return qualification.ErrUnavailable
@@ -249,7 +224,8 @@ func (d driver) run(parent context.Context, args []string, out io.Writer) int {
 			return qualification.ErrUnavailable
 		}
 		e = dir.Sync()
-		dir.Close()
+		ce = d.syscall("close:report-directory", dir.Close)
+		e = errors.Join(e, ce)
 		if e != nil {
 			return qualification.ErrUnavailable
 		}
