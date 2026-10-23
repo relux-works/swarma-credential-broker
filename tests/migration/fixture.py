@@ -81,7 +81,7 @@ def stat_line(db, p):
     if Path(p) in [ROOT, ROOT.parent] or ROOT not in Path(p).parents:
         mode = 0o755
         raw_mode = stat.S_IFMT(s.st_mode) | mode
-    return f"{dev}:{s.st_ino}:{uid}:{gid}:{mode:o}:{s.st_nlink}:{raw_mode:x}:{s.st_size}:{int(s.st_mtime)}:{int(s.st_ctime)}"
+    return f"{dev}:{s.st_ino}:{uid}:{gid}:{mode:o}:{s.st_nlink}:{raw_mode:x}:{s.st_size}:{int(s.st_mtime)}:{int(s.st_ctime)}\n"
 
 
 def effect(db, cmd, args):
@@ -93,7 +93,7 @@ def effect(db, cmd, args):
         # protected driver is modeled as the executable regular file it names.
         if p == ROOT / "bin/platform":
             s = os.stat(p)
-            return f"{s.st_dev}:{s.st_ino}:0:0:755:1:81ed:{s.st_size}:{int(s.st_mtime)}:{int(s.st_ctime)}", 0
+            return f"{s.st_dev}:{s.st_ino}:0:0:755:1:81ed:{s.st_size}:{int(s.st_mtime)}:{int(s.st_ctime)}\n", 0
         return stat_line(db, p), 0
     if cmd == "mountpoint":
         return "", 0 if args[-1] in db["mounts"] else 32
@@ -135,6 +135,9 @@ def effect(db, cmd, args):
         else:
             content = sys.stdin.buffer.read()
         return hashlib.sha256(content).hexdigest() + "  -\n", 0
+    if cmd == "sync" and args == ["-f", str(ROOT / "state")]:
+        journal = ROOT / "state/journal"
+        db["durable_journal"] = journal.read_text().splitlines() if journal.exists() else []
     if cmd in ("flock", "sync"):
         return "", 0
     if cmd == "groupadd":
@@ -176,27 +179,27 @@ def effect(db, cmd, args):
     elif cmd == "platform":
         action = args[0]
         if action == "inventory":
-            return f"inventory:{INVENTORY}:serialized:{SERIALIZATION}", 0 if db["serialization"] else 1
+            return f"inventory:{INVENTORY}:serialized:{SERIALIZATION}\n", 0 if db["serialization"] else 1
         if action == "close":
             db.update(old_closed=True, new_open=False, old_disabled=True, started=False)
         elif action == "closed":
-            return f"closed:{INVENTORY}:old-inactive:old-disabled:new-disabled", 0 if db["old_closed"] and not db["new_open"] and db["old_disabled"] else 1
+            return f"closed:{INVENTORY}:old-inactive:old-disabled:new-disabled\n", 0 if db["old_closed"] and not db["new_open"] and db["old_disabled"] else 1
         elif action == "evidence":
-            return f"reconciled:{EVIDENCE}:original-manager:complete-absence:durable-outcomes", 0 if db["evidence"] else 1
+            return f"reconciled:{EVIDENCE}:original-manager:complete-absence:durable-outcomes\n", 0 if db["evidence"] else 1
         elif action == "install-and-repin":
             db["installed"] = True
         elif action == "installed":
-            return f"installed:{INVENTORY}:uid=21002:leases-invalidated:clients-repinned", 0 if db["installed"] else 1
+            return f"installed:{INVENTORY}:uid=21002:leases-invalidated:clients-repinned\n", 0 if db["installed"] else 1
         elif action == "prestart":
-            return f"ready:{INVENTORY}:containment:store-outcomes:policy:qualification:admission-closed", 0 if db["installed"] and not db["new_open"] else 1
+            return f"ready:{INVENTORY}:containment:store-outcomes:policy:qualification:admission-closed\n", 0 if db["installed"] and not db["new_open"] else 1
         elif action == "start-new":
             db["started"] = True
         elif action == "readiness":
-            return f"ready:{INVENTORY}:new-active:old-disabled:admission-closed", 0 if db["started"] and not db["new_open"] else 1
+            return f"ready:{INVENTORY}:new-active:old-disabled:admission-closed\n", 0 if db["started"] and not db["new_open"] else 1
         elif action == "open-new":
             db["new_open"] = True
         elif action == "final":
-            return f"active:{INVENTORY}:new-open:old-disabled", 0 if db["new_open"] else 1
+            return f"active:{INVENTORY}:new-open:old-disabled\n", 0 if db["new_open"] else 1
         else:
             return "", 99
     else:
@@ -219,13 +222,15 @@ def run_command(cmd, args):
         journal = ROOT / "state/journal"
         intents = [x.removeprefix("intent:") for x in journal.read_text().splitlines() if x.startswith("intent:")] if journal.exists() else []
         expected = (expected,) if isinstance(expected, str) else expected
-        if not intents or not any(intents[-1].startswith(x) for x in expected):
+        armed_close = (cmd == "platform" and args[0] == "close"
+                       and "intent:recovery-close" in db.get("durable_journal", []))
+        if not armed_close and (not intents or not any(intents[-1].startswith(x) for x in expected)):
             db["missing_intent"] = True
             save(db)
             return 98
     fault = None
     for f in db["faults"]:
-        if f.get("used"):
+        if f.get("used") and not f.get("persistent"):
             continue
         if f.get("after_command") and not db["counts"].get(f["after_command"], 0):
             continue
@@ -244,6 +249,8 @@ def run_command(cmd, args):
         except (OSError, KeyError, ValueError):
             out, code = "", 1
         if fault:
+            if fault.get("create_result"):
+                (ROOT / "state/result").write_text("unexpected-result\n")
             if fault.get("reappear"):
                 p = ROOT / "source"
                 p.mkdir(mode=0o700)
@@ -252,6 +259,22 @@ def run_command(cmd, args):
                 db["metadata"][str(ROOT / "parent/new")] = {"uid": 29000, "gid": 29000}
             if fault["mode"] in ("after", "expected"):
                 code = fault.get("status", 1)
+            if fault.get("framing"):
+                kind = fault["framing"]
+                if kind == "nul":
+                    out = out[:12] + "\0" + out[12:]
+                elif kind == "extra-line":
+                    out += "\n"
+                elif kind == "missing-newline":
+                    out = out.removesuffix("\n")
+                elif kind == "cr":
+                    out = out.removesuffix("\n") + "\r\n"
+                elif kind == "oversized":
+                    out = "x" * 1_048_577 + "\n"
+                elif kind == "unexpected-output":
+                    out = "unexpected\n"
+                else:
+                    raise AssertionError(kind)
     save(db)
     if fault and fault["mode"] == "term":
         # State is committed, but no output/exit bookkeeping reached the shell.
@@ -341,6 +364,11 @@ def control(args):
             assert not any(c[:2] == ["platform", "open-new"] for c in db["calls"])
         elif claim == "fault-used":
             assert db["faults"] and all(f.get("used") for f in db["faults"]), db["faults"]
+        elif claim == "armed-reclose":
+            assert "intent:recovery-close" in db["durable_journal"]
+            opened = next(i for i, c in enumerate(db["calls"]) if c[:2] == ["platform", "open-new"])
+            assert any(c[:2] == ["platform", "close"] for c in db["calls"][opened + 1:])
+            assert any(c[:2] == ["platform", "closed"] for c in db["calls"][opened + 1:])
         else:
             raise AssertionError(claim)
         # Every assertion also checks the stable unrelated identity, the lack of

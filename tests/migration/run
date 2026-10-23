@@ -3,7 +3,7 @@
 set -u
 set -o pipefail
 repo=$(cd "${BASH_SOURCE[0]%/*}/../.." && pwd)
-script=$repo/scripts/migrate-service-user
+script=${MIGRATION_SCRIPT:-$repo/scripts/migrate-service-user}
 fixture=$repo/tests/migration/fixture.py
 scratch=${1:?usage: tests/migration/run /absolute/scratch-directory}
 mkdir -p "$scratch" || exit 1
@@ -210,6 +210,73 @@ journal_failure() {
 }
 run_test JournalDurabilityFailureBlocksMutation journal_failure
 run_test JournalDurabilityControl positive_close
+
+# Persistent journal loss after opening cannot prevent the already-armed safety
+# close. Deployed resources remain for explicit recovery; cleanup stays unknown.
+late_journal_failure() {
+    new_fixture && prepare_migration || return 1
+    ctl fault '{"command":"sync","mode":"before","status":1,"after_command":"platform:open-new","persistent":true}' || return 1
+    invoke migrate 75 && check fault-used && check closed && check unknown && check armed-reclose
+}
+run_test ReworkPersistentJournalFailureAfterOpenRecloses late_journal_failure
+run_test ReworkPersistentJournalControl positive_migration
+
+# All fresh state records are checked before any target effect, including on a
+# later invocation. Existing bytes survive refusal; a clean state can migrate.
+existing_record() {
+    new_fixture || return 1
+    if [[ $2 == migrate ]]; then prepare_migration || return 1; fi
+    printf 'preexisting-record\n' > "$MIGRATION_FIXTURE/state/$1"
+    invoke "$2" 69 || return 1
+    [[ $(cat "$MIGRATION_FIXTURE/state/$1") == preexisting-record ]] || return 1
+    if [[ $2 == migrate ]]; then check no-migration && check closed; else check no-mutation; fi
+}
+for artifact in result migration-started; do
+    run_test "ReworkExisting-$artifact-RefusesBeforeClose" existing_record "$artifact" close-admission
+    run_test "ReworkExisting-$artifact-RefusesBeforeMigration" existing_record "$artifact" migrate
+done
+run_test ReworkFreshArtifactsControl positive_migration
+late_result() {
+    new_fixture && prepare_migration || return 1
+    ctl fault '{"command":"groupadd","mode":"expected","status":0,"create_result":true}' || return 1
+    invoke migrate 75 && check fault-used && check closed && check no-open || return 1
+    # The immediate next forward mutation must be refused, preserving the file.
+    python3 - <<'PYRESULT'
+import json, os, pathlib
+root=pathlib.Path(os.environ['MIGRATION_FIXTURE'])
+db=json.loads((root/'fixture.json').read_text())
+assert not any(c[0] == 'useradd' for c in db['calls'])
+assert (root/'state/result').read_text() == 'unexpected-result\n'
+PYRESULT
+}
+run_test ReworkLateResultBlocksDependentMutation late_result
+
+# Raw driver records require one LF, printable ASCII and bounded length. None
+# of these malformed records may become valid through shell normalization.
+malformed_observation() {
+    local command=$1 kind=$2 nth=${3:-1}
+    new_fixture || return 1
+    ctl fault '{"command":"'"$command"'","mode":"expected","status":0,"nth":'"$nth"',"framing":"'"$kind"'"}' || return 1
+    invoke close-admission 69 && check fault-used && check no-mutation
+}
+for kind in nul extra-line missing-newline cr oversized; do
+    run_test "ReworkRawDriverRejects-$kind" malformed_observation platform:inventory "$kind"
+done
+run_test ReworkRawDriverExactFormatControl positive_close
+# Other capture classes keep their distinct framing and documented statuses;
+# malformed bytes cannot bypass configuration, metadata or quiet-output checks.
+for command in id stat getent cat sha256sum find; do
+    run_test "ReworkRawObservationRejectsNul-$command" malformed_observation "$command" nul
+done
+run_test ReworkRawMetadataHashRejectsNul malformed_observation sha256sum nul 2
+run_test ReworkRawFlockRejectsOutput malformed_observation flock unexpected-output
+raw_mount() {
+    new_fixture || return 1
+    ctl fault '{"command":"mountpoint","mode":"before","status":32,"output":"unexpected\n"}' || return 1
+    invoke close-admission 69 && check fault-used && check no-mutation
+}
+run_test ReworkRawMountpointRejectsOutput raw_mount
+run_test ReworkRawObservationControl positive_close
 
 # Instrument control changes only the generic observation status check, leaving
 # every value comparison and product test intact. This same root-observation

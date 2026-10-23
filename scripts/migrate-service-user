@@ -12,19 +12,57 @@ exec 8>&2
 # changing this script; production PATH and the platform driver must be trusted.
 command_layer() { command "$@"; }
 OBS= OBS_STATUS=0
+# A bounded read with a NUL delimiter stops on a forbidden NUL or the byte
+# limit (status 0); only EOF (status 1) admits the raw value. Unlike $(...), it
+# preserves all LFs. Wait separately for the producer's actual command status.
+capture() {
+    local format=$1 limit=$2 fd producer read_status allowed=$'\n -~'; shift 2
+    OBS= OBS_STATUS=0
+    exec {fd}< <(command_layer "$@" 2>/dev/null)
+    producer=$!
+    IFS= read -r -d '' -n "$((limit + 1))" OBS <&"$fd"; read_status=$?
+    exec {fd}<&-
+    wait "$producer"; OBS_STATUS=$?
+    (( read_status == 1 && ${#OBS} <= limit )) || return 1
+    [[ $OBS =~ ^[$allowed]*$ ]] || return 1
+    case $format in
+        line)
+            [[ $OBS == *$'\n' && ${OBS%$'\n'} != *$'\n'* ]] || return 1
+            OBS=${OBS%$'\n'} ;;
+        text)
+            [[ $OBS == *$'\n' ]] || return 1
+            OBS=${OBS%$'\n'} ;;
+        empty) [[ -z $OBS ]] || return 1 ;;
+        raw) ;;
+        *) return 1 ;;
+    esac
+}
 observe() {
-    OBS=$(command_layer "$@" 2>/dev/null)
-    OBS_STATUS=$?
+    local format=line limit=4096
+    case $1 in
+        cat) format=text; limit=1048576 ;;
+        find)
+            format=raw; limit=1048576
+            if [[ ${*: -1} == '%P\n' ]]; then format=text; fi ;;
+        flock) format=empty; limit=0 ;;
+    esac
+    # Driver values use the same strict single-line framing, with a smaller cap.
+    if [[ $1 == "${driver:-}" ]]; then limit=1024; fi
+    capture "$format" "$limit" "$@" || return 1
     # OBSERVATION_STATUS_BEGIN: the narrowing control removes only this block.
     if (( OBS_STATUS != 0 )); then return 1; fi
     # OBSERVATION_STATUS_END
     return 0
 }
 lookup() {
-    OBS=$(command_layer getent "$@" 2>/dev/null)
-    OBS_STATUS=$?
+    capture raw 4096 getent "$@" || return 1
     # Exit 2 alone documents absence; no comparison can hide another failure.
     if (( OBS_STATUS != 0 && OBS_STATUS != 2 )); then return 1; fi
+    if (( OBS_STATUS == 2 )); then [[ -z $OBS ]] || return 1
+    else
+        [[ $OBS == *$'\n' && ${OBS%$'\n'} != *$'\n'* ]] || return 1
+        OBS=${OBS%$'\n'}
+    fi
     return 0
 }
 say() { printf '%s\n' "$1" >&8; }
@@ -57,8 +95,7 @@ protected_file() {
 # / may be a mount; other ancestors must not be mount points. A site with
 # additional trusted mounts needs a reviewed extension, never a silent waiver.
 not_mount() {
-    OBS=$(command_layer mountpoint -q -- "$1" 2>/dev/null)
-    OBS_STATUS=$?
+    capture empty 0 mountpoint -q -- "$1" || return 1
     case $OBS_STATUS in 32) return 0 ;; *) return 1 ;; esac
 }
 ancestors() {
@@ -180,14 +217,12 @@ old=$old_record
 source=$source_id"
 for i in "${!paths[@]}"; do metadata+=$'\n'"entry=${paths[$i]}:${original[$i]}"; done
 # This hashes the in-memory metadata transcript, never any store file.
-OBS=$(printf '%s\n' "$metadata" | command_layer sha256sum 2>/dev/null)
-OBS_STATUS=$?
-if (( OBS_STATUS != 0 )); then refuse; fi
+observe sha256sum <<< "$metadata" || refuse
 fingerprint=${OBS%% *}
 [[ $fingerprint =~ ^[a-f0-9]{64}$ ]] || refuse
 
 journal=$state/journal
-active=0 recovering=0 deployment=0 move_intent=0 home_intent=0 user_intent=0 group_intent=0
+active=0 recovering=0 recovery_armed=0 deployment=0 move_intent=0 home_intent=0 user_intent=0 group_intent=0
 home_id= user_record= group_record=
 # Journal writes are the write-ahead mechanism, not target mutations. Flush
 # both file and directory; inability to persist prevents the target command.
@@ -199,6 +234,9 @@ append() {
 intent() { append "intent:$1"; }
 mutate() {
     local operation=$1; shift
+    # Refuse a newly appearing result before each dependent forward effect.
+    # Recovery must still close admission and preserve/restore guarded state.
+    if (( recovering == 0 )); then absent "$state/result" || return 1; fi
     intent "$operation" || return 1
     command_layer "$@" >/dev/null 2>&1
 }
@@ -285,10 +323,14 @@ recover() {
     # A second signal must not run competing cleanup. SIGKILL is recovered by
     # an administrator using the durable transcript, never by automatic resume.
     trap '' INT TERM HUP
-    append recovery-start || return 1
-    mutate recovery-close "$driver" close "$config" || return 1
+    # This conditional intent was flushed before the first target effect. No
+    # new journal write may prevent the idempotent safety close. Closure still
+    # requires a successful readback; failed persistence never proves cleanup.
+    (( recovery_armed )) || return 1
+    command_layer "$driver" close "$config" >/dev/null 2>&1 || return 1
     closed || return 1
     serialized || return 1
+    append recovery-start || return 1
     (( deployment == 0 )) || return 1
     if (( move_intent )); then
         local absence_status
@@ -331,14 +373,18 @@ trap 'failed 130' INT
 trap 'if (( active )); then failed 75; fi' EXIT
 
 if [[ $phase == close-admission ]]; then
-    absent "$journal" || refuse
-    absent "$state/preflight" || refuse
-    absent "$state/closed" || refuse
-    absent "$state/confirmation" || refuse
+    for artifact in journal preflight closed confirmation migration-started result; do
+        absent "$state/$artifact" || refuse
+    done
     # All absence/metadata checks above precede the first target mutation.
     (set -o noclobber; : > "$journal") 2>/dev/null || refuse
     append "preflight:$fingerprint" || unknown
     write_record "$state/preflight" "$metadata" || unknown
+    for artifact in closed confirmation migration-started result; do
+        absent "$state/$artifact" || refuse
+    done
+    intent recovery-close || unknown
+    recovery_armed=1
     active=1
     mutate close-admission "$driver" close "$config" || failed
     closed || failed
@@ -368,7 +414,10 @@ protected_file "$state/confirmation" || refuse
 observe cat -- "$state/confirmation" || refuse
 [[ $OBS == "I_HAVE_RECONCILED_ALL_WRITERS_AND_DURABLE_OUTCOMES:$fingerprint:$evidence" ]] || refuse
 absent "$state/migration-started" || refuse
+absent "$state/result" || refuse
 write_record "$state/migration-started" "migration:$fingerprint:$evidence" || unknown
+intent recovery-close || unknown
+recovery_armed=1
 active=1
 serialized || failed
 closed || failed

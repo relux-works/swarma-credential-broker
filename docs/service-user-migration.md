@@ -111,8 +111,10 @@ edit the recorded transcript to bypass the mismatch.
 ## Required site-driver contract
 
 The protected root-owned executable receives `ACTION CONFIG`. Successful reads
-must return **exactly** the following single-line values and exit zero. Any
-nonzero status is unknown even with expected-looking output. All digests are
+must return **exactly** the following single-line values, followed by one LF,
+and exit zero. The complete record must fit in 1024 bytes. NUL, CR, nonprintable
+or non-ASCII bytes, missing LF, extra lines and oversized output are unknown.
+Any nonzero status is unknown even with expected-looking output. All digests are
 64 lowercase hexadecimal characters. Observation output never includes secret
 material. The root administrator reviews and installs the driver together with
 the deployment; it must validate the supplied configuration and its own inputs.
@@ -153,6 +155,28 @@ intent and flushes the file and run directory. Identity captures and phase
 records are also flushed. Journal writes are the persistence mechanism, not
 recursively journaled target changes. They contain private paths and account
 metadata, so keep the run directory protected and do not publish its contents.
+Before the first target effect in either phase, the tool also durably records a
+conditional `recovery-close` intent. That authorizes the idempotent safety close
+throughout the phase, even if subsequent journal writes or flushes fail. Recovery
+closes and verifies admission before attempting another journal append; failed
+persistence still yields exit 75 and incomplete/unknown recovery.
+
+The first phase requires `journal`, `preflight`, `closed`, `confirmation`,
+`migration-started` and `result` to be absent. It rechecks still-unused records
+before closing admission. Migration rechecks `migration-started` and `result`
+before its first mutation, and each forward mutation rechecks `result`.
+Unexpected records are preserved, never adopted or overwritten. The maintenance
+fence remains necessary to exclude concurrent changes between checks and effects.
+
+All command observations use a bounded raw Bash read and a separate child-status
+wait before comparison. Identity, stat and digest outputs require one LF;
+`getent` absence requires exit 2 and empty output; `mountpoint -q` non-mount
+requires exit 32 and empty output; `flock` success requires empty output.
+Configuration, retained phase records and tree listings preserve internal LFs
+and require a final LF; find's absence/count formats retain their no-LF framing.
+All observations reject NUL and bytes outside printable ASCII/LF. Non-driver
+single records are limited to 4096 bytes; configuration, phase records and
+enumerations to 1 MiB. Exceeding a limit refuses rather than truncating.
 
 Errors and INT/TERM/HUP enter reconciliation based on current observations and
 the preflight identities. Recovery first re-closes admission and verifies the
@@ -187,7 +211,8 @@ Failure to close admission requires operator resolution before any migration.
 Run only this tool's tests, using a fresh scratch directory outside the checkout:
 
 ```sh
-bash -n scripts/migrate-service-user tests/migration/run
+bash -n scripts/migrate-service-user
+bash -n tests/migration/run
 bash tests/migration/run <absolute-fresh-scratch-directory>
 ```
 
@@ -206,8 +231,11 @@ real credential tests are claimed.
 | Requirement | Implementation | Named tests (with adjacent controls) |
 |---|---|---|
 | Observation status before value | `observe`, `lookup`, `stat_path`, `not_mount`, `absent`; explicit status handling, no errexit/negated command checks | `ObservationRejectsFailed-*`, `GetentExit1IsUnknown`, `GetentExit3IsUnknown`, `Rollback*FailureIsUnknown` |
+| Raw framing before value | Bounded NUL-delimited read, exact LF validation, independent child status; no lossy command substitution | `ReworkRawDriverRejects-*`, `ReworkRawDriverExactFormatControl`, `ReworkRawObservationRejectsNul-*`, `ReworkRawMetadataHashRejectsNul`, `ReworkRawFlockRejectsOutput`, `ReworkRawMountpointRejectsOutput` |
 | Absence before mutation, retained preflight | Read-only preflight then `write_record` | `PreflightRejects-*`, `ConfirmationRejects-stale-store` |
+| Fresh phase/result artifacts before dependent effects | Initial absence checks, phase-boundary rechecks and per-mutation result guard | `ReworkExisting-*-RefusesBeforeClose`, `ReworkExisting-*-RefusesBeforeMigration`, `ReworkLateResultBlocksDependentMutation`, `ReworkFreshArtifactsControl` |
 | Intent before mutation, effects reconciled on error/signal | `mutate`, traps, `recover`, durable transcript | `RenameErrorAfterEffectRestores`, `TermBetweenRenameAndBookkeepingRestores`, `PartialGroupCreationPreserved`, `TermAfterGroupCreationPreserved` |
+| Late persistence loss still permits the safety close | Durably armed conditional close, verified before further journal writes; unknown cleanup preserved | `ReworkPersistentJournalFailureAfterOpenRecloses`, `ReworkPersistentJournalControl` |
 | Separate close/confirmation/migrate and actual evidence | Phase dispatch, transcript comparison, independent `evidence` | `ConfirmationRejects-*`, `ConfirmationControl-*` |
 | Identity-guarded rollback, final readback, no reopen | `restore_metadata`, `cleanup_resources`, `recover` | `ReappearingSourceNeverOverwritten`, `Rollback*FailureIsUnknown`, `PartialChownRestoresMetadata`, `PartialChmodRestoresMetadata` |
 | Offline rename and metadata-only normalization | `mv --no-copy --no-clobber`, tree snapshot/guards | `PreflightRejects-device`, `PreflightRejects-symlink`, `PreflightRejects-mount`, `PreflightRejects-hardlink`, `RenameErrorControl` |
