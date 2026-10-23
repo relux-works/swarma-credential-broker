@@ -161,25 +161,48 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		writeUntil := time.Now().Add(2 * time.Second)
-		if !until.IsZero() && !time.Now().Before(until) {
-			result = nil
-			err = wire.Refuse("request_deadline_exceeded")
-			if method == "lease.renew" {
-				err = wire.Refuse("renew_timeout")
+		write := func(authDeadline time.Time) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
+			writeUntil := time.Now().Add(2 * time.Second)
+			if !until.IsZero() && !time.Now().Before(until) {
+				result = nil
+				err = wire.Refuse("request_deadline_exceeded")
+				if method == "lease.renew" {
+					err = wire.Refuse("renew_timeout")
+				}
+			}
+			if err == nil {
+				for _, bound := range []time.Time{until, authDeadline} {
+					if !bound.IsZero() && bound.Before(writeUntil) {
+						writeUntil = bound
+					}
+				}
+			}
+			_ = c.SetWriteDeadline(writeUntil)
+			response := map[string]any{"request_id": id}
+			if err != nil {
+				response["error"] = wire.Refuse(lease.ErrorCode(err))
+			} else {
+				response["result"] = result
+			}
+			return wire.Write(c, response)
 		}
-		if err == nil && !until.IsZero() && until.Before(writeUntil) {
-			writeUntil = until
+		if material, ok := result.(wire.LeaseResult); ok && err == nil {
+			delivery, stop := context.WithDeadline(ctx, until)
+			defer stop()
+			wrote := false
+			e := s.Manager.Publish(delivery, uid, g, material, func(authDeadline time.Time) error {
+				wrote = true
+				return write(authDeadline)
+			})
+			if wrote {
+				return e
+			}
+			result, err = nil, e
 		}
-		_ = c.SetWriteDeadline(writeUntil)
-		response := map[string]any{"request_id": id}
-		if err != nil {
-			response["error"] = wire.Refuse(lease.ErrorCode(err))
-		} else {
-			response["result"] = result
-		}
-		return s.Manager.WithGeneration(g, func() error { return wire.Write(c, response) })
+		return s.Manager.WithGeneration(g, func() error { return write(time.Time{}) })
 	}
 	hello := false
 	pending := map[string]bool{}
@@ -281,15 +304,6 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 				return
 			}
 			until := s.Manager.Deadline(r.Method, arrival)
-			if result, ok := out.Result.(wire.LeaseResult); ok && out.Err == nil {
-				delivery, stop := context.WithDeadline(ctx, until)
-				e := s.Manager.Delivery(delivery, uid, result)
-				stop()
-				if e != nil {
-					out.Result = nil
-					out.Err = e
-				}
-			}
 			if send(r.ID, out.Result, out.Err, out.Generation, until, r.Method) != nil {
 				cancel()
 				c.Close()

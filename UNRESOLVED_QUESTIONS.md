@@ -30,9 +30,10 @@ provide no real vendor or lifecycle qualification credit.
 
 Implementation integration questions:
 
-- Which protected owner-store layout and startup reconciliation entry point will
-  the contained owner use alongside the lease metadata? Its adapter must provide
-  independent freshness and the conservative authorization clock before issuance.
+- Account `owner-*.json` is reserved for owner records beside lease metadata.
+  Which startup reconciliation entry point will the contained owner expose? Its
+  adapter must validate those records and provide independent freshness and the
+  conservative authorization clock before issuance.
 - Which configured accounts and intended socket access will supply genuine
   foreign-UID qualification? The optional gate returns PENDING until that fixture
   can run; same-UID kernel coverage does not close this row.

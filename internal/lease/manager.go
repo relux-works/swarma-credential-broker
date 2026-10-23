@@ -12,6 +12,7 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/policy"
 	"github.com/relux-works/swarma-credential-broker/internal/store"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
+	"strings"
 	"sync"
 	"time"
 )
@@ -107,16 +108,17 @@ type account struct {
 	wake    chan struct{}
 }
 type Manager struct {
-	policyMu sync.RWMutex
-	policy   policy.Policy
-	owner    owner.Owner
-	store    *store.Store
-	accounts map[string]*account
-	options  Options
-	instance string
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	policyMu     sync.RWMutex
+	policy       policy.Policy
+	policyFailed bool
+	owner        owner.Owner
+	store        *store.Store
+	accounts     map[string]*account
+	options      Options
+	instance     string
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 }
 
 func RandomID() string {
@@ -135,6 +137,9 @@ func New(p policy.Policy, s *store.Store, o owner.Owner, options Options, initia
 	if e := p.Validate(p.BrokerUID); e != nil {
 		return nil, e
 	}
+	if err := s.PolicyGeneration(p.Generation, initialize); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{policy: p.Clone(), owner: o, store: s, accounts: map[string]*account{}, options: options, instance: RandomID(), ctx: ctx, cancel: cancel}
 	for _, entry := range p.Accounts {
@@ -150,8 +155,12 @@ func New(p policy.Policy, s *store.Store, o owner.Owner, options Options, initia
 		}
 		a := &account{store: disk, records: map[string]Record{}, pending: map[string]*operation{}, wake: make(chan struct{}, 1)}
 		for name, b := range raw {
+			// The owner validates its own protected records; leases never decode them.
+			if strings.HasPrefix(name, "owner-") {
+				continue
+			}
 			var rec Record
-			if wire.Decode(b, &rec) != nil || rec.Kind != "lease-record/1" || rec.Installation != p.Installation || rec.Account != entry.Label || rec.Revision == 0 || !validID(rec.LeaseID) || name != store.LeaseName(rec.LeaseID) || !policy.Hash(rec.OfferedDigest) || !policy.Hash(rec.ObservedDigest) || (rec.State != "active" && rec.State != "released" && rec.State != "expired") {
+			if wire.Decode(b, &rec) != nil || rec.Kind != "lease-record/1" || rec.Installation != p.Installation || rec.Account != entry.Label || rec.Revision == 0 || rec.PolicyGeneration > p.Generation || !validID(rec.LeaseID) || name != store.LeaseName(rec.LeaseID) || !policy.Hash(rec.OfferedDigest) || !policy.Hash(rec.ObservedDigest) || (rec.State != "active" && rec.State != "released" && rec.State != "expired") {
 				cancel()
 				return nil, store.ErrUnavailable
 			}
@@ -193,7 +202,7 @@ func (m *Manager) Policy() policy.Policy {
 func (m *Manager) WithGeneration(g uint64, fn func() error) error {
 	m.policyMu.RLock()
 	defer m.policyMu.RUnlock()
-	if g != m.policy.Generation {
+	if m.policyFailed || g != m.policy.Generation {
 		return wire.Refuse("lease_not_authorised")
 	}
 	return fn()
@@ -207,11 +216,21 @@ func (m *Manager) Replace(p policy.Policy) error {
 	if p.Installation != m.policy.Installation || p.Generation <= m.policy.Generation {
 		return wire.Refuse("lease_not_authorised")
 	}
+	if err := m.store.PolicyGeneration(p.Generation, false); err != nil {
+		m.policyFailed = true
+		return wire.Refuse("lease_owner_unavailable")
+	}
 	m.policy = p.Clone()
 	return nil
 }
 func (m *Manager) Call(ctx context.Context, uid uint32, method string, params any, arrival time.Time) Outcome {
-	p := m.Policy()
+	m.policyMu.RLock()
+	failed := m.policyFailed
+	p := m.policy.Clone()
+	m.policyMu.RUnlock()
+	if failed {
+		return Outcome{Err: wire.Refuse("lease_owner_unavailable")}
+	}
 	op := &operation{arrival: arrival, method: method, uid: uid, generation: p.Generation, waiters: map[uint64]*waiter{}}
 	defer func() {
 		if m.options.Observe != nil {
@@ -434,18 +453,16 @@ func (m *Manager) record(a *account, op *operation) (Record, error) {
 	return r, nil
 }
 func (m *Manager) persist(a *account, r Record) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	prior := r.Revision
 	r.Revision++
 	r.DaemonInstance = m.instance
 	if e := a.store.Put(store.LeaseName(r.LeaseID), prior, r); e != nil {
-		a.mu.Lock()
 		a.failed = true
-		a.mu.Unlock()
 		return wire.Refuse("lease_owner_unavailable")
 	}
-	a.mu.Lock()
 	a.records[r.LeaseID] = r
-	a.mu.Unlock()
 	return nil
 }
 func (m *Manager) execute(label string, a *account, op *operation) Outcome {
@@ -490,6 +507,11 @@ func (m *Manager) execute(label string, a *account, op *operation) Outcome {
 		return Outcome{Err: err}
 	}
 	if op.method == "proactive" || op.method == "lease.renew" && op.rejected == Digest(snapshot.AccessToken) {
+		// Admission of new owner work requires remaining live demand. Once
+		// admitted, the contained attempt may resolve under the manager lifetime.
+		if !m.live(a, op) {
+			return Outcome{Err: deadline(op.method)}
+		}
 		snapshot, err = m.owner.Refresh(m.ctx, label, snapshot.Generation)
 		if err != nil {
 			return Outcome{Err: wire.Refuse("lease_owner_unavailable")}
@@ -584,6 +606,9 @@ func (m *Manager) live(a *account, op *operation) bool {
 	return false
 }
 func (m *Manager) usable(s owner.Snapshot, label string) error {
+	return usable(m.Policy(), m.options.Now(), s, label)
+}
+func usable(p policy.Policy, now time.Time, s owner.Snapshot, label string) error {
 	switch s.State {
 	case owner.Reauth:
 		return wire.Refuse("lease_reauth_required")
@@ -591,12 +616,11 @@ func (m *Manager) usable(s owner.Snapshot, label string) error {
 	default:
 		return wire.Refuse("lease_owner_unavailable")
 	}
-	p := m.Policy()
 	a := mustAccount(p, label)
 	if !s.Qualified || s.PolicyGeneration != p.Generation || s.ExecutableSHA256 != p.ExecutableSHA256 || s.QualificationID != a.QualificationID {
 		return wire.Refuse("lease_harness_unqualified")
 	}
-	if !s.Trusted || !s.Fresh || s.AccessToken == "" || s.Generation == 0 || !m.options.Now().Before(s.ExpiresAt.Truncate(time.Second)) || (!s.AuthorityUntil.IsZero() && !m.options.Now().Before(s.AuthorityUntil.Truncate(time.Second))) {
+	if !s.Trusted || !s.Fresh || s.AccessToken == "" || s.Generation == 0 || !now.Before(s.ExpiresAt.Truncate(time.Second)) || (!s.AuthorityUntil.IsZero() && !now.Before(s.AuthorityUntil.Truncate(time.Second))) {
 		return wire.Refuse("lease_owner_unavailable")
 	}
 	for _, a := range p.Accounts {
@@ -659,42 +683,69 @@ func (m *Manager) Stats(label string) (pending, waiters int) {
 	return len(a.pending), a.waiters
 }
 
-// Delivery checks current policy, owner evidence and local store before socket publication.
-func (m *Manager) Delivery(ctx context.Context, uid uint32, result wire.LeaseResult) error {
+// Publish performs owner I/O without state locks, then fences the complete
+// bounded socket write against lease mutation and policy replacement. The callback
+// must use the supplied authorization deadline and must not reenter the manager.
+func (m *Manager) Publish(ctx context.Context, uid uint32, generation uint64, result wire.LeaseResult, write func(time.Time) error) error {
 	label := m.label(result.LeaseID)
 	a := m.accounts[label]
 	if a == nil {
 		return wire.Refuse("lease_not_owner")
 	}
-	a.mu.Lock()
-	failed := a.failed
-	a.mu.Unlock()
-	if failed {
+	snapshot, err := m.owner.Snapshot(ctx, label)
+	if err != nil {
 		return wire.Refuse("lease_owner_unavailable")
 	}
-	op := &operation{id: result.LeaseID, uid: uid, method: "lease.renew"}
-	r, e := m.record(a, op)
-	if e != nil {
-		return e
+	m.policyMu.RLock()
+	defer m.policyMu.RUnlock()
+	if m.policyFailed {
+		return wire.Refuse("lease_owner_unavailable")
 	}
-	p := m.Policy()
+	p := m.policy
+	if p.Generation != generation {
+		return wire.Refuse("lease_not_authorised")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r, ok := a.records[result.LeaseID]
+	if !ok || r.UID != uid || r.PolicyGeneration != p.Generation || r.Installation != p.Installation {
+		return wire.Refuse("lease_not_owner")
+	}
+	now := m.options.Now()
+	if r.State != "active" || !now.Before(r.AuthorizedUntil) {
+		return wire.Refuse("lease_not_active")
+	}
+	if _, err = p.Admit(uid, label, r.Profile); err != nil {
+		return err
+	}
 	if r.Binding != p.Binding(uid, mustAccount(p, label), r.Profile) {
 		return wire.Refuse("lease_binding_mismatch")
 	}
-	if e = a.store.Healthy(); e != nil {
+	if a.failed || a.store.Healthy() != nil {
 		return wire.Refuse("lease_owner_unavailable")
 	}
-	s, e := m.owner.Snapshot(ctx, label)
-	if e != nil {
+	if err = usable(p, m.options.Now(), snapshot, label); err != nil {
+		return err
+	}
+	if Digest(snapshot.AccessToken) != Digest(result.Payload.AccessToken) {
 		return wire.Refuse("lease_owner_unavailable")
 	}
-	if e = m.usable(s, label); e != nil {
-		return e
+	// Check time again after local store I/O, and bound the write itself by all
+	// authorization/material limits, using a monotonic transport deadline.
+	now = m.options.Now()
+	limit := r.AuthorizedUntil
+	for _, bound := range []time.Time{snapshot.ExpiresAt.Truncate(time.Second), snapshot.AuthorityUntil.Truncate(time.Second)} {
+		if !bound.IsZero() && bound.Before(limit) {
+			limit = bound
+		}
 	}
-	if Digest(s.AccessToken) != Digest(result.Payload.AccessToken) {
-		return wire.Refuse("lease_owner_unavailable")
+	if !now.Before(limit) {
+		return wire.Refuse("lease_not_active")
 	}
-	return nil
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return write(time.Now().Add(limit.Sub(now)))
 }
 func mustAccount(p policy.Policy, label string) policy.Account {
 	for _, a := range p.Accounts {

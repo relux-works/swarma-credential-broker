@@ -442,6 +442,53 @@ func (s *Store) Healthy() error {
 	}
 	return nil
 }
+
+// PolicyGeneration durably raises the installation-wide policy floor before
+// authority is published. Missing evidence is only created during initialization.
+// The store's stable exclusive lock serializes this across daemon replacement.
+func (s *Store) PolicyGeneration(g uint64, initialize bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Healthy() != nil || g == 0 {
+		return ErrUnavailable
+	}
+	var mark struct {
+		Kind         string `json:"kind"`
+		Installation string `json:"installation_id"`
+		Revision     uint64 `json:"revision"`
+		Generation   uint64 `json:"policy_generation"`
+	}
+	b, err := read(s.root, "policy-watermark.json", s.uid)
+	if os.IsNotExist(err) && initialize {
+		d, e := s.root.Open(".")
+		if e != nil {
+			return ErrUnavailable
+		}
+		names, e := d.Readdirnames(-1)
+		d.Close()
+		if e != nil {
+			return ErrUnavailable
+		}
+		for _, name := range names {
+			if name != "identity.json" && name != "owner.lock" {
+				return ErrUnavailable
+			}
+		}
+		mark.Kind = "policy-watermark/1"
+		mark.Installation = s.installation
+	} else if err != nil || wire.Decode(b, &mark) != nil || mark.Kind != "policy-watermark/1" || mark.Installation != s.installation || mark.Revision == 0 || mark.Generation == 0 {
+		return ErrUnavailable
+	}
+	if g < mark.Generation {
+		return ErrUnavailable
+	}
+	if g == mark.Generation {
+		return nil
+	}
+	mark.Generation = g
+	mark.Revision++
+	return replace(s.root, "policy-watermark.json", mark, s.hook)
+}
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

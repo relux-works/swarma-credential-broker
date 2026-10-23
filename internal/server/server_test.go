@@ -212,7 +212,7 @@ func TestStrictProtocol(t *testing.T) {
 	}
 }
 
-// Claim: same-UID kernel admission issues independent leases; request/renew/status/release never write raw canary tokens, and status/logs exclude hashes too.
+// Claim: same-UID kernel admission issues independent leases; request/renew/status/release never write raw canary tokens, and status excludes hashes too; this test does not capture process logs.
 func TestKernelAdmissionAndCanaryLifecycle(t *testing.T) {
 	var root string
 	var tokens []string
@@ -226,7 +226,7 @@ func TestKernelAdmissionAndCanaryLifecycle(t *testing.T) {
 	nextToken := testutil.Token()
 	tokens = []string{e.Owner.View().AccessToken, nextToken}
 	e.Owner.Next(nextToken)
-	var log bytes.Buffer
+	var statusBytes bytes.Buffer
 	path := start(t, e, nil)
 	c := dial(t, path)
 	if uid, err := PeerUID(c); err != nil || uid != e.UID {
@@ -254,9 +254,9 @@ func TestKernelAdmissionAndCanaryLifecycle(t *testing.T) {
 	if status.Error != nil {
 		t.Fatal("status refused")
 	}
-	log.Write(status.Result)
-	if materialLeak(log.Bytes(), tokens, false) {
-		t.Fatal("status or log leaked material")
+	statusBytes.Write(status.Result)
+	if materialLeak(statusBytes.Bytes(), tokens, false) {
+		t.Fatal("status leaked material")
 	}
 	released := request(t, c, "lease.release", "release", wire.Release{LeaseID: first.LeaseID})
 	if released.Error != nil {

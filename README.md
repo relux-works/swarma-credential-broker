@@ -159,17 +159,39 @@ snapshot. Qualification carries the matching policy generation, immutable eviden
 reference and executable digest; a stale qualification cannot survive policy
 replacement. Its refresh method receives the expected generation and must serialize
 writers across replacement. The lease engine holds no state mutex during owner
-I/O, and rechecks authority and the final delivery deadline. The owner scheduler
+I/O. After that I/O, it holds policy and account fences through the bounded
+socket write, rechecking current lease state, authority and the delivery deadline.
+The write deadline also ends at the lease/token/account authorization limit. The owner scheduler
 uses the shared proactive gate; admitted demand suppresses proactive work.
+Before admitting a refresh after a snapshot, the engine checks for live demand.
+An already admitted attempt may reconcile under the manager lifetime, even when
+its response waiters disappear; an abandoned snapshot starts no new refresh.
 Durable time watermarking, attempt intent, containment, vendor-store reload,
 recovery and backoff belong to that adapter. Integrations must supply the
 conservative authorization clock through lease options. No command enables the
 test fake or bypasses the stopped production adapter.
 
+The store root reserves `policy-watermark.json` (`policy-watermark/1`) for the
+installation's monotonic policy floor. It is flushed before initial authority or
+a replacement generation becomes visible, including when no lease has yet been
+written. Startup refuses a policy below that floor or any retained lease record;
+uncertain watermark publication closes admission until restart. Missing watermark
+evidence is initialized only in a fresh store, never reconstructed from an
+existing account directory. Older experimental stores need explicit offline
+migration; `--init-store` cannot erase this fence.
+
+Within account directories, `lease-<id>.json` belongs to the lease engine and
+`owner-*.json` is reserved for the contained owner (intent, evidence, checkpoints
+and qualification). The store still checks canonical bytes and protection for
+all records. The owner must validate and reconcile its namespace before returning
+a usable snapshot; the lease engine ignores that namespace and rejects unknown
+non-owner records. Both use the existing expected-revision atomic `Account.Put`.
+
 Lease metadata contains only protected digests, generations and authority. Tokens
 remain in memory and framed socket responses. The canary lifecycle test scans
 all metadata writes at durability checkpoints and all status output, including
-full token and digest prefixes. Tests also cover canonical framing, schema
+full token and digest prefixes. This in-process test does not capture daemon
+stdout/stderr and supplies no process-log qualification. Tests also cover canonical framing, schema
 closure, queue/capacity bounds, lost responses, cancellation, FIFO, policy
 replacement, expiry, uncertain publication, symlinks and restart.
 

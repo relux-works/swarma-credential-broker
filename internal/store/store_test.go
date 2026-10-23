@@ -136,3 +136,60 @@ func TestAccountProtection(t *testing.T) {
 		t.Fatal("protected control refused")
 	}
 }
+
+// Claim: the policy floor uses protected canonical records and ordered durability; rollback, missing evidence and unsafe modes cannot reopen an initialized store.
+func TestPolicyWatermarkProtection(t *testing.T) {
+	for _, scenario := range []string{"rollback", "missing", "mode", "corrupt", "symlink", "current-control"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "store")
+			var stages []string
+			s, err := Open(root, "fixture-install", uint32(os.Geteuid()), true, func(stage string) error { stages = append(stages, stage); return nil })
+			if err != nil {
+				t.Fatal("store setup failed")
+			}
+			defer s.Close()
+			stages = nil
+			if s.PolicyGeneration(2, true) != nil {
+				t.Fatal("initial floor refused")
+			}
+			if !reflect.DeepEqual(stages, []string{"write", "file-sync", "rename", "directory-sync"}) {
+				t.Fatal("watermark durability unordered")
+			}
+			if _, err = s.Account("fixture", true); err != nil {
+				t.Fatal("account setup failed")
+			}
+			path := filepath.Join(root, "policy-watermark.json")
+			g := uint64(2)
+			switch scenario {
+			case "rollback":
+				g = 1
+			case "missing":
+				if os.Remove(path) != nil {
+					t.Fatal("remove fixture failed")
+				}
+			case "mode":
+				if os.Chmod(path, 0644) != nil {
+					t.Fatal("chmod fixture failed")
+				}
+			case "corrupt":
+				if os.WriteFile(path, []byte(`{}`), 0600) != nil {
+					t.Fatal("corrupt fixture failed")
+				}
+			case "symlink":
+				if os.Remove(path) != nil || os.Symlink("identity.json", path) != nil {
+					t.Fatal("link fixture failed")
+				}
+			}
+			err = s.PolicyGeneration(g, true)
+			if scenario == "current-control" {
+				if err != nil {
+					t.Fatal("current floor refused")
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("unsafe policy floor accepted")
+			}
+		})
+	}
+}

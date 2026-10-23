@@ -80,6 +80,14 @@ func required(x any, t reflect.Type) error {
 	if t == reflect.TypeFor[json.RawMessage]() {
 		return nil
 	}
+	// encoding/json silently maps null primitives to zero values, including
+	// array elements. Only explicitly nullable pointers/raw JSON accept null.
+	if x == nil {
+		if t.Kind() == reflect.Pointer {
+			return nil
+		}
+		return ErrMalformed
+	}
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
