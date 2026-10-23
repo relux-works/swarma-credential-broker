@@ -301,6 +301,70 @@ PY
     # Narrow the result to an unsafe admission mutation, not a setup failure.
     [[ $status == 0 ]] && check closed
 }
+# Live producer lifetime is separate from raw framing: invalid bytes trigger
+# bounded shutdown/reaping; valid fragments/EOF must await the real exit status.
+live_producer() {
+    new_fixture || return 1
+    if [[ $1 == migrate ]]; then prepare_migration || return 1; fi
+    python3 "$repo/tests/migration/producer.py" "$script" "$fixture" "$@"
+}
+for phase in close-admission migrate; do
+    run_test "LiveProducerNul-$phase" live_producer "$phase" nul 0 yes
+    run_test "LiveProducerOversize-$phase" live_producer "$phase" oversize 0 yes
+    run_test "LiveProducerFragmentedControl-$phase" live_producer "$phase" fragmented 0 no
+    run_test "LiveProducerNonzeroControl-$phase" live_producer "$phase" fragmented 7 no
+done
+run_test LiveProducerTermCooperative live_producer close-admission nul 0 no
+run_test LiveProducerClosedInvalid live_producer migrate closed-invalid 0 yes
+run_test LiveProducerValidEofControl live_producer migrate closed-valid 0 no
+# Instrument only termination confirmation to model an unavailable process
+# table. The actual fixture child is killed; its PID must remain reported as
+# unconfirmed, refusal becomes75, and recovery must never claim cleanup.
+unconfirmed_producer() {
+    new_fixture || return 1
+    if [[ $1 == migrate ]]; then prepare_migration || return 1; fi
+    local instrument=$MIGRATION_FIXTURE/unconfirmed-script
+    python3 - "$script" "$instrument" <<'PYCONFIRM'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+old='producer_gone() { [[ -d /proc/self && ! -d /proc/$1 ]]; }'
+assert s.count(old)==1
+Path(sys.argv[2]).write_text(s.replace(old, 'producer_gone() { return 1; }'))
+PYCONFIRM
+    python3 "$repo/tests/migration/producer.py" "$instrument" "$fixture" "$1" nul 0 yes unconfirmed
+}
+run_test LiveProducerUnconfirmedRefusal unconfirmed_producer close-admission
+run_test LiveProducerUnconfirmedRecovery unconfirmed_producer migrate
+# Restore only the premature wait. The exact oversized final-record regression
+# must fail its deadline with admission still open, then reap its own fixtures.
+wait_order_control() {
+    local mutant=$scratch/wait-order-mutant
+    python3 - "$script" "$mutant" <<'PYWAIT'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+wait='    wait "$producer"; OBS_STATUS=$?\n'
+assert s.count(wait)==1
+s=s.replace(wait, '')
+marker='    # Reject known-invalid bytes/framing before waiting for command success.\n'
+assert s.count(marker)==1
+Path(sys.argv[2]).write_text(s.replace(marker, wait+marker))
+PYWAIT
+    local script=$mutant
+    live_producer migrate oversize 0 yes > "$scratch/mutant-wait-order.log" 2>&1
+    local red=$?
+    printf 'mutant regression exit=%s (expected 1)\n' "$red" > "$scratch/mutant-wait-order-result.txt"
+    [[ $red == 1 ]] || return 1
+    python3 - <<'PYWAITSTATE'
+from pathlib import Path
+import json, os
+r=Path(os.environ['MIGRATION_FIXTURE'])
+e=json.loads((r/'producer-evidence.json').read_text())
+assert e['blocked'] and e['new_open'] and e['producer_gone_after_cleanup']
+PYWAITSTATE
+}
+run_test LiveProducerWaitOrderingControl wait_order_control
 run_test ObservationStatusNarrowingControl narrowing_control
 printf 'passed=%s failed=%s\n' "$passed" "$failed"
 (( failed == 0 ))

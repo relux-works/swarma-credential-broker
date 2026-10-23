@@ -12,17 +12,40 @@ exec 8>&2
 # changing this script; production PATH and the platform driver must be trusted.
 command_layer() { command "$@"; }
 OBS= OBS_STATUS=0
-# A bounded read with a NUL delimiter stops on a forbidden NUL or the byte
-# limit (status 0); only EOF (status 1) admits the raw value. Unlike $(...), it
-# preserves all LFs. Wait separately for the producer's actual command status.
-capture() {
-    local format=$1 limit=$2 fd producer read_status allowed=$'\n -~'; shift 2
-    OBS= OBS_STATUS=0
-    exec {fd}< <(command_layer "$@" 2>/dev/null)
-    producer=$!
-    IFS= read -r -d '' -n "$((limit + 1))" OBS <&"$fd"; read_status=$?
-    exec {fd}<&-
-    wait "$producer"; OBS_STATUS=$?
+unreaped_producers=()
+# Only an absent PID in the local Linux process table confirms termination.
+# If that observation is unavailable, retain the PID and report unknown.
+producer_gone() { [[ -d /proc/self && ! -d /proc/$1 ]]; }
+stop_invalid_producer() {
+    local producer=$1 slot=${#unreaped_producers[@]} signal attempt
+    unreaped_producers[$slot]=$producer
+    for signal in TERM KILL; do
+        if producer_gone "$producer"; then
+            wait "$producer" >/dev/null 2>&1
+            unset "unreaped_producers[$slot]"
+            return 0
+        fi
+        # The producer execs in the process substitution, so this recorded PID
+        # names the command itself, never a wrapper or a shared process group.
+        builtin kill -s "$signal" "$producer" 2>/dev/null || :
+        for ((attempt=0; attempt<10; attempt++)); do
+            if producer_gone "$producer"; then
+                wait "$producer" >/dev/null 2>&1
+                unset "unreaped_producers[$slot]"
+                return 0
+            fi
+            command_layer sleep 0.05 >/dev/null 2>&1 || break
+        done
+    done
+    if producer_gone "$producer"; then
+        wait "$producer" >/dev/null 2>&1
+        unset "unreaped_producers[$slot]"
+        return 0
+    fi
+    return 1
+}
+valid_record() {
+    local format=$1 limit=$2 read_status=$3 allowed=$'\n -~'
     (( read_status == 1 && ${#OBS} <= limit )) || return 1
     [[ $OBS =~ ^[$allowed]*$ ]] || return 1
     case $format in
@@ -36,6 +59,24 @@ capture() {
         raw) ;;
         *) return 1 ;;
     esac
+}
+# A bounded read with a NUL delimiter stops on a forbidden NUL or the byte
+# limit (status 0); only EOF (status 1) admits the raw value. Unlike $(...), it
+# preserves all LFs. Wait separately for the producer's actual command status.
+capture() {
+    local format=$1 limit=$2 fd producer read_status; shift 2
+    OBS= OBS_STATUS=0
+    exec {fd}< <(command_layer exec "$@" 2>/dev/null)
+    producer=$!
+    IFS= read -r -d '' -n "$((limit + 1))" OBS <&"$fd"; read_status=$?
+    exec {fd}<&-
+    # Reject known-invalid bytes/framing before waiting for command success.
+    if ! valid_record "$format" "$limit" "$read_status"; then
+        stop_invalid_producer "$producer" || :
+        OBS_STATUS=1
+        return 1
+    fi
+    wait "$producer"; OBS_STATUS=$?
 }
 observe() {
     local format=line limit=4096
@@ -66,8 +107,17 @@ lookup() {
     return 0
 }
 say() { printf '%s\n' "$1" >&8; }
-refuse() { say 'refused: preflight or evidence unavailable'; exit 69; }
-unknown() { say 'halted: recovery incomplete/unknown; keep admission closed'; exit 75; }
+report_producers() {
+    local producer
+    for producer in "${unreaped_producers[@]}"; do
+        say "unconfirmed observation producer pid=$producer"
+    done
+}
+refuse() {
+    (( ${#unreaped_producers[@]} == 0 )) || unknown
+    say 'refused: preflight or evidence unavailable'; exit 69
+}
+unknown() { report_producers; say 'halted: recovery incomplete/unknown; keep admission closed'; exit 75; }
 usage() { say 'usage: migrate-service-user {close-admission|migrate} /absolute/config'; exit 64; }
 (( $# == 2 )) || usage
 phase=$1 config=$2
@@ -330,6 +380,7 @@ recover() {
     command_layer "$driver" close "$config" >/dev/null 2>&1 || return 1
     closed || return 1
     serialized || return 1
+    (( ${#unreaped_producers[@]} == 0 )) || return 1
     append recovery-start || return 1
     (( deployment == 0 )) || return 1
     if (( move_intent )); then
@@ -364,7 +415,7 @@ recover() {
 failed() {
     local code=${1:-75}
     if recover; then say 'halted: verified target cleanup; admission remains closed'
-    else say 'halted: recovery incomplete/unknown; keep admission closed'; fi
+    else report_producers; say 'halted: recovery incomplete/unknown; keep admission closed'; fi
     trap - EXIT
     exit "$code"
 }

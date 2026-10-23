@@ -178,6 +178,23 @@ All observations reject NUL and bytes outside printable ASCII/LF. Non-driver
 single records are limited to 4096 bytes; configuration, phase records and
 enumerations to 1 MiB. Exceeding a limit refuses rather than truncating.
 
+A record already known to be invalid never waits for the producer's normal
+exit. The command execs as the captured child PID. The tool closes the read end,
+sends that PID TERM, polls termination at most ten times with 50 ms sleeps,
+then escalates to KILL with another ten polls. The shutdown budget is two
+500 ms intervals, plus command/scheduling overhead; it is not a real-time
+scheduling guarantee. Only after the local Linux `/proc` table confirms the
+PID is absent does the tool call `wait` to collect its saved exit status.
+Valid records keep an unbounded wait for their producer's actual exit status.
+
+If termination cannot be confirmed, the tool retains and reports the numeric
+PID, returns incomplete/unknown (75 even during preflight), and never reports
+verified cleanup. During migration it still attempts the pre-armed safety close
+and closed-state readback before halting. An unavailable process table also
+means termination is unconfirmed. No process group or unrelated process is
+signaled. These bounds concern the captured command itself; the site driver
+must own and reconcile any subprocesses it creates.
+
 Errors and INT/TERM/HUP enter reconciliation based on current observations and
 the preflight identities. Recovery first re-closes admission and verifies the
 maintenance fence. A store with its original identity is restored only if the
@@ -232,6 +249,8 @@ real credential tests are claimed.
 |---|---|---|
 | Observation status before value | `observe`, `lookup`, `stat_path`, `not_mount`, `absent`; explicit status handling, no errexit/negated command checks | `ObservationRejectsFailed-*`, `GetentExit1IsUnknown`, `GetentExit3IsUnknown`, `Rollback*FailureIsUnknown` |
 | Raw framing before value | Bounded NUL-delimited read, exact LF validation, independent child status; no lossy command substitution | `ReworkRawDriverRejects-*`, `ReworkRawDriverExactFormatControl`, `ReworkRawObservationRejectsNul-*`, `ReworkRawMetadataHashRejectsNul`, `ReworkRawFlockRejectsOutput`, `ReworkRawMountpointRejectsOutput` |
+| Invalid live producer cannot postpone refusal/recovery | TERM/KILL of owned exec PID, bounded termination confirmation before reap; unknown PID retained | `LiveProducerNul-*`, `LiveProducerOversize-*`, `LiveProducerTermCooperative`, `LiveProducerClosedInvalid`, `LiveProducerUnconfirmedRefusal`, `LiveProducerUnconfirmedRecovery`, `LiveProducerWaitOrderingControl` |
+| Valid producer status still awaited | No valid-observation deadline, including fragmented output and valid EOF | `LiveProducerFragmentedControl-*`, `LiveProducerNonzeroControl-*`, `LiveProducerValidEofControl` |
 | Absence before mutation, retained preflight | Read-only preflight then `write_record` | `PreflightRejects-*`, `ConfirmationRejects-stale-store` |
 | Fresh phase/result artifacts before dependent effects | Initial absence checks, phase-boundary rechecks and per-mutation result guard | `ReworkExisting-*-RefusesBeforeClose`, `ReworkExisting-*-RefusesBeforeMigration`, `ReworkLateResultBlocksDependentMutation`, `ReworkFreshArtifactsControl` |
 | Intent before mutation, effects reconciled on error/signal | `mutate`, traps, `recover`, durable transcript | `RenameErrorAfterEffectRestores`, `TermBetweenRenameAndBookkeepingRestores`, `PartialGroupCreationPreserved`, `TermAfterGroupCreationPreserved` |

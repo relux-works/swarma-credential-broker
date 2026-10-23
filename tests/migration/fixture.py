@@ -11,6 +11,7 @@ from pathlib import Path
 import signal
 import stat
 import sys
+import time
 
 ROOT = Path(os.environ["MIGRATION_FIXTURE"])
 DB = ROOT / "fixture.json"
@@ -279,6 +280,34 @@ def run_command(cmd, args):
     if fault and fault["mode"] == "term":
         # State is committed, but no output/exit bookkeeping reached the shell.
         os.kill(os.getppid(), signal.SIGTERM)
+    if fault and fault.get("producer"):
+        spec = fault["producer"]
+        if spec.get("ignore_term"):
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        kind = spec["record"]
+        if kind == "nul":
+            out = "x\0"
+        elif kind == "oversize":
+            out = "x" * 1025
+        elif kind == "closed-invalid":
+            out = "wrong"  # EOF without the mandatory LF proves bad framing.
+        split = 8 if kind == "fragmented" else len(out)
+        (ROOT / "producer-ready.json").write_text(json.dumps(dict(
+            pid=os.getpid(), parent=os.getppid(), started=time.monotonic())))
+        sys.stdout.write(out[:split])
+        sys.stdout.flush()
+        if kind.startswith("closed-"):
+            sys.stdout.close()
+            os.close(1)
+        # A bounded self-expiry protects interrupted test runs. Normal tests
+        # require the tool to stop invalid producers before this fallback.
+        until = time.monotonic() + 20
+        while not (ROOT / "producer-release").exists() and time.monotonic() < until:
+            time.sleep(.01)
+        if kind == "fragmented":
+            sys.stdout.write(out[split:])
+            sys.stdout.flush()
+        return code
     sys.stdout.write(out)
     return code
 
