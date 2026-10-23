@@ -33,13 +33,15 @@ type Intent struct {
 type Evidence struct {
 	Kind string `json:"kind"`
 	Binding
-	Phase       string      `json:"phase"`
-	Observation Observation `json:"observation"`
-	Absence     string      `json:"absence"`
-	Outcome     Disposition `json:"outcome"`
-	RPC         Disposition `json:"rpc_outcome"`
-	Plan        string      `json:"plan_type"`
-	StoreAfter  uint64      `json:"store_generation_after"`
+	Phase        string      `json:"phase"`
+	Observation  Observation `json:"observation"`
+	Absence      string      `json:"absence"`
+	Outcome      Disposition `json:"outcome"`
+	RPC          Disposition `json:"rpc_outcome"`
+	Plan         string      `json:"plan_type"`
+	StoreAfter   uint64      `json:"store_generation_after"`
+	ResolvedAt   time.Time   `json:"resolved_at"`
+	TokenExpires time.Time   `json:"token_expires_at"`
 }
 type Checkpoint struct {
 	Kind             string    `json:"kind"`

@@ -4,6 +4,7 @@ package authowner
 
 import (
 	"path/filepath"
+	"time"
 
 	"github.com/relux-works/swarma-credential-broker/internal/owner"
 )
@@ -48,6 +49,8 @@ func (e *Engine) validateChain(a *account) error {
 		}
 	}
 	sg, tg := uint64(1), uint64(1)
+	var failures uint64
+	var retryAt, nextProactive, resolvedAt, expires time.Time
 	for _, intent := range ordered {
 		if intent.StoreBefore != sg || intent.TokenBefore != tg {
 			return ErrUnavailable
@@ -66,6 +69,9 @@ func (e *Engine) validateChain(a *account) error {
 			// The only skipped phase is recovery without durable response proof.
 			allowed := previous == "intent" && v.Phase == "submitted" || previous == "submitted" && v.Phase == "running" || previous == "running" && (v.Phase == "stopping" || v.Phase == "absent") || previous == "stopping" && v.Phase == "absent" || previous == "absent" && v.Phase == "resolved"
 			if !allowed {
+				return ErrUnavailable
+			}
+			if v.Phase != "resolved" && (!v.ResolvedAt.IsZero() || !v.TokenExpires.IsZero()) {
 				return ErrUnavailable
 			}
 			o := v.Observation
@@ -104,6 +110,28 @@ func (e *Engine) validateChain(a *account) error {
 					if rpc == Unknown || v.Outcome != rpc {
 						return ErrUnavailable
 					}
+					if v.ResolvedAt.IsZero() || v.ResolvedAt.Before(intent.Created) || v.ResolvedAt.Before(resolvedAt) || v.TokenExpires.IsZero() || rpc == Committed && !v.ResolvedAt.Before(v.TokenExpires) || rpc != Committed && !expires.IsZero() && !v.TokenExpires.Equal(expires) {
+						return ErrUnavailable
+					}
+					resolvedAt, expires = v.ResolvedAt, v.TokenExpires
+					// Only the checkpointed prefix determines checkpoint scheduling;
+					// a durable pending resolution is replayed by recovery.
+					if intent.Sequence <= c.RetainedAttempts {
+						switch rpc {
+						case Committed:
+							failures, retryAt = 0, time.Time{}
+							nextProactive = proactiveAt(resolvedAt, expires, e.config.ProactiveWindow)
+						case Safe:
+							if failures == ^uint64(0) {
+								return ErrUnavailable
+							}
+							failures++
+							retryAt = resolvedAt.Add(safeBackoff(failures))
+						}
+						if c.Watermark.Before(resolvedAt) {
+							return ErrUnavailable
+						}
+					}
 					if rpc == Committed {
 						if sg == ^uint64(0) || tg == ^uint64(0) {
 							return ErrUnavailable
@@ -136,7 +164,41 @@ func (e *Engine) validateChain(a *account) error {
 	if c.RetainedAttempts == 0 && (c.LastAttempt != "" || c.StoreGeneration != 1 || c.TokenGeneration != 1) {
 		return ErrUnavailable
 	}
+	if c.Failures != failures {
+		return ErrUnavailable
+	}
+	if retryAt.IsZero() && !c.RetryAt.IsZero() || !retryAt.IsZero() && c.RetryAt.Before(retryAt) {
+		return ErrUnavailable
+	}
+	if !c.NextProactive.Equal(nextProactive) {
+		return ErrUnavailable
+	}
+	if c.PendingAttempt == "" && !expires.IsZero() {
+		material, err := load(a.config, true)
+		if err != nil || !material.Expires.Equal(expires) {
+			return ErrUnavailable
+		}
+	}
 	return nil
+}
+
+func safeBackoff(failures uint64) time.Duration {
+	delay := time.Second
+	for i := uint64(1); i < failures && delay < 60*time.Second; i++ {
+		delay *= 2
+	}
+	if delay > 60*time.Second {
+		return 60 * time.Second
+	}
+	return delay
+}
+
+func proactiveAt(resolvedAt, expires time.Time, window time.Duration) time.Time {
+	next := resolvedAt.Add(expires.Sub(resolvedAt) / 2)
+	if start := expires.Add(-window); start.After(next) {
+		next = start
+	}
+	return next
 }
 
 func validDisposition(v Disposition) bool {

@@ -121,6 +121,31 @@ func TestRetainedChainTable(t *testing.T) {
 			}
 			fields(original, nil)
 			faults = append(faults, semanticChainFaults(phase)...)
+			if phase == "resolved" {
+				var v Evidence
+				if json.Unmarshal(baseline[name], &v) != nil {
+					t.Fatal("resolution fixture")
+				}
+				faults = append(faults,
+					chainFault{name: "resolved_at/before-intent", path: []string{"resolved_at"}, value: v.Created.Add(-time.Nanosecond)},
+					chainFault{name: "resolved_at/after-watermark", path: []string{"resolved_at"}, value: v.ResolvedAt.Add(time.Second)},
+					chainFault{name: "token_expires_at/nonzero-conflict", path: []string{"token_expires_at"}, value: v.TokenExpires.Add(time.Second)},
+				)
+			}
+			if phase == "checkpoint" {
+				var c Checkpoint
+				if json.Unmarshal(baseline[name], &c) != nil {
+					t.Fatal("checkpoint fixture")
+				}
+				for _, fault := range []chainFault{
+					{name: "next_proactive/erased", path: []string{"next_proactive"}, value: time.Time{}},
+					{name: "next_proactive/shortened-nonzero", path: []string{"next_proactive"}, value: c.NextProactive.Add(-time.Second)},
+					{name: "safe_failures/inconsistent-nonzero", path: []string{"safe_failures"}, value: 2},
+					{name: "retry_at/unexpected-nonzero", path: []string{"retry_at"}, value: c.Watermark.Add(time.Second)},
+				} {
+					faults = append(faults, fault)
+				}
+			}
 			for _, fault := range faults {
 				t.Run(fault.name, func(t *testing.T) {
 					for _, entry := range []string{"load", "snapshot", "fresh-home", "writer"} {
@@ -270,6 +295,13 @@ func semanticChainFaults(phase string) []chainFault {
 	add("deadline", "0001-01-01T00:00:00Z")
 	if phase == "intent" {
 		return faults
+	}
+	if phase == "resolved" {
+		add("resolved_at", "0001-01-01T00:00:00Z")
+		add("token_expires_at", "0001-01-01T00:00:00Z")
+	} else {
+		add("resolved_at", time.Now().UTC())
+		add("token_expires_at", time.Now().UTC())
 	}
 	for _, field := range []string{"invocation_id", "cgroup_path", "cgroup_identity", "verified_property_digest", "unit_name", "manager.boot_id", "manager.manager_epoch"} {
 		add("observation."+field, "")

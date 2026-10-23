@@ -331,11 +331,14 @@ func (e *Engine) evidence(a *account, b Binding, phase string, o Observation, ab
 		p = plan[0]
 	}
 	v := Evidence{Plan: p, Kind: "attempt-evidence/1", Binding: b, Phase: phase, Observation: o, Absence: absence, RPC: rpc, Outcome: outcome, StoreAfter: store}
-	if a.config.Disk.Healthy() != nil || a.config.Disk.Append(evidenceName(b.Attempt, b.Revision), v) != nil {
+	return e.appendEvidence(a, v)
+}
+func (e *Engine) appendEvidence(a *account, v Evidence) error {
+	if a.config.Disk.Healthy() != nil || a.config.Disk.Append(evidenceName(v.Attempt, v.Revision), v) != nil {
 		a.blocked = true
 		return ErrUnavailable
 	}
-	a.attempts[b.Attempt] = append(a.attempts[b.Attempt], v)
+	a.attempts[v.Attempt] = append(a.attempts[v.Attempt], v)
 	return nil
 }
 func (e *Engine) attempt(ctx context.Context, a *account, t TimeEvidence) error {
@@ -470,14 +473,7 @@ func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Obse
 			if outcome == Safe {
 				c.State = owner.Transient
 				c.Failures++
-				delay := time.Second
-				for i := uint64(1); i < c.Failures && delay < 60*time.Second; i++ {
-					delay *= 2
-				}
-				if delay > 60*time.Second {
-					delay = 60 * time.Second
-				}
-				backoff = delay
+				backoff = safeBackoff(c.Failures)
 			} else {
 				c.State = owner.Reauth
 			}
@@ -505,22 +501,30 @@ func (e *Engine) resolve(ctx context.Context, a *account, b Binding, absent Obse
 	if !c.Watermark.Before(t.AuthorityUntil) {
 		return ErrUnavailable
 	}
+	resolvedAt := c.Watermark
+	list := a.attempts[b.Attempt]
+	if len(list) > 0 && list[len(list)-1].Phase == "resolved" {
+		last := list[len(list)-1]
+		if last.Outcome != outcome || last.StoreAfter != c.StoreGeneration || !last.TokenExpires.Equal(material.Expires) {
+			return ErrUnavailable
+		}
+		resolvedAt = last.ResolvedAt
+	}
 	if outcome == Safe {
-		c.RetryAt = c.Watermark.Add(backoff)
+		c.RetryAt = resolvedAt.Add(backoff)
 	}
 	if outcome == Committed {
 		if !c.Watermark.Before(material.Expires) {
 			return ErrUnavailable
 		}
-		c.NextProactive = c.Watermark.Add(material.Expires.Sub(c.Watermark) / 2)
+		c.NextProactive = proactiveAt(resolvedAt, material.Expires, e.config.ProactiveWindow)
 	}
-	list := a.attempts[b.Attempt]
 	if len(list) == 0 || list[len(list)-1].Phase != "resolved" {
-		if e.evidence(a, b, "resolved", absent, "confirmed", result.Outcome, outcome, c.StoreGeneration, result.Plan) != nil {
+		b.Revision = uint64(len(list)) + 2
+		v := Evidence{Kind: "attempt-evidence/1", Binding: b, Phase: "resolved", Observation: absent, Absence: "confirmed", RPC: result.Outcome, Outcome: outcome, StoreAfter: c.StoreGeneration, Plan: result.Plan, ResolvedAt: resolvedAt, TokenExpires: material.Expires}
+		if e.appendEvidence(a, v) != nil {
 			return ErrUnavailable
 		}
-	} else if last := list[len(list)-1]; last.Outcome != outcome || last.StoreAfter != c.StoreGeneration {
-		return ErrUnavailable
 	}
 	if e.checkpoint(a, c) != nil {
 		return ErrUnavailable

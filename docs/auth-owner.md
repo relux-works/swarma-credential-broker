@@ -105,8 +105,30 @@ running-state requirements below; they do not independently certify absence.
 | running | Same binding and stable tuple; Active `active`, Substate `running`, positive MainPID and ProcessStart; no stop/empty/removal flags | RPC/outcome `unknown`, empty plan; absence `unknown` | Next contiguous revision; StoreAfter 0; follows submitted |
 | stopping | Same binding and running observation; stable tuple unchanged | RPC one of `committed`, `safe_no_rotation`, `reauth_required`, `unknown`; outcome `unknown`; valid plan for committed, otherwise empty; absence `unknown` | Next revision; StoreAfter 0; follows running |
 | absent | Same binding and stable tuple; Active `inactive` or `failed`; Complete, RestartNo, StopCompleted, Empty and PopulatedZero all true; CgroupRemoved may be true only with this complete stop evidence | RPC and plan equal stopping; outcome `unknown`; absence `confirmed`; unknown RPC is ambiguous, never resolved or admitted | Next revision; StoreAfter 0; follows stopping, or running for recovery with RPC unknown and empty plan |
-| resolved | Same binding and stable tuple; same complete stop evidence as absent, with Active `inactive` or `failed` | RPC and plan equal stopping and absent; RPC equals outcome, one of committed/safe/rejected; absence `confirmed`; no unknown outcome-bearing evidence anywhere in a resolved chain | Next revision; follows absent; committed increments store/token generations by one each, safe/rejected leave both unchanged; StoreAfter is resulting store generation |
+| resolved | Same binding and stable tuple; same complete stop evidence as absent, with Active `inactive` or `failed`; trusted `resolved_at` and known `token_expires_at` obey the scheduling table | RPC and plan equal stopping and absent; RPC equals outcome, one of committed/safe/rejected; absence `confirmed`; no unknown outcome-bearing evidence anywhere in a resolved chain | Next revision; follows absent; committed increments store/token generations by one each, safe/rejected leave both unchanged; StoreAfter is resulting store generation |
 | checkpoint | Kind `account-checkpoint/1`; configured installation, account, vendor, home and policy; nonempty store/token digests, valid plan and nonzero watermark; active/transient/reauth follows committed/safe/rejected respectively | LastAttempt binds the last retained resolution; active plan equals that committed resolution; pending account is unavailable, never material authority | Positive revision at least 1 + twice retained count + one if pending; retained count covers a contiguous resolved prefix; store/token generations equal that prefix; at most one additional pending intent, explicitly named; no pending means all attempts checkpointed |
+
+Scheduling is authority under profile §§4 and 4.2, validated with the whole
+chain before every admission. Resolution evidence carries `resolved_at`, sampled
+from fresh trusted time after confirmed absence and durable material reload, and
+`token_expires_at`, the reloaded generation's known expiry. Both fields are zero
+in every earlier phase. Resolution time is at least intent creation and the
+preceding resolution time; expiry is nonzero and unchanged on safe/rejected
+outcomes. A committed expiry is later than resolution time. A settled chain's
+last recorded expiry matches the protected current material. Checkpoint watermark
+is at least its last retained resolution time. Trusted confidence is still
+revalidated separately; metadata never establishes independent time authority.
+
+| Scheduling field | Initial checkpoint | Cross-history rule, including pending checkpoints |
+|---|---|---|
+| `safe_failures` | Zero | Exactly the number of retained safe resolutions since the last commit; safe increments, commit resets to zero, rejected preserves. Pending evidence beyond the checkpointed prefix changes no checkpoint schedule. |
+| `retry_at` | Zero | Zero until the first safe resolution and after each commit. Otherwise at least the last retained safe resolution's trusted `resolved_at` plus 1, 2, 4, 8, 16, 32, then 60 seconds for its consecutive-safe count. Rejected preserves this lower bound. Elapsed time does not erase the durable bound; retry still requires conclusive non-rotation, confirmed absence, store reconciliation and the lifecycle gate. |
+| `next_proactive` | Zero; initial work still requires known expiry and the configured window | For the last retained committed generation, exactly the later of `resolved_at + (token_expires_at - resolved_at)/2` and `token_expires_at - configured_window`. Safe, rejected and pending preserve it; before any commit it remains zero. This enforces the window and conservative half-remaining-lifetime spacing even for lifetimes shorter than the window. |
+
+A recovered resolution reuses its durable trusted time and expiry rather than
+moving its schedule forward on each restart. Contradictory scheduling fields
+make the account `owner_unavailable`; no material or fresh-home authority is
+released and no writer or proactive work is admitted.
 
 Unknown RPC placeholders before the response (`submitted` and `running`) are
 expected, not successful RPC evidence. Unknown in `stopping` or `absent` makes
