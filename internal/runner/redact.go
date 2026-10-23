@@ -80,8 +80,13 @@ func (s *textStream) erase() {
 // this marker, even when they wrap a context error from an independent source.
 type executionOutputStop struct{ cause error }
 
-func (e *executionOutputStop) Error() string { return e.cause.Error() }
-func (e *executionOutputStop) Unwrap() error { return e.cause }
+func (e *executionOutputStop) Error() string { return "execution output stopped" }
+func (e *executionOutputStop) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
 
 // File-backed streams honor cancellation even when a consumer stops reading.
 // Embedders supplying other io.Writers must provide bounded Write calls.
@@ -91,8 +96,23 @@ type contextWriter struct {
 }
 
 func (w contextWriter) Write(b []byte) (int, error) {
+	state, _ := w.ctx.Value(observationKey{}).(*statusRecord)
+	if state != nil {
+		state.outputStop = stopNone
+	}
+	stopped := func(cause error) error {
+		if state != nil {
+			switch cause {
+			case context.DeadlineExceeded:
+				state.outputStop = stopDeadline
+			case context.Canceled:
+				state.outputStop = stopInterrupt
+			}
+		}
+		return &executionOutputStop{cause}
+	}
 	if err := w.ctx.Err(); err != nil {
-		return 0, &executionOutputStop{err}
+		return 0, stopped(err)
 	}
 	if f, ok := w.out.(*os.File); ok {
 		deadline, has := w.ctx.Deadline()
@@ -112,12 +132,12 @@ func (w contextWriter) Write(b []byte) (int, error) {
 		// if cancellation arrives at the same time.
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			if cause := w.ctx.Err(); cause != nil {
-				return n, &executionOutputStop{cause}
+				return n, stopped(cause)
 			}
 			// The descriptor deadline can fire just before the context timer
 			// publishes Err; the same expired deadline still caused this I/O.
 			if has && !time.Now().Before(deadline) {
-				return n, &executionOutputStop{context.DeadlineExceeded}
+				return n, stopped(context.DeadlineExceeded)
 			}
 		}
 		return n, err

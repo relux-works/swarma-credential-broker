@@ -14,16 +14,28 @@ import (
 
 // Command is the embeddable run-codex subcommand. All authority and transport
 // dependencies come from protected integration, with no CLI bypass to qualify.
-func Command(parent context.Context, args []string, streams IO, d Dependencies) int {
+func Command(parent context.Context, args []string, streams IO, d Dependencies) (status int) {
 	if streams.Out == nil {
 		streams.Out = io.Discard
 	}
 	if streams.Err == nil {
 		streams.Err = io.Discard
 	}
+	state := &statusRecord{phase: phasePreflight, execution: parent}
+	var result error
+	defer func() {
+		if recover() != nil {
+			state.unexpected()
+		}
+		if result != nil {
+			state.capture(result)
+		}
+		status = classify(state, streams.Err)
+	}()
 	o, err := Parse(args)
 	if err != nil {
-		return finish(streams.Err, err)
+		result = err
+		return
 	}
 	type promptResult struct {
 		b   []byte
@@ -31,11 +43,19 @@ func Command(parent context.Context, args []string, streams IO, d Dependencies) 
 	}
 	promptCh := make(chan promptResult)
 	go func() {
-		b, e := readPrompt(o, streams.In)
+		var r promptResult
+		func() {
+			defer func() {
+				if recover() != nil {
+					r.err = refuse("credential_injection_unavailable", 69)
+				}
+			}()
+			r.b, r.err = readPrompt(o, streams.In)
+		}()
 		select {
-		case promptCh <- promptResult{b, e}:
+		case promptCh <- r:
 		case <-parent.Done():
-			clear(b)
+			clear(r.b)
 		}
 	}()
 	var prompt []byte
@@ -43,38 +63,36 @@ func Command(parent context.Context, args []string, streams IO, d Dependencies) 
 	case r := <-promptCh:
 		prompt, err = r.b, r.err
 	case <-parent.Done():
-		return finish(streams.Err, refuse("interrupted", 130))
+		state.observe(parent)
+		return
 	}
 	if err != nil {
-		return finish(streams.Err, err)
+		result = err
+		return
 	}
 	defer clear(prompt)
 	ctx, cancel := context.WithTimeout(parent, o.Timeout)
-	defer cancel()
-	err = execute(ctx, parent, o, prompt, streams, d)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			err = refuse("interrupted", 130)
-		} else if errors.Is(err, context.DeadlineExceeded) {
-			err = refuse("execution_deadline", 124)
-		}
-	}
-	return finish(streams.Err, err)
-}
-func finish(w io.Writer, err error) int {
-	if err == nil {
-		return 0
-	}
-	var e *Refusal
-	if errors.As(err, &e) {
-		report(w, e.Code)
-		return e.Status
-	}
-	report(w, "credential_injection_unavailable")
-	return 75
+	// Capture before our own deferred cancel, which is resource cleanup rather
+	// than an execution interruption.
+	defer func() { state.observe(ctx); state.execution = nil; cancel() }()
+	state.execution = ctx
+	ctx = context.WithValue(ctx, observationKey{}, state)
+	result = execute(ctx, o, prompt, streams, d, state)
+	return
 }
 
-func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, d Dependencies) (result error) {
+func execute(ctx context.Context, o Options, prompt []byte, streams IO, d Dependencies, state *statusRecord) (result error) {
+	defer func() {
+		if recover() != nil {
+			state.unexpected()
+			result = state.failure
+		}
+		state.observe(ctx)
+		if result != nil {
+			state.capture(result)
+			result = state.failure
+		}
+	}()
 	fingerprint, err := inspectSources(o, d.Environment)
 	if err != nil {
 		return err
@@ -88,7 +106,7 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 	defer func() {
 		if !guardClosed {
 			if err := h.close(clean); err != nil {
-				result = refuse("teardown_unconfirmed", 75)
+				result = &exitFailure{phaseTeardown, originCleanup, "teardown_unconfirmed"}
 			}
 		}
 	}()
@@ -97,6 +115,7 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 		return err
 	}
 	defer output.abort()
+	state.phase = phaseAuthority
 	policy, err := resolve(ctx, d, o)
 	if err != nil {
 		return err
@@ -108,29 +127,44 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 		clean = false
 		return refuse("credential_injection_unavailable", 75)
 	}
+	state.phase = phasePreflight
 	// --version runs only after the exact pinned digest has qualified. It uses
 	// the same private environment and containment, with no real login access.
 	if err = versionProbe(ctx, d, o, h, policy); err != nil {
-		if errors.Is(err, errContainment) {
+		if err == errContainment {
 			clean = false
 			return refuse("teardown_unconfirmed", 75)
 		}
 		return err
 	}
+	state.phase = phaseConnect
 	if d.Connect == nil {
 		return refuse("lease_owner_unavailable", 69)
 	}
 	broker, err := d.Connect(ctx)
-	if err != nil {
+	closedBroker := false
+	closeBroker := func() error {
+		if closedBroker || broker == nil {
+			return nil
+		}
+		closedBroker = true
+		return broker.Close()
+	}
+	defer func() {
+		if e := cleanupAttempt(closeBroker); e != nil {
+			result = &exitFailure{phaseTeardown, originCleanup, "teardown_unconfirmed"}
+		}
+	}()
+	if err != nil || broker == nil {
 		return refuse("lease_owner_unavailable", 69)
 	}
-	defer broker.Close()
 	admission := func() error {
 		call, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		if e := broker.VerifyServer(call, policy.BrokerUID); e != nil {
 			return refuse("server_identity_mismatch", 69)
 		}
+		state.phase = phaseHello
 		hello, e := broker.Hello(call, HelloRequest{[]int{1}, ProtocolProfile})
 		if e != nil {
 			return brokerFailure(e, 69)
@@ -143,6 +177,7 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 	if err = admission(); err != nil {
 		return err
 	}
+	state.phase = phaseRequest
 	call, ccancel := context.WithTimeout(ctx, 30*time.Second)
 	lease, err := broker.Request(call, LeaseRequest{Harness: "codex_cli", Profile: o.Profile, Account: o.Account, Channel: "external-token", LaunchID: randomID(), CredentialBinding: Binding{policy.BindingDigest, "codex_cli", o.Profile, o.Account, "external-token", policy.Endpoint, policy.ExecutableSHA256, policy.PolicyGeneration}, Executor: Executor{[]string{"credential-injection/1"}, Version}})
 	ccancel()
@@ -156,7 +191,7 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 	stream.addSecret(lease.Token)
 	var proc *process
 	var client *rpc
-	session := &session{ctx: ctx, broker: broker, lease: &lease, policy: policy, stream: stream, answered: map[string]bool{}}
+	session := &session{ctx: ctx, broker: broker, lease: &lease, policy: policy, stream: stream, answered: map[string]bool{}, state: state}
 	// Teardown always uses an independent, total five-second budget, including
 	// interrupt transport, descendant confirmation and the release receipt.
 	cleanup := func() error {
@@ -164,16 +199,19 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 		defer cancel()
 		if client != nil && session.thread != "" && session.turn != "" {
 			interrupt, done := context.WithTimeout(stop, 100*time.Millisecond)
-			client.request(interrupt, "turn/interrupt", map[string]any{"threadId": session.thread, "turnId": session.turn})
+			cleanupAttempt(func() error {
+				client.request(interrupt, "turn/interrupt", map[string]any{"threadId": session.thread, "turnId": session.turn})
+				return nil
+			})
 			done()
 		}
 		var failure error
 		if proc != nil {
 			absence, c := context.WithTimeout(stop, 3500*time.Millisecond)
-			e := proc.stop(absence)
+			e := cleanupAttempt(func() error { return proc.stop(absence) })
 			c()
 			if e != nil {
-				failure = refuse("teardown_unconfirmed", 75)
+				failure = &exitFailure{phaseTeardown, originCleanup, "teardown_unconfirmed"}
 				clean = false
 			}
 		}
@@ -181,24 +219,35 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 			close(client.closed)
 		}
 		release, c := context.WithTimeout(stop, 2*time.Second)
-		e := broker.Release(release, lease.ID)
+		e := cleanupAttempt(func() error { return broker.Release(release, lease.ID) })
 		c()
 		if e != nil {
-			failure = refuse("lease_release_failed", 75)
+			failure = &exitFailure{phaseRelease, originRelease, "lease_release_failed"}
 		}
-		broker.Close()
+		if e := cleanupAttempt(closeBroker); e != nil {
+			failure = &exitFailure{phaseTeardown, originCleanup, "teardown_unconfirmed"}
+		}
 		// A noncooperative adapter cannot retain material beyond cleanup silently.
 		if session.renewDone != nil {
 			select {
 			case <-session.renewDone:
 			case <-stop.Done():
-				failure = refuse("renew_timeout", 75)
+				failure = &exitFailure{phaseRefresh, originRenewal, "renew_timeout"}
 			}
 		}
 		lease.erase()
 		return failure
 	}
+	cleaned := false
+	defer func() {
+		if !cleaned {
+			if e := cleanup(); e != nil {
+				result = e
+			}
+		}
+	}()
 	run := func() ([]byte, error) {
+		state.phase = phaseRecheck
 		if !validLease(lease, policy, nil) {
 			return nil, refuse("external_token_init_failed", 69)
 		}
@@ -216,6 +265,7 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 		if nowSources != fingerprint {
 			return nil, refuse("credential_source_conflict", 69)
 		}
+		state.phase = phaseInitialize
 		proc, e = startProcess(d, o, h, policy, []string{"app-server", "--listen", "stdio://", "-c", `cli_auth_credentials_store="ephemeral"`})
 		if e != nil {
 			return nil, refuse("external_token_init_failed", 69)
@@ -224,45 +274,46 @@ func execute(ctx, parent context.Context, o Options, prompt []byte, streams IO, 
 		session.rpc = client
 		return session.drive(prompt, o)
 	}
-	final, runErr := run()
+	var final []byte
+	var runErr error
+	func() {
+		defer func() {
+			if recover() != nil {
+				state.unexpected()
+				runErr = state.failure
+			}
+		}()
+		final, runErr = run()
+	}()
 	defer clear(final)
+	state.capture(runErr)
+	state.observe(ctx)
+	cleaned = true
 	if cleanupErr := cleanup(); cleanupErr != nil {
 		return cleanupErr
 	}
-	var runRefusal *Refusal
-	if errors.As(runErr, &runRefusal) && runRefusal.Status == 75 {
-		return runErr
-	}
-	if parent.Err() != nil {
-		return refuse("interrupted", 130)
-	}
-	if ctx.Err() != nil {
-		return refuse("execution_deadline", 124)
-	}
 	if runErr != nil {
-		return runErr
+		return state.failure
+	}
+	if state.ownStop != stopNone {
+		return nil
 	}
 	guardClosed = true
 	if err = h.close(clean); err != nil {
 		return refuse("teardown_unconfirmed", 75)
 	}
+	state.phase = phaseFinal
 	if err = stream.write("", true); err != nil {
-		return outputFailure(err)
+		return state.outputFailure()
+	}
+	state.observe(ctx)
+	if state.ownStop != stopNone {
+		return nil
 	}
 	if err = output.commit(final); err != nil {
 		return err
 	}
 	return nil
-}
-
-// Preserve the cause of interrupted stdout without allowing cancellation to
-// override genuine output failures or the cleanup/renewal dominance checks.
-func outputFailure(err error) error {
-	var stopped *executionOutputStop
-	if errors.As(err, &stopped) {
-		return stopped
-	}
-	return refuse("output_unavailable", 75)
 }
 
 var errContainment = errors.New("containment unknown")
@@ -309,11 +360,7 @@ func validLease(l Lease, p Policy, old *Lease) bool {
 	return true
 }
 func brokerFailure(err error, status int) error {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return refuse("request_deadline_exceeded", status)
-	}
-	var e *Refusal
-	if errors.As(err, &e) {
+	if e, ok := err.(*Refusal); ok && e != nil {
 		switch e.Code {
 		case "server_identity_mismatch", "role_not_permitted", "peer_identity_unavailable", "version_unsupported", "lease_not_authorised", "lease_account_unknown", "lease_harness_mismatch", "lease_account_revoked", "lease_reauth_required", "lease_owner_unavailable", "lease_channel_unsupported", "lease_harness_unqualified", "lease_binding_mismatch", "lease_network_enforcement_unavailable", "lease_not_owner", "lease_not_active", "renew_not_current", "renew_timeout", "renew_failed", "request_deadline_exceeded":
 			return refuse(e.Code, status)
@@ -332,9 +379,11 @@ type session struct {
 	thread, turn string
 	answered     map[string]bool
 	renewDone    chan struct{}
+	state        *statusRecord
 }
 
 func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
+	s.state.phase = phaseInitialize
 	init := map[string]any{"clientInfo": map[string]any{"name": "swarma_credential_broker", "version": Version}, "capabilities": map[string]bool{"experimentalApi": true}}
 	if _, err := s.rpc.call(s.ctx, "initialize", init, s.callback); err != nil {
 		return nil, s.initError(err)
@@ -342,6 +391,7 @@ func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
 	if err := s.rpc.notify(s.ctx, "initialized", map[string]any{}); err != nil {
 		return nil, s.initError(err)
 	}
+	s.state.phase = phaseLogin
 	login := map[string]any{"type": "chatgptAuthTokens", "accessToken": string(s.lease.Token), "chatgptAccountId": s.lease.ChatGPTAccountID}
 	if s.lease.PlanType != "" {
 		login["chatgptPlanType"] = s.lease.PlanType
@@ -357,6 +407,7 @@ func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
 	if json.Unmarshal(raw, &logged) != nil || logged.Type != "chatgptAuthTokens" {
 		return nil, refuse("external_token_init_failed", 69)
 	}
+	s.state.phase = phaseTurn
 	raw, err = s.rpc.call(s.ctx, "thread/start", map[string]any{"model": o.Model, "cwd": o.Cwd, "approvalPolicy": "untrusted", "allowProviderModelFallback": false}, s.callback)
 	if err != nil {
 		return nil, s.initError(err)
@@ -432,9 +483,11 @@ func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
 				return nil, refuse("external_token_init_failed", 69)
 			}
 			if p.ThreadID == s.thread && p.TurnID == s.turn {
+				s.state.phase = phaseStreaming
 				if err = s.stream.write(p.Delta, false); err != nil {
-					return nil, outputFailure(err)
+					return nil, s.state.outputFailure()
 				}
+				s.state.phase = phaseTurn
 			}
 		case "item/completed":
 			var p struct {
@@ -484,8 +537,7 @@ type agentItem struct {
 }
 
 func (s *session) initError(err error) error {
-	var r *Refusal
-	if errors.As(err, &r) {
+	if r, ok := err.(*Refusal); ok && r != nil {
 		return err
 	}
 	if s.ctx.Err() != nil {
@@ -493,7 +545,18 @@ func (s *session) initError(err error) error {
 	}
 	return refuse("external_token_init_failed", 69)
 }
-func (s *session) callback(m message) error {
+func (s *session) callback(m message) (result error) {
+	// Component callers can exercise callback deadlines without a Command.
+	// Command-owned sessions always supply the shared classification record.
+	if s.state != nil {
+		previous := s.state.phase
+		s.state.phase = phaseRefresh
+		defer func() {
+			if result == nil {
+				s.state.phase = previous
+			}
+		}()
+	}
 	key, validID := callbackID(m.ID)
 	if !validID || s.answered[key] {
 		return refuse("external_token_init_failed", 75)
@@ -548,7 +611,16 @@ func (s *session) callback(m message) error {
 	request := RenewRequest{s.lease.ID, digest(s.lease.Token)}
 	go func() {
 		defer close(done)
-		l, e := s.broker.Renew(renew, request)
+		var l Lease
+		var e error
+		func() {
+			defer func() {
+				if recover() != nil {
+					e = refuse("renew_failed", 75)
+				}
+			}()
+			l, e = s.broker.Renew(renew, request)
+		}()
 		select {
 		case ch <- response{l, e}:
 		case <-renew.Done():
@@ -568,9 +640,6 @@ func (s *session) callback(m message) error {
 		return fail("renew_timeout")
 	}
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return fail("renew_timeout")
-		}
 		r := brokerFailure(err, 75).(*Refusal)
 		return fail(r.Code)
 	}

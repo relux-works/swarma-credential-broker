@@ -151,7 +151,7 @@ unwrap chains never establish provenance.
 
 | Phase | Error origin and phase result | Resources and obligations |
 |---|---|---|
-| Argument parsing / preflight | Invalid argument, prompt or catalog: 64; source/qualification refusal or inspection error: 69; output staging I/O: 75; own stop while acquiring prompt: 124/130; unexpected error or panic: phase failure (69, or 75 for output) | No lease; no vendor child. Close any acquired home lock; remove staging output. Invalid input is rejected before execution starts. |
+| Argument parsing / preflight | Invalid argument, prompt or catalog: 64; source/qualification refusal or inspection error: 69; output staging I/O: 75; own stop while acquiring prompt: 124/130; unexpected error or panic: phase failure (69, or 75 for output) | No lease or app-server. A qualification version probe may run only after protected authority resolution and must be confirmed absent. Close any acquired home lock; remove staging output. Invalid input is rejected before execution starts. |
 | Authority resolve | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease or child. Close home lock and remove staging output. |
 | Connect / server verification | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease; version probe must already be confirmed absent. Close any acquired connection, home lock and staging output. |
 | Hello | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease or live child. Close connection, home lock and staging output. |
@@ -178,6 +178,17 @@ per-call deadlines are adapter/transport failures, not execution deadline 124.
 Panic handling never formats a foreign error or invokes its conversion methods;
 it uses the recorded phase, runs remaining cleanup obligations and emits fixed
 metadata. An unavailable cleanup observation always closes success.
+
+`Command` has one deferred call to `classify`; parsing, prompt acquisition and
+all execution returns reach it. `execute` records admission/recheck failures,
+`session.drive` records initialization/login/turn and streaming phases, and
+`session.callback` records refresh outcomes. Streaming and final flush consume
+only the writer observation record. Teardown and release report explicit
+unavailability origins before the classifier runs. Direct internal refusals
+are normalized to origins; adapter-supplied status fields never select an exit.
+The classifier never follows a foreign error chain. Its panic guard also covers
+the bounded diagnostic writer; cleanup operation guards let remaining release
+and erasure obligations run after an adapter panic.
 
 The public Command status matrix exercises these rows with bounded fake
 adapters/writers and real contained fake-child lifecycles. It asserts release
@@ -228,8 +239,9 @@ the same joined cancellation callback and clear the borrowed write deadline.
 When that deadline interrupts stdout, successful cleanup preserves status 130
 for cancellation or 124 for execution expiry. Genuine output failures retain 75,
 and cleanup or renewal failure still dominates cancellation. Only stops observed
-from the execution context or its own descriptor deadline carry an internal
-provenance marker. A bounded embedding writer's independent context error is an
+from the execution context or its own descriptor deadline update a runner-owned
+observation record. Output error chains are never inspected for provenance.
+A bounded embedding writer's independent context error is an
 output failure (75), for both streaming and final-buffer flush.
 
 Broker calls, connection establishment and authority loading receive contexts.

@@ -18,6 +18,7 @@ import (
 )
 
 type scenario struct {
+	FailAt, HangAt, ExitAt                                                                                  string
 	InitFail, LoginFail, Hang, Spawn, Echo, PreviousMismatch, Duplicate, WrongTurn, Escape, RetryAfterError bool
 	LargeOutput, HashEcho, StopReadAfterThread                                                              bool
 	RefreshCount                                                                                            int
@@ -196,6 +197,18 @@ func main() {
 			continue
 		}
 		record(map[string]any{"method": m.Method})
+		if m.Method == s.ExitAt {
+			return
+		}
+		if m.Method == s.HangAt {
+			for {
+				time.Sleep(time.Hour)
+			}
+		}
+		if m.Method == s.FailAt {
+			send(map[string]any{"id": m.ID, "error": map[string]any{"code": -32600, "message": "synthetic refusal"}})
+			continue
+		}
 		fail := false
 		switch m.Method {
 		case "initialize":
