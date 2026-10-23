@@ -3,7 +3,6 @@
 package authowner
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -11,10 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,31 +29,36 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 )
 
-// This executable is the fake vendor, never a login or real issuer. Its only
-// home comes from the test's explicit fresh directory, not the parent environment.
+// The separate race-enabled vendor keeps executable validation real without
+// making every recovery hash this package's unrelated test tables and runtime.
+var fakeExecutable, fakeExecutableDigest string
+
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == "entry-echo" {
-		group, err := os.ReadFile("/proc/self/cgroup")
-		if err != nil {
-			os.Exit(12)
-		}
-		fmt.Fprintln(os.Stdout, strings.TrimSpace(string(group)))
-		if _, err = io.Copy(os.Stdout, os.Stdin); err != nil {
-			os.Exit(13)
-		}
-		os.Exit(0)
+	dir, err := os.MkdirTemp("", "owner-build-")
+	if err != nil {
+		panic(err)
 	}
-	if len(os.Args) > 1 && os.Args[1] == "app-server" {
-		fakeVendor()
-		os.Exit(0)
+	fakeExecutable = filepath.Join(dir, "fake-vendor")
+	goTool := os.Getenv("GO")
+	if goTool == "" {
+		goTool = filepath.Join(runtime.GOROOT(), "bin", "go")
 	}
-	if len(os.Args) > 1 && os.Args[1] == "grandchild" {
-		signalIgnore()
-		for {
-			time.Sleep(time.Hour)
-		}
+	cmd := exec.Command(goTool, "build", "-race", "-p=2", "-o", fakeExecutable, "./testdata/vendor")
+	if data, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "helper build: %v\n%s", err, data)
+		os.RemoveAll(dir)
+		os.Exit(1)
 	}
-	os.Exit(m.Run())
+	image, err := os.ReadFile(fakeExecutable)
+	if err != nil {
+		os.RemoveAll(dir)
+		panic(err)
+	}
+	hash := sha256.Sum256(image)
+	fakeExecutableDigest = hex.EncodeToString(hash[:])
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 func jwt(exp time.Time, marker string) string {
 	b, _ := json.Marshal(map[string]any{"exp": exp.Unix(), "marker": marker, "https://api.openai.com/auth": map[string]string{"chatgpt_account_id": "fixture-account"}})
@@ -83,109 +87,6 @@ func fixtureAuth(home, token string) error {
 	}
 	defer d.Close()
 	return d.Sync()
-}
-func fakeVendor() {
-	home := os.Getenv("CODEX_HOME")
-	mode, e := os.ReadFile(filepath.Join(home, "scenario"))
-	if e != nil {
-		os.Exit(3)
-	}
-	scanner := bufio.NewScanner(os.Stdin)
-	send := func(v any) { b, _ := json.Marshal(v); fmt.Fprintln(os.Stdout, string(b)) }
-	state := 0
-	for scanner.Scan() {
-		var v struct {
-			ID     int             `json:"id"`
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params"`
-		}
-		if json.Unmarshal(scanner.Bytes(), &v) != nil {
-			os.Exit(4)
-		}
-		switch state {
-		case 0:
-			if v.Method != "initialize" {
-				os.Exit(5)
-			}
-			send(map[string]any{"id": v.ID, "result": map[string]any{"userAgent": "fixture"}})
-			state++
-		case 1:
-			if v.Method != "initialized" {
-				os.Exit(6)
-			}
-			state++
-		case 2:
-			var p struct {
-				Refresh bool `json:"refreshToken"`
-			}
-			if v.Method != "account/read" || json.Unmarshal(v.Params, &p) != nil || !p.Refresh {
-				os.Exit(7)
-			}
-			switch string(mode) {
-			case "safe", "rejected":
-				code := 1001
-				if string(mode) == "rejected" {
-					code = 1002
-				}
-				send(map[string]any{"id": v.ID, "error": map[string]any{"code": code, "message": "synthetic error"}})
-			case "rotate-crash":
-				os.WriteFile(filepath.Join(home, "exchange-observed"), []byte("1"), 0600)
-				os.Exit(9)
-			case "hang":
-				for {
-					time.Sleep(time.Hour)
-				}
-			case "grandchild":
-				signalIgnore()
-				exe, _ := os.Executable()
-				cmd := exec.Command(exe, "grandchild")
-				cmd.Env = []string{"HOME=" + home, "CODEX_HOME=" + home}
-				if cmd.Start() != nil {
-					os.Exit(10)
-				}
-				os.WriteFile(filepath.Join(home, "grandchild-pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0600)
-				for {
-					time.Sleep(time.Hour)
-				}
-			case "exit-zero":
-				return
-			default:
-				if string(mode) != "unchanged" {
-					token, e := os.ReadFile(filepath.Join(home, "next-token"))
-					if e != nil || fixtureAuth(home, string(token)) != nil {
-						os.Exit(8)
-					}
-				}
-				if string(mode) == "metadata-only" {
-					token, e := os.ReadFile(filepath.Join(home, "next-token"))
-					if e != nil || probeMetadata(home, string(token)) != nil {
-						os.Exit(8)
-					}
-				}
-				plan := "plus"
-				if string(mode) == "bad-plan" {
-					token, _ := os.ReadFile(filepath.Join(home, "next-token"))
-					plan = string(token)
-				}
-				send(map[string]any{"id": v.ID, "result": map[string]any{"requiresOpenaiAuth": true, "account": map[string]string{"type": "chatgpt", "planType": plan}}})
-			}
-			state++
-		default:
-			os.Exit(11)
-		}
-	}
-	// A detached writer can outlive both its daemon and private pipes. Preserve
-	// this explicit witness instead of mistaking retained fake metadata for life.
-	if string(mode) == "survive-pipe-loss" {
-		signalIgnore()
-		if os.WriteFile(filepath.Join(home, "pipes-closed-writer-live"), []byte("1"), 0600) != nil {
-			os.Exit(14)
-		}
-		for {
-			time.Sleep(time.Hour)
-		}
-	}
-
 }
 
 type fakeTime struct {
@@ -404,16 +305,7 @@ func fixtureHook(t *testing.T, mode string, hook store.Durability) *fixture {
 	if e != nil {
 		t.Fatal(e)
 	}
-	exe, e := os.Executable()
-	if e != nil {
-		t.Fatal(e)
-	}
-	b, e := os.ReadFile(exe)
-	if e != nil {
-		t.Fatal(e)
-	}
-	hash := sha256.Sum256(b)
-	c := Config{Installation: "fixture-install", DaemonInstance: id(), DaemonUnit: "fixture-daemon.service", WriterPrefix: "fixture-writer-", PolicyGeneration: 1, Executable: exe, ExecutableSHA256: hex.EncodeToString(hash[:]), QualificationID: "fixture-evidence", Accounts: []AccountConfig{{"example/codex/personal", "fixture-account", home, homeID, disk}}}
+	c := Config{Installation: "fixture-install", DaemonInstance: id(), DaemonUnit: "fixture-daemon.service", WriterPrefix: "fixture-writer-", PolicyGeneration: 1, Executable: fakeExecutable, ExecutableSHA256: fakeExecutableDigest, QualificationID: "fixture-evidence", Accounts: []AccountConfig{{"example/codex/personal", "fixture-account", home, homeID, disk}}}
 	mat, e := load(c.Accounts[0], true)
 	if e != nil {
 		t.Fatal("load initial", e)

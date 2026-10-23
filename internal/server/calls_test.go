@@ -183,24 +183,15 @@ func TestOutstandingRequestIDRefused(t *testing.T) {
 	material := e.Issue(t)
 	gate := make(chan struct{})
 	defer close(gate)
-	e.Owner.Gate(gate)
+	entered := e.Owner.Gate(gate)
 	c := dial(t, start(t, e, nil))
 	hello(t, c)
 	raw, _ := wire.Encode(wire.Renew{LeaseID: material.LeaseID, RejectedSHA256: lease.Digest(material.Payload.AccessToken)})
 	if err := wire.Write(c, wire.Request{Method: "lease.renew", ID: "pending", Params: raw}); err != nil {
 		t.Fatal(err)
 	}
-	until := time.Now().Add(time.Second)
-	for {
-		calls, _ := e.Owner.Counts()
-		if calls == 1 {
-			break
-		}
-		if time.Now().After(until) {
-			t.Fatal("refresh did not enter fixture owner")
-		}
-		time.Sleep(time.Millisecond)
-	}
+	<-entered // Refresh has counted this call and is held at the fixture gate.
+
 	if err := wire.Write(c, wire.Request{Method: "status", ID: "pending", Params: []byte("{}")}); err != nil {
 		t.Fatal(err)
 	}

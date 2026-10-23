@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"net"
 	"strings"
@@ -87,22 +88,25 @@ func TestReviewSlowPublicationDeadline(t *testing.T) {
 				}
 			}
 			for i := 0; i < 6; i++ {
-				select {
-				case <-o.entered:
-				case <-time.After(time.Second):
-					t.Fatal("publication barrier not reached")
-				}
+				awaitReview(t, o.entered)
 			}
+			drained := make(chan error, len(peers))
 			if !slow {
 				for _, c := range peers {
-					go func(c *net.UnixConn) { _, _ = wire.Read(c) }(c)
+					go func(c *net.UnixConn) { _, err := wire.Read(c); drained <- err }(c)
 				}
 			}
 			c := dial(t, path)
 			c.SetDeadline(time.Now().Add(16 * time.Second))
 			hello(t, c)
 			unblock()
-			time.Sleep(100 * time.Millisecond) // all publishers queue before the unrelated renewal
+			for _, peer := range peers {
+				if slow {
+					awaitIncoming(t, peer, 5)
+				} else if err := <-drained; err != nil {
+					t.Fatal("reading control", err)
+				}
+			}
 			begin := time.Now()
 			b, _ := wire.Encode(wire.Renew{LeaseID: victim.LeaseID, RejectedSHA256: lease.Digest(victim.Payload.AccessToken)})
 			if wire.Write(c, wire.Request{Method: "lease.renew", ID: "victim", Params: b}) != nil {
@@ -153,6 +157,74 @@ func incoming(c *net.UnixConn) (int, error) {
 		return 0, err
 	}
 	return int(count), probe
+}
+
+// awaitIncoming uses kernel readiness for fixture setup without consuming bytes
+// or assuming the publisher has run after a fixed sleep. Socket deadlines remain
+// deadlock guards; measured arrival budgets start only after this rendezvous.
+func awaitIncoming(t *testing.T, c *net.UnixConn, minimum int) {
+	t.Helper()
+	raw, err := c.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count int32
+	var probe error
+	err = raw.Read(func(fd uintptr) bool {
+		_, _, eno := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCINQ, uintptr(unsafe.Pointer(&count)))
+		if eno != 0 {
+			probe = eno
+		}
+		return probe != nil || int(count) >= minimum
+	})
+	if err != nil || probe != nil || int(count) < minimum {
+		t.Fatalf("publication readiness: queued=%d need=%d error=%v/%v", count, minimum, err, probe)
+	}
+}
+
+// awaitFrames peeks complete warm-up frames without draining socket capacity.
+// A byte-count approximation could mistake the tail of a warm frame for the
+// next partial publication; all warm frames must be complete first.
+func awaitFrames(t *testing.T, c *net.UnixConn, frames int) int {
+	t.Helper()
+	raw, err := c.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	image := make([]byte, frames*(wire.MaxPayload+4))
+	var probe error
+	total := 0
+	err = raw.Read(func(fd uintptr) bool {
+		n, _, e := syscall.Recvfrom(int(fd), image, syscall.MSG_PEEK|syscall.MSG_DONTWAIT)
+		if e == syscall.EAGAIN {
+			return false
+		}
+		if e != nil {
+			probe = e
+			return true
+		}
+		offset := 0
+		for i := 0; i < frames; i++ {
+			if n-offset < 4 {
+				return false
+			}
+			size := int(binary.BigEndian.Uint32(image[offset : offset+4]))
+			if size == 0 || size > wire.MaxPayload {
+				probe = wire.ErrMalformed
+				return true
+			}
+			offset += 4 + size
+			if offset > n {
+				return false
+			}
+		}
+		total = offset
+		return true
+	})
+	if err != nil || probe != nil || total == 0 {
+		t.Fatalf("warm frame readiness: %v/%v", err, probe)
+	}
+	return total
 }
 
 // Claim: six ordinary default-buffer clients leaving responses unread cannot postpone another lease renewal beyond its eight-second arrival budget plus 500 ms scheduling allowance; this changes no socket options.
@@ -208,6 +280,7 @@ func defaultSocketPublication(t *testing.T, slow bool, variants ...publicationVa
 	victim := e.Issue(t)
 	path := start(t, e, nil)
 	var peers []*net.UnixConn
+	var warmBytes []int
 	for i := 0; i < cfg.peers; i++ {
 		c := dial(t, path)
 		c.SetDeadline(time.Now().Add(30 * time.Second))
@@ -219,21 +292,7 @@ func defaultSocketPublication(t *testing.T, slow bool, variants ...publicationVa
 				t.Fatal("warm request")
 			}
 		}
-		deadline := time.Now().Add(time.Second)
-		for {
-			n, err := incoming(c)
-			if err != nil {
-				t.Fatal("queue probe")
-			}
-			if n >= 180000 {
-				t.Logf("peer %d queued=%d", i, n)
-				break
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("warm responses incomplete: queued=%d", n)
-			}
-			time.Sleep(time.Millisecond)
-		}
+		warmBytes = append(warmBytes, awaitFrames(t, c, 3))
 	}
 	o.enabled.Store(true)
 	for _, c := range peers {
@@ -243,28 +302,33 @@ func defaultSocketPublication(t *testing.T, slow bool, variants ...publicationVa
 		}
 	}
 	for i := 0; i < cfg.peers; i++ {
-		select {
-		case <-o.entered:
-		case <-time.After(time.Second):
-			t.Fatal("barrier")
-		}
+		awaitReview(t, o.entered)
 	}
 	c := dial(t, path)
 	c.SetDeadline(time.Now().Add(16 * time.Second))
 	hello(t, c)
+	drained := make(chan error, len(peers))
 	if !slow {
 		for _, peer := range peers {
 			go func(c *net.UnixConn) {
 				for i := 0; i < 4; i++ {
 					if _, err := wire.Read(c); err != nil {
+						drained <- err
 						return
 					}
 				}
+				drained <- nil
 			}(peer)
 		}
 	}
 	unblock()
-	time.Sleep(100 * time.Millisecond)
+	for i, peer := range peers {
+		if slow {
+			awaitIncoming(t, peer, warmBytes[i]+5)
+		} else if err := <-drained; err != nil {
+			t.Fatal("draining control", err)
+		}
+	}
 	begin := time.Now()
 	b, _ := wire.Encode(wire.Renew{LeaseID: victim.LeaseID, RejectedSHA256: lease.Digest(victim.Payload.AccessToken)})
 	if wire.Write(c, wire.Request{Method: "lease.renew", ID: "victim", Params: b}) != nil {
@@ -345,14 +409,14 @@ func TestConnectionWriterWaitDeadline(t *testing.T) {
 					t.Fatal("warm fixture failed")
 				}
 			}
-			testutil.Await(t, func() bool { n, err := incoming(c); return err == nil && n >= 180000 })
+			warmBytes := awaitFrames(t, c, 3)
 			o.enabled.Store(true)
 			if wire.Write(c, wire.Request{Method: "lease.request", ID: "blocked", Params: params}) != nil {
 				t.Fatal("blocked fixture failed")
 			}
 			awaitReview(t, o.entered)
 			unblock()
-			time.Sleep(50 * time.Millisecond)
+			awaitIncoming(t, c, warmBytes+5)
 			params, _ = wire.Encode(wire.Renew{LeaseID: r.LeaseID, RejectedSHA256: lease.Digest(r.Payload.AccessToken)})
 			begin := time.Now()
 			if wire.Write(c, wire.Request{Method: "lease.renew", ID: "queued-renew", Params: params}) != nil {

@@ -221,7 +221,7 @@ func TestStatusDominanceRegression(t *testing.T) {
 					stopDone = make(chan struct{})
 					go func() {
 						defer close(stopDone)
-						if waitFile(filepath.Join(f.home, "server-pid"), time.Second) {
+						if waitFile(filepath.Join(f.home, "server-pid")) {
 							cancel()
 						}
 					}()

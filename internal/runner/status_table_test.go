@@ -231,15 +231,12 @@ func TestCommandStatusTable(t *testing.T) {
 				wait = make(chan struct{})
 				go func() {
 					defer close(wait)
-					until := time.Now().Add(time.Second)
-					for time.Now().Before(until) {
-						b, _ := os.ReadFile(filepath.Join(f.home, "events.jsonl"))
-						if strings.Contains(string(b), r.method) {
-							cancel()
-							return
-						}
-						time.Sleep(time.Millisecond)
+					if err := awaitFixtureBytes(filepath.Join(f.home, "events.jsonl"), func(b []byte) bool {
+						return strings.Contains(string(b), r.method)
+					}); err != nil {
+						t.Error("fixture method rendezvous", err)
 					}
+					cancel()
 				}()
 			}
 			if r.phase == "turn" && r.origin == "authority-expiry" {

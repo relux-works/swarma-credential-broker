@@ -79,13 +79,23 @@ func TestReviewCancelBlockedRPC(t *testing.T) {
 				marker = "stopped-reading"
 			}
 			go func() { done <- Command(ctx, f.args(), IO{strings.NewReader(prompt), &f.out, &f.err}, f.d) }()
-			if !waitFile(filepath.Join(f.home, marker), 2*time.Second) {
+			if !waitFile(filepath.Join(f.home, marker)) {
 				cancel()
 				<-done
 				t.Fatal("fixture did not reach blocking path")
 			}
-			// With no server reads, the admitted 1 MiB frame cannot fit the pipe.
-			time.Sleep(100 * time.Millisecond)
+			if blocked {
+				// Observe the owned server's input pipe without consuming its bytes.
+				pid := readPID(t, filepath.Join(f.home, "server-pid"))
+				pipe, err := os.Open(fmt.Sprintf("/proc/%d/fd/0", pid))
+				must(t, err)
+				awaitPipeFull(t, pipe)
+				must(t, pipe.Close())
+			} else {
+				must(t, awaitFixtureBytes(filepath.Join(f.home, "events.jsonl"), func(b []byte) bool {
+					return strings.Contains(string(b), "turn/start")
+				}))
+			}
 			select {
 			case <-done:
 				t.Fatal("command returned before cancellation")

@@ -24,6 +24,13 @@ import (
 var fakePath, supervisorPath, buildDir string
 
 func TestMain(m *testing.M) {
+	// A traced stop test reuses this parent process's already-built helpers.
+	// This is an explicit child-only invocation, not an ambient build override.
+	if len(os.Args) > 4 && os.Args[1] == "--fixture-tools" {
+		fakePath, supervisorPath = os.Args[2], os.Args[3]
+		os.Args = append(os.Args[:1], os.Args[4:]...)
+		os.Exit(m.Run())
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--fixture-parent" {
 		fixtureParent(os.Args[2:])
 		return
@@ -734,7 +741,7 @@ func TestExitDominance(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if strings.Contains(kind, "signal") {
-				go func() { waitFile(filepath.Join(f.home, "server-pid"), time.Second); cancel() }()
+				go func() { waitFile(filepath.Join(f.home, "server-pid")); cancel() }()
 			}
 			got := Command(ctx, f.args(), IO{strings.NewReader("prompt"), &f.out, &f.err}, f.d)
 			want := 75
@@ -857,7 +864,7 @@ func TestRunnerKilled(t *testing.T) {
 			cmd.Wait()
 		}
 	}()
-	if !waitFile(filepath.Join(f.home, "grandchild-pid"), 3*time.Second) {
+	if !waitFile(filepath.Join(f.home, "grandchild-pid")) {
 		t.Fatal("grandchild not ready")
 	}
 	pids := []int{readPID(t, filepath.Join(f.home, "server-pid")), readPID(t, filepath.Join(f.home, "child-pid")), readPID(t, filepath.Join(f.home, "grandchild-pid"))}
@@ -891,16 +898,10 @@ func fixtureParent(args []string) {
 	f := fixture{o: o, home: home, output: o.Output}
 	os.Exit(Command(context.Background(), f.args(), IO{strings.NewReader("prompt"), os.Stdout, os.Stderr}, d))
 }
-func waitFile(path string, timeout time.Duration) bool {
-	until := time.Now().Add(timeout)
-	for time.Now().Before(until) {
-		if _, e := os.Stat(path); e == nil {
-			return true
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return false
+func waitFile(path string) bool {
+	return awaitFixtureBytes(path, func(b []byte) bool { return len(b) > 0 }) == nil
 }
+
 func readPID(t *testing.T, path string) int {
 	t.Helper()
 	b, e := os.ReadFile(path)
@@ -997,7 +998,7 @@ func TestBlockedOutputCancellation(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { _, err := (contextWriter{ctx, write}).Write(make([]byte, 1<<20)); done <- err }()
-	time.Sleep(20 * time.Millisecond)
+	awaitPipeFull(t, read)
 	cancel()
 	select {
 	case err := <-done:

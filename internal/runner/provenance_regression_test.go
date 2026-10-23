@@ -115,7 +115,7 @@ func TestDescriptorDeadlineProvenance(t *testing.T) {
 			case "independent-descriptor":
 				ctx = delayedContext{context.Background(), time.Now().Add(time.Hour)}
 				done = make(chan struct{})
-				go func() { defer close(done); time.Sleep(30 * time.Millisecond); wr.SetWriteDeadline(time.Now()) }()
+				go func() { defer close(done); awaitPipeFull(t, rd); must(t, wr.SetWriteDeadline(time.Now())) }()
 			case "writable":
 				done = make(chan struct{})
 				go func() { defer close(done); io.Copy(io.Discard, rd) }()

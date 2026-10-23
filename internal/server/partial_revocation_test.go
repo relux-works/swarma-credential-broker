@@ -52,7 +52,7 @@ func TestReviewRevokedPartialFrame(t *testing.T) {
 					t.Fatal("warm write")
 				}
 			}
-			testutil.Await(t, func() bool { n, err := incoming(c); return err == nil && n >= 180000 })
+			awaitFrames(t, c, 3)
 			before, err := incoming(c)
 			if err != nil {
 				t.Fatal("queue inspect")
@@ -64,7 +64,7 @@ func TestReviewRevokedPartialFrame(t *testing.T) {
 			}
 			awaitReview(t, o.entered)
 			unblock()
-			testutil.Await(t, func() bool { n, err := incoming(c); return err == nil && n > before+4 })
+			awaitIncoming(t, c, before+5)
 			begin := time.Now()
 			switch action {
 			case "release":

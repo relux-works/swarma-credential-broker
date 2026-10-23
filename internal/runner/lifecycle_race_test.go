@@ -3,6 +3,7 @@
 package runner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -21,7 +22,7 @@ import (
 )
 
 // An unrelated PID disappearing after stat is opened cannot fail a public
-// Command lifecycle. strace delays the real read, never substitutes an errno;
+// Command lifecycle. strace stops after the real open, never substitutes an errno;
 // the test reaps only its own helper after the successful open. Separate cases
 // exercise the parent scan and guard scan, with a live-helper positive control.
 func TestCommandProcDisappearance(t *testing.T) {
@@ -50,7 +51,7 @@ func TestStopProcDisappearance(t *testing.T) {
 	requiredEvidenceRow(t)
 	self, err := os.Executable()
 	must(t, err)
-	traceProcRead(t, false, true, self, "-test.run=^TestStopRequiresAbsentGroup$", "-test.v")
+	traceProcRead(t, false, true, self, "--fixture-tools", fakePath, supervisorPath, "-test.run=^TestStopRequiresAbsentGroup$", "-test.v")
 }
 
 func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
@@ -62,8 +63,11 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 		}
 		t.Skipf("UNVERIFIED: %s requires strace: %v", t.Name(), err)
 	}
-	helper := exec.Command("/bin/sleep", "30")
+	helper := exec.Command("/bin/cat")
+	helperInput, err := helper.StdinPipe()
+	must(t, err)
 	must(t, helper.Start())
+	defer helperInput.Close()
 	defer func() {
 		if helper.ProcessState == nil {
 			helper.Process.Kill()
@@ -72,58 +76,99 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 	}()
 	path := fmt.Sprintf("/proc/%d/stat", helper.Process.Pid)
 	trace := filepath.Join(t.TempDir(), "proc.trace")
+	traceRead, traceWrite, err := os.Pipe()
+	must(t, err)
+	defer traceRead.Close()
+	defer traceWrite.Close()
+	// The path filter also limits injection to this helper's stat opens. SIGSTOP
+	// is delivered after open completes; a traced group-stop acknowledges that
+	// no read can follow until we reap the helper and explicitly send SIGCONT.
 	args := []string{"-f", "-e", "trace=openat,read", "-e", "raw=read", "-P", path,
-		"-e", "inject=read:delay_enter=100ms", "-o", trace}
+		"-e", "inject=openat:signal=SIGSTOP", "-o", "/proc/self/fd/3"}
 	args = append(args, command...)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cmd := exec.CommandContext(ctx, tracer, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.ExtraFiles = []*os.File{traceWrite}
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output
 	must(t, cmd.Start())
-	ended := make(chan error, 1)
-	go func() { ended <- cmd.Wait() }()
-	// Trace all threads; identify the parent by its test executable rather
-	// than a particular thread. Guard processes use a different executable.
+	must(t, traceWrite.Close())
+	defer func() {
+		// This process group was allocated by cmd.Start above, never discovered by
+		// name. It contains only this trace and its fixture descendants.
+		if cmd.ProcessState == nil {
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			cmd.Wait()
+		}
+	}()
 	wantOpen := 1
-	if len(command) > 1 && strings.HasPrefix(command[1], "-test.run=") {
-		wantOpen = 2 // first stop intentionally rejects a live group
+	for _, arg := range command[1:] {
+		if strings.HasPrefix(arg, "-test.run=") {
+			wantOpen = 2 // first stop intentionally rejects a live group
+		}
 	}
-	observed := false
-	var runErr error
-loop:
-	for {
-		data, _ := os.ReadFile(trace)
-		// A completed open pins this process incarnation before it is reaped.
-		opens := 0
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.Contains(line, "openat(") && strings.Contains(line, path) && strings.Contains(line, ") = ") && !strings.Contains(line, "= -1") {
-				if !follow {
-					fields := strings.Fields(line)
-					executable, _ := os.Readlink("/proc/" + fields[0] + "/exe")
-					if executable != command[0] {
-						continue
-					}
-				}
+	observed, opens := false, 0
+	target := map[int]bool{}
+	pending := map[int]bool{}
+	var evidence strings.Builder
+	scanner := bufio.NewScanner(traceRead)
+	for scanner.Scan() {
+		line := scanner.Text()
+		evidence.WriteString(line + "\n")
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		tid, parseErr := strconv.Atoi(fields[0])
+		if parseErr != nil {
+			continue
+		}
+		if strings.Contains(line, "openat(") && strings.Contains(line, path) && strings.Contains(line, ") = ") && !strings.Contains(line, "= -1") {
+			executable, _ := os.Readlink(fmt.Sprintf("/proc/%d/exe", tid))
+			pending[tid] = true
+			target[tid] = (follow && executable == supervisorPath) || (!follow && executable == command[0])
+			if target[tid] {
 				opens++
-				if opens < wantOpen {
-					continue
-				}
-				if !observed && disappear {
-					must(t, helper.Process.Kill())
-					if err := helper.Wait(); err == nil {
-						t.Fatal("helper unexpectedly exited successfully")
-					}
-				}
-				observed = true
 			}
 		}
-		select {
-		case runErr = <-ended:
-			break loop
-		case <-time.After(time.Millisecond):
+		if !strings.Contains(line, "stopped by SIGSTOP") || !pending[tid] {
+			continue
 		}
+		// A Go syscall may run on any thread; signal the pinned thread group's
+		// leader rather than treating a thread ID as a process ID.
+		delete(pending, tid)
+		status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", tid))
+		must(t, err)
+		tgid := 0
+		for _, field := range strings.Split(string(status), "\n") {
+			if strings.HasPrefix(field, "Tgid:") {
+				tgid, err = strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(field, "Tgid:")))
+				must(t, err)
+			}
+		}
+		if tgid == 0 {
+			t.Fatal("stopped tracee group identity missing")
+		}
+		fd, err := unix.PidfdOpen(tgid, 0)
+		must(t, err)
+		if target[tid] && opens >= wantOpen && !observed {
+			if disappear {
+				must(t, helper.Process.Kill())
+				if err := helper.Wait(); err == nil {
+					t.Fatal("helper unexpectedly exited successfully")
+				}
+			}
+			observed = true
+		}
+		err = unix.PidfdSendSignal(fd, syscall.SIGCONT, nil, 0)
+		unix.Close(fd)
+		must(t, err)
 	}
+	must(t, scanner.Err())
+	runErr := cmd.Wait()
+	must(t, os.WriteFile(trace, []byte(evidence.String()), 0600))
 	data, err := os.ReadFile(trace)
 	must(t, err)
 	if !observed {
@@ -168,24 +213,9 @@ func TestCommandOutputCancellation(t *testing.T) {
 			done := make(chan int, 1)
 			go func() { done <- Command(ctx, f.args(), IO{strings.NewReader("prompt"), out, &f.err}, f.d) }()
 			if kind == "signal" || kind == "release-failure" || kind == "deadline" {
-				until := time.Now().Add(time.Second)
-				full := false
-				for time.Now().Before(until) {
-					n, e := unix.IoctlGetInt(int(rd.Fd()), unix.TIOCINQ)
-					must(t, e)
-					if n == 4096 {
-						full = true
-						break
-					}
-					time.Sleep(time.Millisecond)
-				}
+				awaitPipeFull(t, rd)
 				if kind != "deadline" {
 					cancel()
-				}
-				if !full {
-					cancel()
-					<-done
-					t.Fatal("blocked-output control did not fill the pipe")
 				}
 			}
 			drained := make(chan struct{})

@@ -128,6 +128,8 @@ func sequenceEvent(rng *rand.Rand, kind string, base, expires, floor time.Time) 
 // with their existing conclusive RPC proof. This is bounded sequence coverage,
 // not a claim about arbitrary schedules or atomic concurrent revocation.
 func TestTimeAuthoritySequences(t *testing.T) {
+	// This table owns its stores, clocks and managers independently of other tables.
+	t.Parallel()
 	seeds := []int64{1, 7, 42, 20261023}
 	t.Logf("reproduction seeds: %v", seeds)
 	targets := []string{"watermark", "material-flush", "pending-checkpoint", "intent", "submitted", "running", "stopping", "absence", "resolved", "final-checkpoint"}
@@ -139,6 +141,8 @@ func TestTimeAuthoritySequences(t *testing.T) {
 			}
 			for _, mode := range modes {
 				t.Run(fmt.Sprintf("seed-%d/%s/%s", seed, target, mode), func(t *testing.T) {
+					// Independent protected stores, fake clocks and fake managers.
+					t.Parallel()
 					rng := rand.New(rand.NewSource(seed + int64(index)*101))
 					var f *fixture
 					var source *sequenceConfidence

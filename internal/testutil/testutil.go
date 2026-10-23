@@ -26,6 +26,7 @@ type Fake struct {
 	live         int
 	max          int
 	gate         <-chan struct{}
+	entered      chan struct{}
 	next         string
 	refreshState string
 }
@@ -58,6 +59,12 @@ func (f *Fake) Refresh(ctx context.Context, _ string, generation uint64) (owner.
 		f.max = f.live
 	}
 	gate := f.gate
+	if f.entered != nil {
+		select {
+		case f.entered <- struct{}{}:
+		default:
+		}
+	}
 	f.mu.Unlock()
 	defer func() { f.mu.Lock(); f.live--; f.mu.Unlock() }()
 	if gate != nil {
@@ -76,9 +83,18 @@ func (f *Fake) Refresh(ctx context.Context, _ string, generation uint64) (owner.
 	f.view.Generation++
 	return f.view, nil
 }
-func (f *Fake) Set(v owner.Snapshot)     { f.mu.Lock(); defer f.mu.Unlock(); f.view = v }
-func (f *Fake) View() owner.Snapshot     { f.mu.Lock(); defer f.mu.Unlock(); return f.view }
-func (f *Fake) Gate(ch <-chan struct{})  { f.mu.Lock(); defer f.mu.Unlock(); f.gate = ch }
+func (f *Fake) Set(v owner.Snapshot) { f.mu.Lock(); defer f.mu.Unlock(); f.view = v }
+func (f *Fake) View() owner.Snapshot { f.mu.Lock(); defer f.mu.Unlock(); return f.view }
+
+// Gate returns an entry notification sent after Refresh records its call and
+// before it waits on ch. Tests can rendezvous without polling a call counter.
+func (f *Fake) Gate(ch <-chan struct{}) <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gate = ch
+	f.entered = make(chan struct{}, 1)
+	return f.entered
+}
 func (f *Fake) Next(token string)        { f.mu.Lock(); defer f.mu.Unlock(); f.next = token }
 func (f *Fake) Counts() (calls, max int) { f.mu.Lock(); defer f.mu.Unlock(); return f.calls, f.max }
 

@@ -33,6 +33,8 @@ type chainFault struct {
 // exercise the table's semantic constraints, not just closed-schema decoding.
 // Diagnostic values have presence requirements, not invented semantic bounds.
 func TestRetainedChainTable(t *testing.T) {
+	// This table owns its stores, clocks and managers independently of other tables.
+	t.Parallel()
 	doc, err := os.ReadFile("../../docs/auth-owner.md")
 	if err != nil {
 		t.Fatal(err)

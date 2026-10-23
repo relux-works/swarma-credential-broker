@@ -255,6 +255,11 @@ reconciliation and actual vendor qualification remain deferred. See the
 
 ## Contained owner checks
 
+Owner tests build the focused, race-enabled `internal/authowner/testdata/vendor`
+fixture once with `GO` (or the current Go toolchain), under `TMPDIR`, and remove
+it at exit. Every owner construction still hashes that executable; large test
+sequence tables are excluded from the fixture image.
+
 `internal/authowner` implements the refresh adapter as a library. The daemon
 command still uses its stopped adapter: enrolment, exact release qualification
 and independent time/restore confidence must precede activation. The library

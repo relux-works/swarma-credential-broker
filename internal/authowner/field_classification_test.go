@@ -256,8 +256,12 @@ func substituteField(m map[string]any, f retainedField, phase string, anchor tim
 // all different values violate bounded rules such as conservative retry times.
 // Each negative case also preserves protected records and admits no new writer.
 func TestRetainedFieldSubstitutions(t *testing.T) {
+	// This table owns its stores, clocks and managers independently of other tables.
+	t.Parallel()
 	for _, history := range []string{"committed", "safe", "rejected", "pending-safe", "pending-rejected"} {
 		t.Run(history, func(t *testing.T) {
+			// Independent protected stores, fake clocks and fake managers.
+			t.Parallel()
 			f := newFixture(t, "rotate")
 			label := f.c.Accounts[0].Label
 			if _, err := f.refresh(); err != nil {
@@ -310,6 +314,8 @@ func TestRetainedFieldSubstitutions(t *testing.T) {
 					}
 				}
 			}
+			// Restore once initially; sequential cases restore in their defers.
+			restore()
 			names := make([]string, 0, len(baseline))
 			for n := range baseline {
 				names = append(names, n)
@@ -345,7 +351,6 @@ func TestRetainedFieldSubstitutions(t *testing.T) {
 							}
 							for _, mode := range []string{"live", "replacement"} {
 								t.Run(mode, func(t *testing.T) {
-									restore()
 									defer restore()
 									open := func() *Engine {
 										t.Helper()

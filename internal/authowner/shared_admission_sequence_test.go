@@ -294,13 +294,15 @@ func checkSharedAdmissionInterleaving(t *testing.T, entry string, crossed bool, 
 // recovery unload also exercise the last blocking step after earlier proof.
 // The schedule is a completed-call interleaving, not atomic asynchronous revocation.
 func TestSharedFloorAdmissionEntries(t *testing.T) {
+	// This table owns its stores, clocks and managers independently of other tables.
+	t.Parallel()
 	for _, entry := range sharedAdmissionEntries() {
 		for _, crossed := range []bool{false, true} {
 			name := "covered-control"
 			if crossed {
 				name = "authority-end"
 			}
-			t.Run(entry+"/"+name, func(t *testing.T) { checkSharedAdmissionInterleaving(t, entry, crossed, 50) })
+			t.Run(entry+"/"+name, func(t *testing.T) { t.Parallel(); checkSharedAdmissionInterleaving(t, entry, crossed, 50) })
 		}
 	}
 }
@@ -311,6 +313,8 @@ func TestSharedFloorAdmissionEntries(t *testing.T) {
 // exclusive-bound effects, covered progress, and preserved safe retry counts.
 // Earlier sequence suites continue to exercise expiry refusal and replacement.
 func TestTimeAuthoritySharedAdmissionSequences(t *testing.T) {
+	// This table owns its stores, clocks and managers independently of other tables.
+	t.Parallel()
 	seeds := []int64{1, 7, 42, 20261023}
 	t.Logf("reproduction seeds: %v", seeds)
 	for _, seed := range seeds {
@@ -320,7 +324,7 @@ func TestTimeAuthoritySharedAdmissionSequences(t *testing.T) {
 			entry := entries[at]
 			for _, mode := range rng.Perm(2) {
 				fraction := 1 + rng.Intn(99)
-				t.Run(fmt.Sprintf("seed-%d/%s/end-%t/covered-%d", seed, entry, mode == 1, fraction), func(t *testing.T) { checkSharedAdmissionInterleaving(t, entry, mode == 1, fraction) })
+				t.Run(fmt.Sprintf("seed-%d/%s/end-%t/covered-%d", seed, entry, mode == 1, fraction), func(t *testing.T) { t.Parallel(); checkSharedAdmissionInterleaving(t, entry, mode == 1, fraction) })
 			}
 		}
 	}

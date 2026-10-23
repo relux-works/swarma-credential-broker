@@ -102,11 +102,9 @@ func reviewAdapter(t *testing.T, e *testutil.Env, pauseAt int64, options lease.O
 }
 func awaitReview(t *testing.T, c <-chan struct{}) {
 	t.Helper()
-	select {
-	case <-c:
-	case <-time.After(2 * time.Second):
-		t.Fatal("fixture rendezvous not reached")
-	}
+	// This is fixture ordering, not a latency contract. The package timeout
+	// still detects a missing event; scheduling delay cannot fake a refusal.
+	<-c
 }
 
 // Claim: an acknowledged release or authorization expiry during final owner I/O, changed policy or unavailable owner forbids later material; unchanged active state is a positive control.

@@ -193,11 +193,7 @@ func TestRealFDContainment(t *testing.T) {
 	m, prefix, add := realManager(t)
 	name := prefix + "writer.service"
 	add(name)
-	cat, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, read, write := realSpec(t, m, name, cat, home, []string{"entry-echo"}, 120*time.Second)
+	s, read, write := realSpec(t, m, name, fakeExecutable, home, []string{"entry-echo"}, 120*time.Second)
 	before := startReal(t, m, s)
 	cgroup, err := os.ReadFile("/proc/" + strconv.FormatUint(uint64(before.MainPID), 10) + "/cgroup")
 	if err != nil || !strings.Contains(string(cgroup), before.Cgroup) {
