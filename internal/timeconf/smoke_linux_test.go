@@ -17,6 +17,7 @@ func TestHostTimeConfidenceSmoke(t *testing.T) {
 	p := testPolicy()
 	p.Timeout = 2 * time.Second
 	p.MaxSyncAge = PlatformMaxSyncAge
+	p.MaxUncertainty = PlatformMaxUncertainty
 	p.MaxOffset = PlatformMaxOffset
 	p.MaxRootDistance = PlatformMaxRootDistance
 	p.AuthorityWindow = PlatformAuthorityWindow
@@ -27,7 +28,7 @@ func TestHostTimeConfidenceSmoke(t *testing.T) {
 	if err == nil {
 		v, parseErr := ParseTracking(b)
 		if parseErr == nil {
-			t.Logf("tracking parsed: leap=%s stratum=%d age_seconds=%.3f absolute_offset_seconds=%.9f root_distance_seconds=%.9f dispersion_seconds=%.9f", v.Leap, v.Stratum, time.Since(v.Reference).Seconds(), abs(v.SystemOffset), v.RootDelay/2+v.RootDispersion, v.RootDispersion)
+			t.Logf("tracking parsed: leap=%s stratum=%d age_seconds=%.3f update_interval_seconds=%.3f absolute_offset_seconds=%.9f root_distance_seconds=%.9f dispersion_seconds=%.9f", v.Leap, v.Stratum, time.Since(v.Reference).Seconds(), v.UpdateInterval, abs(v.SystemOffset), v.RootDelay/2+v.RootDispersion, v.RootDispersion)
 		} else {
 			t.Log("tracking: evidence_unavailable")
 		}

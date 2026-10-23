@@ -100,7 +100,8 @@ policies use integer nanoseconds:
 | `source` | `off`, `chrony-nts-config`, `chrony-nts-authdata` |
 | `chronyc` | Clean absolute executable path; no PATH lookup |
 | `source_files` | 1–32 unique clean absolute paths, constituting the complete configuration inventory |
-| `max_sync_age_ns` | Positive, at most 1024 seconds |
+| `max_sync_age_ns` | Positive, at most 2048 seconds |
+| `max_uncertainty_ns` | Positive, at most 1.5 seconds; cap on returned conservative δ |
 | `max_offset_ns` | Positive, at most 0.5 seconds; covers absolute system/last offset and RMS offset |
 | `max_root_distance_ns` | Positive, at most one second; root delay / 2 + root dispersion |
 | `authority_window_ns` | Positive, at most five minutes and no greater than sync age |
@@ -146,7 +147,13 @@ Tracking uses the fixed 14-column CSV report. Authentication uses ten columns.
 Parsers reject truncated/extra rows or fields, blank lines, quoting, nonfinite
 numbers and unknown enums. Tracking requires Normal leap, stratum 1–15, a
 nonfuture reference strictly younger than the age bound, bounded offsets and
-root distance, and sensible numeric fields. Authentication requires NTS,
+root distance, and sensible numeric fields. Sync age is `Now - reference_time`
+using field 4 of the same report as the other measurements. Any future reference
+is refused. Field 13's averaged update interval remains a finite numeric
+diagnostic; its value does not gate confidence. Measured offsets and root distance
+must pass their individual bounds, and the returned conservative δ (including
+age × skew) must not exceed `max_uncertainty_ns`. The shared cap is 1.5 seconds,
+inclusive; a service may retain it or lower it. Authentication requires NTS,
 recognized negotiated algorithm/key size, cookies, no NAK, and no repeated
 failed establishment. A successful collection is required on every sample.
 
@@ -163,7 +170,8 @@ max(abs(system_offset), abs(last_offset), rms_offset)
 + age_since_reference * skew_ppm / 1000000
 ```
 
-The conversion rounds upward to nanoseconds. This includes measured correction
+The conversion rounds fractional nanoseconds upward and preserves exact integer
+nanosecond bounds, including the inclusive uncertainty cap. This includes measured correction
 plus root distance and conservatively includes last/RMS correction and dispersion
 growth. It is conditional on the selected source's correctness and the reported
 error estimates; authentication cannot make a false server's time true. The

@@ -25,18 +25,31 @@ for duplicate names. Ignored names still count toward the bounded directory-entr
 scan; accepted configuration bytes also have an aggregate bound. Every sample
 rebuilds this inventory, including a previously absent DHCP directory.
 
-Tracking must report Normal leap status, a sync no older than 1024 seconds,
+Tracking must report Normal leap status, a sync strictly younger than 2048 seconds,
 absolute offset no greater than 0.5 seconds, and root distance no greater than
 one second. Root distance is root delay / 2 + root dispersion. The provider also
 bounds last/RMS offsets and rejects malformed, nonfinite or structurally invalid
-evidence. The authority interval is exclusive:
+evidence. Sync age is the trusted sample time minus tracking field 4's reference
+time, taken from the same report as the measured fields. Future references are
+refused, with no future tolerance. Tracking field 13 is the averaged update
+interval between clock updates; it is retained for diagnostics, never used as
+sync age or as a trust bound. The 2048-second ceiling covers two maximum
+1024-second poll intervals. Root-distance growth remains subject to the separate
+uncertainty bound (δ_cap = 1.5 seconds); a longer age limit does not relax that
+bound. The measured limits are |offset| ≤ 0.5 seconds and root distance ≤ one
+second. The returned conservative δ also includes last/RMS offsets and
+age × skew, and must be ≤ 1.5 seconds: exactly 1.5 seconds is trusted, while
+anything above it is unavailable even when the measured limits pass. The
+protected `max_uncertainty_ns` policy field sets this inclusive cap; services
+may retain it or lower it. Services may also impose stricter age limits. The
+authority interval is exclusive:
 
 ```
-AuthorityUntil = min(sample time + 5 minutes, last sync + 1024 seconds)
+AuthorityUntil = min(sample time + 5 minutes, reference time + 2048 seconds)
 ```
 
 The five-minute window never extends past evidence freshness. At exactly
-`last sync + 1024 seconds` the interval is empty and confidence is unavailable;
+`reference time + 2048 seconds` the interval is empty and confidence is unavailable;
 at one nanosecond before it a valid sample retains a one-nanosecond interval.
 An offset of exactly 0.5 seconds and root distance of exactly one second are
 within the numeric bounds.
@@ -98,7 +111,8 @@ NTS authdata may strengthen configuration-only evidence, never weaken it. A
 service may turn itself off. The broker requires zero backward tolerance to
 close on any relative backward movement, including measurement jitter or clock
 slewing; this stricter choice trades availability for refusal. Other broker
-bounds have no stricter implicit defaults.
+bounds have no stricter implicit defaults. The broker retains the shared
+2048-second sync-age ceiling; it has no stricter age requirement.
 
 The evidence-source interface consists of `Policy`, its strict protected loader,
 `Collector.Collect(context, policy)`, `Clock.Read(context)`, and `Sample` /

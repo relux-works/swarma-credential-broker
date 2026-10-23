@@ -3,6 +3,7 @@ package timeconf
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"reflect"
 	"sync"
@@ -11,7 +12,7 @@ import (
 )
 
 func testPolicy() Policy {
-	return Policy{Source: NTSConfig, Chronyc: "/usr/bin/chronyc", SourceFiles: []string{"/etc/chrony/chrony.conf"}, MaxSyncAge: time.Minute, MaxOffset: 10 * time.Millisecond, MaxRootDistance: 20 * time.Millisecond, AuthorityWindow: 30 * time.Second, StepTolerance: 100 * time.Millisecond, Timeout: 100 * time.Millisecond, MaxOutputBytes: 4096, Resync: "new-authenticated-sync"}
+	return Policy{Source: NTSConfig, Chronyc: "/usr/bin/chronyc", SourceFiles: []string{"/etc/chrony/chrony.conf"}, MaxSyncAge: time.Minute, MaxUncertainty: 20 * time.Millisecond, MaxOffset: 10 * time.Millisecond, MaxRootDistance: 20 * time.Millisecond, AuthorityWindow: 30 * time.Second, StepTolerance: 100 * time.Millisecond, Timeout: 100 * time.Millisecond, MaxOutputBytes: 4096, Resync: "new-authenticated-sync"}
 }
 func evidenceAt(now time.Time) Evidence {
 	return Evidence{Tracking: Tracking{ReferenceID: "C0000201", Address: "192.0.2.1", Stratum: 3, Reference: now.Add(-time.Second), Leap: "Normal", SystemOffset: 0.001, LastOffset: 0.001, RMSOffset: 0.001, RootDelay: 0.002, RootDispersion: 0.001, UpdateInterval: 10, Skew: 0.1}, Sources: Sources{Count: 1, AllNTS: true, Entries: []string{"192.0.2.1"}}, Authentication: Authentication{Addresses: map[string]bool{"192.0.2.1": true}}}
@@ -94,7 +95,7 @@ func TestEvidenceBounds(t *testing.T) {
 		"frequency":             func(e *Evidence, _ time.Time) { e.Tracking.Frequency = 1e7 },
 		"residual":              func(e *Evidence, _ time.Time) { e.Tracking.ResidualFrequency = -1e7 },
 		"skew":                  func(e *Evidence, _ time.Time) { e.Tracking.Skew = -1 },
-		"update-interval":       func(e *Evidence, _ time.Time) { e.Tracking.UpdateInterval = 61 },
+		"update-interval":       func(e *Evidence, _ time.Time) { e.Tracking.UpdateInterval = math.NaN() },
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -301,6 +302,7 @@ func TestZeroBackwardThreshold(t *testing.T) {
 func platformTestPolicy() Policy {
 	p := testPolicy()
 	p.MaxSyncAge = PlatformMaxSyncAge
+	p.MaxUncertainty = PlatformMaxUncertainty
 	p.MaxOffset = PlatformMaxOffset
 	p.MaxRootDistance = PlatformMaxRootDistance
 	p.AuthorityWindow = PlatformAuthorityWindow
@@ -311,16 +313,16 @@ func platformTestPolicy() Policy {
 
 // Claim: the shared age/offset/root-distance ceilings admit the exact permitted
 // numeric bound and its tighter neighbor; freshness's exclusive endpoint refuses
-// exactly 1024s, while 1024s-1ns retains a one-nanosecond authority interval.
+// exactly 2048s, while 2048s-1ns retains a one-nanosecond authority interval.
 func TestPlatformEvidenceBoundaries(t *testing.T) {
 	cases := []struct {
 		name   string
 		change func(*Evidence, time.Time)
 		ok     bool
 	}{
-		{"age-before", func(e *Evidence, n time.Time) { e.Tracking.Reference = n.Add(-1024*time.Second + time.Nanosecond) }, true},
-		{"age-at", func(e *Evidence, n time.Time) { e.Tracking.Reference = n.Add(-1024 * time.Second) }, false},
-		{"age-after", func(e *Evidence, n time.Time) { e.Tracking.Reference = n.Add(-1024*time.Second - time.Nanosecond) }, false},
+		{"age-before", func(e *Evidence, n time.Time) { e.Tracking.Reference = n.Add(-2048*time.Second + time.Nanosecond) }, true},
+		{"age-at", func(e *Evidence, n time.Time) { e.Tracking.Reference = n.Add(-2048 * time.Second) }, false},
+		{"age-after", func(e *Evidence, n time.Time) { e.Tracking.Reference = n.Add(-2048*time.Second - time.Nanosecond) }, false},
 		{"offset-below", func(e *Evidence, _ time.Time) { e.Tracking.SystemOffset = 0.5 - 1e-9 }, true},
 		{"offset-at", func(e *Evidence, _ time.Time) { e.Tracking.SystemOffset = 0.5 }, true},
 		{"offset-above", func(e *Evidence, _ time.Time) { e.Tracking.SystemOffset = 0.5 + 1e-9 }, false},
@@ -385,7 +387,7 @@ func TestPlatformStepBoundaries(t *testing.T) {
 // Claim: all loaded policies are bounded by the platform ceilings, independent
 // of the embedding service's own shared-policy comparison.
 func TestPlatformPolicyCeilings(t *testing.T) {
-	for _, field := range []string{"MaxSyncAge", "MaxOffset", "MaxRootDistance", "AuthorityWindow", "BackwardTolerance"} {
+	for _, field := range []string{"MaxSyncAge", "MaxUncertainty", "MaxOffset", "MaxRootDistance", "AuthorityWindow", "BackwardTolerance"} {
 		q := platformTestPolicy()
 		v := reflect.ValueOf(&q).Elem().FieldByName(field)
 		v.SetInt(v.Int() + 1)
@@ -423,5 +425,99 @@ func TestClockIncidentCodes(t *testing.T) {
 	trusted(t, p)
 	if !reflect.DeepEqual(codes, []string{"clock_step_hold", "clock_resync"}) {
 		t.Fatal("resync incident missing")
+	}
+}
+
+// Claim: field 4 of one parsed tracking report determines sync age and the
+// exclusive authority cap; field 13 is diagnostic only. The stricter service
+// control catches an interval gate even when 1040s is below the shared ceiling.
+func TestReferenceAgeIndependentOfUpdateInterval(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		maxAge, age time.Duration
+		interval    float64
+		ok          bool
+	}{
+		{"interval-1040-age-134-stricter", 1024 * time.Second, 134 * time.Second, 1040, true},
+		{"interval-1040-age-134-shared", 2048 * time.Second, 134 * time.Second, 1040, true},
+		{"interval-above-shared", 2048 * time.Second, 134 * time.Second, 4096, true},
+		{"interval-zero", 2048 * time.Second, 134 * time.Second, 0, true},
+		{"interval-negative", 2048 * time.Second, 134 * time.Second, -1, true},
+		{"reference-before-limit", 2048 * time.Second, 2048*time.Second - time.Nanosecond, 1040, true},
+		{"reference-at-limit", 2048 * time.Second, 2048 * time.Second, 1040, false},
+		{"reference-after-limit", 2048 * time.Second, 2048*time.Second + time.Nanosecond, 1040, false},
+		{"future-reference", 2048 * time.Second, -time.Nanosecond, 1040, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, c, clock := providerFixture(t)
+			q := platformTestPolicy()
+			q.MaxSyncAge = tc.maxAge
+			ref := clock.point.Now.Add(-tc.age)
+			report := fmt.Sprintf("C0000201,192.0.2.1,3,%d.%09d,0.001,0.001,0.001,1,0.1,0.1,0.002,0.001,%g,Normal\n", ref.Unix(), ref.Nanosecond(), tc.interval)
+			tracking, err := ParseTracking([]byte(report))
+			if err != nil || !tracking.Reference.Equal(ref) || tracking.UpdateInterval != tc.interval {
+				t.Fatal("tracking report did not retain reference and diagnostic interval", err)
+			}
+			c.evidence.Tracking = tracking
+			p, err := New(q, c, clock, nil)
+			if err != nil {
+				t.Fatal("service policy refused", err)
+			}
+			if !tc.ok {
+				refused(t, p)
+				return
+			}
+			v := trusted(t, p)
+			wantUntil := ref.Add(tc.maxAge)
+			if window := clock.point.Now.Add(q.AuthorityWindow); window.Before(wantUntil) {
+				wantUntil = window
+			}
+			if !v.Now.Equal(clock.point.Now) || !v.AuthorityUntil.Equal(wantUntil) {
+				t.Fatal("authority did not use this report's reference and trusted sample time")
+			}
+		})
+	}
+}
+
+// Claim: returned conservative uncertainty, including age times skew, has its
+// own inclusive cap even when measured offsets and root distance pass. These
+// samples also exercise a service's smaller cap with adjacent valid controls.
+func TestReturnedUncertaintyCap(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cap  time.Duration
+		age  time.Duration
+		skew float64
+		ok   bool
+	}{
+		{"below-shared", 1500 * time.Millisecond, 1000*time.Second - time.Nanosecond, 1000, true},
+		{"at-shared", 1500 * time.Millisecond, 1000 * time.Second, 1000, true},
+		{"above-shared-age", 1500 * time.Millisecond, 1000*time.Second + time.Nanosecond, 1000, false},
+		{"above-shared-skew", 1500 * time.Millisecond, 1000 * time.Second, 1001, false},
+		{"at-stricter", time.Second, 1000 * time.Second, 500, true},
+		{"above-stricter", time.Second, 1000 * time.Second, 1000, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, c, clock := providerFixture(t)
+			q := platformTestPolicy()
+			q.MaxUncertainty = tc.cap
+			c.evidence.Tracking.Reference = clock.point.Now.Add(-tc.age)
+			c.evidence.Tracking.SystemOffset = 0.25
+			c.evidence.Tracking.RootDelay = 0
+			c.evidence.Tracking.RootDispersion = 0.25
+			c.evidence.Tracking.Skew = tc.skew
+			p, err := New(q, c, clock, nil)
+			if err != nil {
+				t.Fatal("valid capped policy refused", err)
+			}
+			if !tc.ok {
+				refused(t, p)
+				return
+			}
+			v := trusted(t, p)
+			if v.Uncertainty != tc.cap {
+				t.Fatal("returned uncertainty did not respect the inclusive cap", v.Uncertainty)
+			}
+		})
 	}
 }
