@@ -88,7 +88,9 @@ The commands and byte contracts are:
   `app-server generate-json-schema --experimental --out <schema-directory>`
   runs twice in distinct fresh homes. Each output directory must contain only
   regular owned single-link JSON files, with no symlinks. Files are limited to
-  8 MiB each, 32 MiB total and 2,048 files. JSON object keys and relative file
+  8 MiB each, 32 MiB total and 2,048 files. Directory enumeration reads at most
+  64 entries per batch, rejects more than 8,192 entries or depth 32, and checks
+  cancellation between batches/entries. JSON object keys and relative file
   names are sorted, whitespace is removed, array order and number lexemes are
   preserved, and duplicate keys, invalid UTF-8, trailing values and nesting
   beyond 128 levels are rejected. The digest covers a JSON object mapping

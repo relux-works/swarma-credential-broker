@@ -270,3 +270,45 @@ func TestCandidateCleanup(t *testing.T) {
 	}
 	noHomes(t, root)
 }
+
+// Claim: schema directory enumeration has a real entry/depth budget and obeys
+// cancellation, while a nearby valid tree still yields its canonical bundle.
+func TestCandidateSchemaTreeBounds(t *testing.T) {
+	for _, kind := range []string{"correct", "depth", "entries", "cancelled"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			if e := os.WriteFile(filepath.Join(root, "schema.json"), []byte(`{"a":1}`), 0600); e != nil {
+				t.Fatal(e)
+			}
+			if kind == "depth" {
+				path := root
+				for i := 0; i < 33; i++ {
+					path = filepath.Join(path, "d")
+					if e := os.Mkdir(path, 0700); e != nil {
+						t.Fatal(e)
+					}
+				}
+			}
+			if kind == "entries" {
+				for i := 0; i < 8192; i++ {
+					if e := os.Mkdir(filepath.Join(root, fmt.Sprintf("d%d", i)), 0700); e != nil {
+						t.Fatal(e)
+					}
+				}
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if kind == "cancelled" {
+				cancel()
+			}
+			b, e := schemaDirectory(ctx, root)
+			if kind == "correct" {
+				if e != nil || string(b) != `{"schema.json":{"a":1}}` {
+					t.Fatal("valid tree refused", e)
+				}
+			} else if !errors.Is(e, ErrUnavailable) || b != nil {
+				t.Fatal("tree limit accepted", e)
+			}
+		})
+	}
+}

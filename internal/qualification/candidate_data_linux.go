@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,52 +90,81 @@ func jsonValue(d *json.Decoder, depth int) (any, error) {
 	}
 	return t, nil
 }
-func schemaDirectory(root string) ([]byte, error) {
+func schemaDirectory(ctx context.Context, root string) ([]byte, error) {
 	files := map[string]json.RawMessage{}
-	total := 0
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
+	total, entries := 0, 0
+	var walk func(string, int) error
+	walk = func(dir string, depth int) error {
+		if ctx.Err() != nil || depth > 32 {
 			return ErrUnavailable
 		}
-		if entry.IsDir() {
-			return nil
-		}
-		if len(files) >= 2048 || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), ".json") {
-			return ErrUnavailable
-		}
-		f, e := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+		directory, e := os.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)
 		if e != nil {
 			return ErrUnavailable
 		}
-		defer f.Close()
-		s, e := f.Stat()
-		if e != nil || !s.Mode().IsRegular() {
-			return ErrUnavailable
+		defer directory.Close()
+		for {
+			batch, readErr := directory.ReadDir(64)
+			if readErr != nil && readErr != io.EOF {
+				return ErrUnavailable
+			}
+			for _, entry := range batch {
+				entries++
+				if ctx.Err() != nil || entries > 8192 {
+					return ErrUnavailable
+				}
+				path := filepath.Join(dir, entry.Name())
+				if entry.IsDir() {
+					if e := walk(path, depth+1); e != nil {
+						return e
+					}
+					continue
+				}
+				if len(files) >= 2048 || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(entry.Name(), ".json") {
+					return ErrUnavailable
+				}
+				if e := func() error {
+					f, e := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+					if e != nil {
+						return ErrUnavailable
+					}
+					defer f.Close()
+					s, e := f.Stat()
+					if e != nil || !s.Mode().IsRegular() {
+						return ErrUnavailable
+					}
+					st, ok := s.Sys().(*syscall.Stat_t)
+					if !ok || st.Nlink != 1 || st.Uid != uint32(os.Geteuid()) {
+						return ErrUnavailable
+					}
+					b, e := boundedRead(f, 8<<20)
+					if e != nil {
+						return e
+					}
+					total += len(b)
+					if total > 32<<20 {
+						return ErrUnavailable
+					}
+					b, e = canonicalJSON(b)
+					if e != nil {
+						return e
+					}
+					rel, e := filepath.Rel(root, path)
+					if e != nil {
+						return e
+					}
+					files[filepath.ToSlash(rel)] = b
+					return nil
+				}(); e != nil {
+					return e
+				}
+			}
+			if readErr == io.EOF {
+				return nil
+			}
 		}
-		st, ok := s.Sys().(*syscall.Stat_t)
-		if !ok || st.Nlink != 1 || st.Uid != uint32(os.Geteuid()) {
-			return ErrUnavailable
-		}
-		b, e := boundedRead(f, 8<<20)
-		if e != nil {
-			return e
-		}
-		total += len(b)
-		if total > 32<<20 {
-			return ErrUnavailable
-		}
-		b, e = canonicalJSON(b)
-		if e != nil {
-			return e
-		}
-		rel, e := filepath.Rel(root, path)
-		if e != nil {
-			return e
-		}
-		files[filepath.ToSlash(rel)] = b
-		return nil
-	})
-	if err != nil || len(files) == 0 {
+	}
+	if walk(root, 0) != nil || ctx.Err() != nil || len(files) == 0 {
 		return nil, ErrUnavailable
 	}
 	return json.Marshal(files)

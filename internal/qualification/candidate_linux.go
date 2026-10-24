@@ -225,7 +225,7 @@ func (o NativeObserver) candidate(parent context.Context, name string, args []st
 	}
 	result.stdout = b.b
 	if name == "schema/1" {
-		result.schema, e = schemaDirectory(filepath.Join(home, "schema"))
+		result.schema, e = schemaDirectory(ctx, filepath.Join(home, "schema"))
 		if e != nil {
 			return candidateOutput{}, ErrUnavailable
 		}
