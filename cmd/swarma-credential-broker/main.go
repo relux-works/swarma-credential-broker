@@ -17,6 +17,9 @@ func main() {
 	if handled, code := qualification.CandidateLauncherMain(os.Args[1:]); handled {
 		os.Exit(code)
 	}
+	if handled, code := qualify.CaseMain(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 	if handled, code := runner.SupervisorMain(os.Args[1:]); handled {
 		os.Exit(code)
 	}

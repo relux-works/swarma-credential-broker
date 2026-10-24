@@ -26,6 +26,9 @@ type Policy struct {
 // Only regular files and pipes may be inherited in explicit slots.
 type Config struct {
 	Launcher string
+	// Started reports the supervised child PID before bootstrap is released.
+	// It is parent-only bookkeeping and grants no network permission.
+	Started func(int)
 	// LauncherArgs precede Executable and Args, for an embedding executable's
 	// private bootstrap entry point. They are never passed to the candidate.
 	LauncherArgs          []string

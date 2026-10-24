@@ -1,0 +1,308 @@
+//go:build linux
+
+package qualify
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"sync/atomic"
+	"time"
+
+	"github.com/relux-works/swarma-credential-broker/internal/lease"
+	"github.com/relux-works/swarma-credential-broker/internal/owner"
+	"github.com/relux-works/swarma-credential-broker/internal/policy"
+	"github.com/relux-works/swarma-credential-broker/internal/qualification"
+	"github.com/relux-works/swarma-credential-broker/internal/server"
+	"github.com/relux-works/swarma-credential-broker/internal/store"
+	"github.com/relux-works/swarma-credential-broker/internal/wire"
+)
+
+func rowImplemented(id string) bool {
+	switch id {
+	case "frame-oversized", "frame-zero-length", "frame-truncated-header", "frame-malformed-first", "profile-unsupported", "peer-identity-unavailable":
+		return true
+	}
+	return false
+}
+
+type rowInput struct {
+	Policy policy.Policy `json:"policy"`
+	Peer   uint32        `json:"peer"`
+	ID     string        `json:"id"`
+	Side   string        `json:"side"`
+	Socket string        `json:"socket"`
+}
+type rowObservation struct {
+	ID         string `json:"id"`
+	Side       string `json:"side"`
+	Candidate  string `json:"candidate"`
+	Refusal    string `json:"refusal"`
+	NoEffects  bool   `json:"no_effects"`
+	ProbeFault bool   `json:"probe_fault"`
+}
+
+func descriptorDigest(f *os.File) (string, error) {
+	h := sha256.New()
+	n, e := io.Copy(h, io.LimitReader(f, (512<<20)+1))
+	if e != nil || n > 512<<20 {
+		return "", qualification.ErrUnavailable
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// CaseMain accepts only the retained broker descriptor and a bounded pipe
+// context. The approved Codex descriptor is measured at FD6, never executed by
+// these transport rows. No path, shell or inherited account context is accepted.
+func CaseMain(args []string) (bool, int) {
+	if len(args) == 0 || args[0] != "qualification-case" {
+		return false, 0
+	}
+	if os.Args[0] != "/proc/self/fd/4" || len(args) != 3 || !rowImplemented(args[1]) || args[2] != "positive" && args[2] != "negative" {
+		return true, 125
+	}
+	f := os.NewFile(5, "row-context")
+	if f == nil {
+		return true, 125
+	}
+	defer f.Close()
+	s, e := f.Stat()
+	if e != nil || s.Mode()&os.ModeNamedPipe == 0 {
+		return true, 125
+	}
+	b, e := io.ReadAll(io.LimitReader(f, 4097))
+	var input rowInput
+	if e != nil || len(b) > 4096 || wire.Decode(b, &input) != nil || input.ID != args[1] || input.Side != args[2] || input.Peer != uint32(os.Geteuid()) || input.Policy.Validate(uint32(os.Geteuid())) != nil || len(input.Policy.Accounts) != 1 || !input.Policy.Peer(input.Peer) {
+		return true, 125
+	}
+	candidate := os.NewFile(6, "approved-candidate")
+	if candidate == nil {
+		return true, 125
+	}
+	defer candidate.Close()
+	digest, e := descriptorDigest(candidate)
+	if e != nil || digest != input.Policy.ExecutableSHA256 {
+		return true, 125
+	}
+	observation := rowObservation{ID: input.ID, Side: input.Side, Candidate: input.Policy.ExecutableSHA256, NoEffects: true}
+	entries, e := os.ReadDir(os.Getenv("HOME"))
+	if e != nil || len(entries) != 0 || os.Getenv("HOME") != os.Getenv("CODEX_HOME") {
+		return true, 125
+	}
+	observation.Refusal, e = transportExchange(input.Socket, input.ID, input.Side, input.Policy.Generation)
+	if e != nil {
+		return true, 1
+	}
+	b, e = wire.Encode(observation)
+	if e != nil {
+		return true, 1
+	}
+	if _, e = os.Stdout.Write(b); e != nil {
+		return true, 1
+	}
+	return true, 0
+}
+
+type rowStoppedOwner struct{ calls atomic.Int64 }
+
+func (o *rowStoppedOwner) Snapshot(context.Context, string) (owner.Snapshot, error) {
+	o.calls.Add(1)
+	return owner.Snapshot{State: owner.Unavailable}, nil
+}
+func (o *rowStoppedOwner) Refresh(context.Context, string, uint64) (owner.Snapshot, error) {
+	o.calls.Add(1)
+	return owner.Snapshot{State: owner.Unavailable}, nil
+}
+
+func startTransportRow(ctx context.Context, root string, input rowInput, pid *atomic.Int64) (string, func() bool, error) {
+	dir := filepath.Join(root, "q")
+	if os.Mkdir(dir, 0700) != nil {
+		return "", nil, qualification.ErrUnavailable
+	}
+	disk, e := store.Open(filepath.Join(root, "store"), input.Policy.Installation, uint32(os.Geteuid()), true, nil)
+	if e != nil {
+		return "", nil, e
+	}
+	stopped := &rowStoppedOwner{}
+	m, e := lease.New(input.Policy, disk, stopped, lease.Options{Qualification: func(context.Context, policy.Policy) error { return qualification.ErrUnavailable }}, true)
+	if e != nil {
+		disk.Close()
+		return "", nil, e
+	}
+	probeFault := input.ID == "peer-identity-unavailable" && input.Side == "negative"
+	srv, fired, e := server.NewQualification(m, input.Policy.ExecutableSHA256, input.Peer, pid, probeFault)
+	if e != nil {
+		m.Close()
+		disk.Close()
+		return "", nil, e
+	}
+	path := filepath.Join(dir, "s")
+	listener, e := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if e != nil {
+		m.Close()
+		disk.Close()
+		return "", nil, e
+	}
+	listener.SetUnlinkOnClose(false)
+	if os.Chmod(path, 0600) != nil {
+		listener.Close()
+		m.Close()
+		disk.Close()
+		return "", nil, qualification.ErrUnavailable
+	}
+	// Serve may still be starting when a launch fails. Joining it before Wait
+	// avoids racing a late accepted connection's WaitGroup.Add.
+	serveCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(serveCtx, listener) }()
+	closeRow := func() bool {
+		cancel()
+		listener.Close()
+		serveError := <-done
+		srv.Close()
+		srv.Wait()
+		records, e := disk.Account(input.Policy.Accounts[0].Label, false)
+		good := false
+		if e == nil {
+			stored, e := records.Records()
+			good = e == nil && len(stored) == 0
+		}
+		m.Close()
+		disk.Close()
+		_, socketError := os.Lstat(path)
+		return good && stopped.calls.Load() == 0 && fired() == probeFault && serveError == nil && os.IsNotExist(socketError)
+	}
+	return path, closeRow, nil
+}
+
+func transportExchange(path, id, side string, generation uint64) (string, error) {
+	variants := 1
+	if (id == "profile-unsupported" || id == "frame-malformed-first") && side == "negative" {
+		variants = 2
+	}
+	for variant := 0; variant < variants; variant++ {
+		code, e := func() (string, error) {
+			c, e := net.DialUnix("unix", nil, &net.UnixAddr{Name: path, Net: "unix"})
+			if e != nil {
+				return "", e
+			}
+			defer c.Close()
+			if c.SetDeadline(time.Now().Add(3*time.Second)) != nil {
+				return "", qualification.ErrUnavailable
+			}
+			hello := wire.Hello{Versions: []int{1}, Profile: wire.Profile}
+			if side == "negative" {
+				switch id {
+				case "frame-oversized", "frame-zero-length", "frame-truncated-header":
+					var header [4]byte
+					if id == "frame-oversized" {
+						binary.BigEndian.PutUint32(header[:], 65537)
+					}
+					b := header[:]
+					if id == "frame-truncated-header" {
+						b = b[:2]
+					}
+					if _, e = c.Write(b); e != nil {
+						return "", e
+					}
+					if e = c.CloseWrite(); e != nil {
+						return "", e
+					}
+				case "frame-malformed-first":
+					if variant == 0 {
+						body := []byte(`{"request_id":"apparent","method":`)
+						var header [4]byte
+						binary.BigEndian.PutUint32(header[:], uint32(len(body)))
+						if _, e = c.Write(append(header[:], body...)); e != nil {
+							return "", e
+						}
+						break
+					}
+					if e = wire.Write(c, map[string]any{"request_id": "apparent", "method": "not-hello", "params": map[string]any{}}); e != nil {
+						return "", e
+					}
+				case "profile-unsupported":
+					if variant == 0 {
+						hello.Profile = "unsupported"
+					} else {
+						hello.Versions = []int{2}
+					}
+				}
+			}
+			if side == "positive" || id == "profile-unsupported" {
+				params, e := wire.Encode(hello)
+				if e != nil {
+					return "", e
+				}
+				if e = wire.Write(c, wire.Request{Method: "hello", ID: "fixture-hello", Params: params}); e != nil {
+					return "", e
+				}
+			}
+			b, e := wire.Read(c)
+			if side == "negative" && (id == "frame-zero-length" || id == "frame-truncated-header" || id == "frame-malformed-first") {
+				if !errors.Is(e, io.EOF) || len(b) != 0 {
+					return "", qualification.ErrUnavailable
+				}
+				return "closed", nil
+			}
+			var reply struct {
+				ID     *string         `json:"request_id"`
+				Result json.RawMessage `json:"result,omitempty"`
+				Error  *wire.Error     `json:"error,omitempty"`
+			}
+			if e != nil || wire.Decode(b, &reply) != nil {
+				return "", qualification.ErrUnavailable
+			}
+			if side == "positive" {
+				var helloResult struct {
+					Version   int    `json:"version"`
+					Profile   string `json:"profile"`
+					Principal struct {
+						UID uint32 `json:"uid"`
+					} `json:"principal"`
+					Generation uint64 `json:"policy_generation"`
+				}
+				if reply.ID == nil || *reply.ID != "fixture-hello" || reply.Error != nil || wire.Decode(reply.Result, &helloResult) != nil || helloResult.Version != 1 || helloResult.Profile != wire.Profile || helloResult.Principal.UID != uint32(os.Geteuid()) || helloResult.Generation != generation {
+					return "", qualification.ErrUnavailable
+				}
+				return "hello", nil
+			}
+			want := rowRefusal(id)
+			if reply.Error == nil || reply.Error.Code != want || (id == "profile-unsupported") != (reply.ID != nil) || reply.ID != nil && *reply.ID != "fixture-hello" {
+				return "", qualification.ErrUnavailable
+			}
+			var one [1]byte
+			n, e := c.Read(one[:])
+			if n != 0 || !errors.Is(e, io.EOF) {
+				return "", qualification.ErrUnavailable
+			}
+			return want, nil
+		}()
+		if e != nil {
+			return "", e
+		}
+		if variant == variants-1 {
+			return code, nil
+		}
+	}
+	return "", qualification.ErrUnavailable
+}
+
+func rowRefusal(id string) string {
+	switch id {
+	case "frame-oversized":
+		return "frame_too_large"
+	case "profile-unsupported":
+		return "version_unsupported"
+	case "peer-identity-unavailable":
+		return "peer_identity_unavailable"
+	}
+	return "closed"
+}

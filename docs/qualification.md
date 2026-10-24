@@ -3,7 +3,8 @@
 `qualify-codex` implements the protected record, publication and pending-row
 frame for the mandatory 0.163.0 procedure in profile §8.2. It measures the
 candidate's version, experimental schema and model catalog under the egress
-boundary. Qualification row bodies remain pending, so it grants no production
+boundary. Six transport row bodies can run with explicit fixture configuration; other
+rows remain pending, so it grants no production
 release qualification. The shipped owner also remains stopped.
 
 ```sh
@@ -22,23 +23,24 @@ candidate outside an isolated launcher.
 | Exit | Meaning |
 |---|---|
 | 0 | Every selected row executed and passed; unreachable with the pending bodies shipped here |
-| 1 | An executed row failed; also reserved until bodies are supplied |
+| 1 | An executed row failed with all other required inputs available |
 | 64 | Invalid, duplicate, conflicting or missing arguments |
 | 69 | Missing approval, unsupported candidate, unsafe/unavailable environment or pending required bodies |
 
 Every live invocation currently returns 69, including one carrying an approval
 reference. A fixture invocation writes a protected `run.json` when its policy,
 scratch and inherited-input checks permit collection. It lists all required
-pending rows and unavailable observer names, then returns 69. Pending rows have
+rows with actual executed verdicts or pending state and unavailable observers,
+then returns 69. Pending rows have
 `executed: false`, empty command/artifact arrays, zero elapsed duration and
 `exit_code: -1`, meaning no process ran. It never fabricates a process exit or
 publishes a qualified entry. An existing report is not overwritten.
 
 A private, owner-only socket reservation is bound to the measured candidate
-digest and the run's two-minute context. It has no row dispatcher or lease
-handler in this slice. Cancellation closes it, teardown removes only the same
+digest and the run's two-minute context. This reservation has no lease handler; individual transport
+workers create separate private listeners as described below. Cancellation closes it, teardown removes only the same
 socket object, and a replacement endpoint is preserved. It cannot authorize an
-ordinary client. The real private candidate harness arrives with the row bodies.
+ordinary client. Transport row authority is limited separately below.
 
 ## Current identity observers
 
@@ -113,8 +115,8 @@ identity evidence, not proof that any model is available to a particular account
 per-run command and egress summaries, and the schema comparison result.
 Commands use a fixed schema-directory placeholder. Raw candidate output,
 environment and temporary paths are excluded. This diagnostic evidence grants
-no publication authority. Applied properties remain unavailable, all required
-rows remain unexecuted, and `--fixtures` still returns 69 without a qualified
+no publication authority. Applied properties remain unavailable, unimplemented rows remain
+unexecuted, and `--fixtures` still returns 69 without a qualified
 entry.
 
 The static configuration identity covers socket/store/executable policy,
@@ -141,8 +143,8 @@ members. It contains:
 
 There are no raw-output, diagnostic, token, token-hash or RPC fields. Command
 argv must equal the registry's reserved descriptor-bound row command, not shell
-text. The future dispatcher uses the measured runner at descriptor 4; each
-case/control selects its fixed argv. No such dispatcher is exposed yet.
+text. The dispatcher uses the retained broker worker at descriptor 4; each
+case/control selects its fixed argv, with candidate identity separately at FD6.
 Elapsed bounds and verdicts cannot convert pending, unrun or skipped rows into
 passes. Fake reports can never publish a production entry.
 
@@ -239,3 +241,117 @@ The tagged observer test requires a protected executable, an explicit private
 evidence directory and `strace`. It executes only account-free observers through
 the boundary, compares two schema measurements, requires zero external grants
 and independently rejects external or undecodable connect trace records.
+
+## Fixture row dispatch and limits
+
+`--fixtures --fixture-config "$FIXTURE_CONFIG"` selects a protected, owned 0600
+JSON file with exactly `broker`, `allowed_peer`, `foreign_peer`, `account` and
+`same_user_r2`. The first three fields are OS account names; `account` is an
+explicit enabled policy label. This transport slice resolves broker and allowed
+peer through the OS database and requires both to be the current broker user,
+with `same_user_r2: true`. No default account or UID is inferred. The foreign
+role is reserved but not resolved or executed here: `peer-denied` stays pending
+until its genuine foreign-UID helper is supplied. Missing configuration leaves
+all rows pending. This format is separate from the existing multi-UID test
+helper configuration, which also needs a helper executable and shared socket
+directory; it does not claim that helper's evidence.
+
+Each implemented control executes the retained broker descriptor as
+`/proc/self/fd/4 qualification-case <id> <positive|negative>`. FD5 is a bounded
+private input pipe; FD6 retains the measured approved Codex executable. These
+transport rows do not execute Codex. Every worker executes under `internal/egress`
+with an empty fresh HOME/CODEX_HOME, closed proxy port and only its private Unix
+socket allowlisted. The trusted parent creates the listener outside the client
+boundary; candidate listener creation remains forbidden. Use an owned short TMPDIR because Unix socket paths have a
+platform length limit. Each worker and its server share a 30-second parent
+context. Only the supervised client kernel PID and configured UID can negotiate; an
+ordinary same-UID process is refused before reading input. The manager is
+issuance-closed, restricted to one configured account and digest, and never
+calls an owner. Joined shutdown closes the socket; parent teardown removes the
+home and isolated store. No test authority can qualify ordinary leasing.
+
+The report records actual argv, exit, monotonic duration and bound for both
+controls. Owned 0600 `row-<id>-<side>.json` files contain closed
+`qualification-row-control/1` diagnostic evidence with the exact control,
+candidate digest, bounded observation and aggregate egress counts. Their hashes
+are verified before crediting the report. They contain no raw frames, private
+role mapping or material. They are deliberately distinct from publishable
+`qualification-case/1` artifacts: the full current identity, including applied
+properties, is unavailable. Missing, mismatched or partial evidence gains no
+pass; a refused network destination fails the control even with successful
+stdout and exit zero. Pending rows are never launched. Live rows and applied
+properties keep fixture reports at exit 69 and prevent publication.
+
+The six implemented rows below have real adjacent hello controls. Malformed
+first frames cover both invalid JSON with an apparent ID and a valid non-hello
+first request. Unsupported profile covers both an unknown profile and an
+unsupported version. The injected peer-probe fault is explicitly model-only;
+it is not foreign-UID evidence. No implemented row launches Codex, so tagged
+real-candidate row execution is inapplicable to this slice; the existing tagged
+observer checks remain the separate candidate measurement procedure.
+
+## Required row classification
+
+The registry below has all 46 required IDs. “Next slice” means unexecuted,
+never a skipped pass. The size boundary stops this implementation after the
+harness, framing and peer-probe rows; other admission bodies also remain pending.
+P9 means [profile §9](../spec/v0-codex-refresher.md#9-negative-cases-and-adjacent-positive-controls);
+P9.1 means its broker mapping; B9.6 means [broker §9.6](../spec/broker.md#96-qualification);
+P8.2 means [profile §8.2](../spec/v0-codex-refresher.md#82-mandatory-01630-qualification-procedure).
+P8.2 step 2 requires synthetic login, account identity, managed refresh,
+inference 401, queues, slow/late responses, source/child inheritance and framing.
+The step 4 sentence beginning “Owner device-code login” requires real vendor
+coverage where fixture equivalence is insufficient for login, real identity,
+network-policy fetch, successful inference, effective source/scopes, proactive
+refresh, controlled 401 renewal/failure, contention and slow renewal. Only rows
+without an equivalent fixture claim are classified live-required below; a
+fixture result cannot satisfy the live part of a combined row.
+
+| Required ID | Class; reference | Positive control | Negative control | Current row body |
+|---|---|---|---|---|
+| peer-denied | fake-only; P9, P8.2 step 2 | Genuine configured allowed process negotiates and leases | Genuine foreign UID gets null-ID role_not_permitted before input, no effects | Pending genuine helper |
+| account-denied | fake-only; P9 | Exact allowed peer/account/profile leases | Known disallowed account gets lease_not_authorised, no writer | Next slice |
+| account-unknown | fake-only; P9 | Existing allowed label leases | Missing label gets lease_account_unknown, no creation/fallback | Next slice |
+| release-unqualified | fake-now + live-later; P9, P8.2 steps 2/4 | Exact approved fake tuple leases; later real tuple | Unqualified digest gets lease_harness_unqualified, no child | Next slice |
+| source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | Next slice |
+| home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | Next slice |
+| renew-unknown-digest | fake-only; P9 | Superseded delivered token returns current payload without refresh | Unknown digest gets renew_not_current, generation unchanged | Next slice |
+| renew-contention | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | One rejection causes one refresh | Eight same-token rejecters share exactly one refresh/generation | Next slice |
+| renew-late | fake-now + live-later; P9, P8.2 steps 2/4 | In-budget result answers once | After-eight-second result gets renew_timeout, no late callback | Next slice |
+| queue-full | fake-only; P9 | Free slot admits same-attempt waiter | Sixty-four queued operations refuse excess, no extra writer | Next slice |
+| daemon-death | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Complete stop and committed outcome permit successor | Surviving child prevents second writer until subtree absence proven | Next slice |
+| replacement-contention | fake-only; P9, P9.1, B9.6 | Resolved attempt permits one successor | Replacement and rejecters retain one attempt and writer | Next slice |
+| rotation-crash | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Durable store and correlated success activate once | Crash after rotation before checkpoint closes admission, zero retry | Next slice |
+| cleanup-interrupted | fake-only; P9, P9.1, B9.6 | Complete correlated absence and reconciliation reopen | Crash before absence record keeps admission closed | Next slice |
+| absence-unreadable | fake-only; P9, P9.1, B9.6 | Complete invocation/subtree evidence establishes absence | Partial/denied/conflicting observations permit no writer/enrolment | Next slice |
+| store-missing | fake-only; P9, P9.1, B9.6 | Matching durable checkpoint reloads | Missing/unreadable home or intent never reconstructs empty store | Next slice |
+| store-rollback | fake-only; P9, P9.1, B9.6 | Independent freshness and explicit reconciliation | Restored old store/fence never retries or clears by parsing | Next slice |
+| transient-ambiguous | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Proven non-rotation, absence and reload permit bounded retry | Ambiguous vendor error permits no retry | Next slice |
+| reenrol-unresolved | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Confirmed absence then fresh-home enrolment | Unknown prior writer prevents enrolment child | Next slice |
+| duplicate-account | fake-now + live-later; P9, P8.2 steps 2/4 | Distinct vendor ID activates independently | Repeated vendor ID gets account_duplicate, no second mapping | Next slice |
+| owner-mismatch | fake-only; P9 | Same UID/context renews/releases | Other UID gets lease_not_owner, lease unchanged | Next slice |
+| lease-ended | fake-only; P9 | Before-limit renewal and idempotent release | Released/expired renewal gets lease_not_active, no extension/writer | Next slice |
+| time-untrusted | fake-only; P9 | Trusted current evidence permits bounded lease | Missing freshness after restart gets lease_owner_unavailable, no advance | Next slice |
+| init-without-capability | fake-only; P9, P8.2 step 2 | Experimental initialize then external login | Missing capability gets external_token_init_failed, stop/release | Next slice |
+| resume-conflict | fake-now + live-later; P9, P8.2 step 4 optional resume | Fresh lease/login for qualified same-account resume | Drift/native file refuses before inference, no old lease reuse | Next slice; live resume optional |
+| frame-oversized | fake-only; P9 | Canonical hello echoes validated ID | Header 65537 gets null-ID frame_too_large then EOF; no records/owner calls | Implemented; no Codex launch |
+| frame-zero-length | fake-only; P9 | Canonical hello echoes validated ID | Zero header closes without response/effects | Implemented; no Codex launch |
+| frame-truncated-header | fake-only; P9 | Canonical hello echoes validated ID | Two-byte header then half-close yields EOF, no response/effects | Implemented; no Codex launch |
+| frame-malformed-first | fake-only; P9 | Canonical hello echoes validated ID | Invalid JSON/non-hello first request closes, no apparent-ID echo/effects | Implemented; no Codex launch |
+| peer-identity-unavailable | fake-only; P9 | Genuine own-PID SO_PEERCRED completes hello | Fired injected probe failure gets null-ID peer_identity_unavailable before input | Implemented model-only fault; no Codex launch |
+| profile-unsupported | fake-only; P9 | Exact profile and versions [1] negotiate | Unknown profile/version gets version_unsupported then EOF, no effects | Implemented; no Codex launch |
+| external-login | fake-now + live-later; P8.2 steps 2/4 | Synthetic login; later approved real device-code login | Missing capability/rejected login leaves no active child/lease | Next slice |
+| account-identity | fake-now + live-later; P8.2 steps 2/4 | Matching synthetic ID; later verified real account | Mismatched ID refuses without replacing active mapping | Next slice |
+| managed-refresh | fake-now + live-later; P8.2 steps 2/4 | Approved executable refreshes synthetic store; later vendor | Failed/ambiguous rotation never publishes stale material or retries blindly | Next slice |
+| inference-401 | fake-now + live-later; P8.2 steps 2/4 | Controlled 401 renews once and inference succeeds | Failed renewal answers error once, no stale replay | Next slice |
+| renew-account-mismatch | fake-now + live-later; P8.2 steps 2/4 | Renewed account matches lease | Changed account suppresses delivery/inference | Next slice |
+| renew-failure | fake-now + live-later; P8.2 steps 2/4 | Approved safe renewal completes | Rejected renewal gives bounded error, no stale success | Next slice |
+| queue-fairness | fake-now + live-later; P8.2 steps 2/4 | Bounded N callers progress on one account | Slow writer causes no starvation, duplicate writer or late delivery | Next slice |
+| callback-unanswered | fake-only; P8.2 step 2 | One correlated callback answer | Missing answer times out once, no retained lease/child | Next slice |
+| callback-late | fake-now + live-later; P8.2 steps 2/4 | Before-cutoff callback accepted once | Late callback cannot deliver success after timeout | Next slice |
+| child-inheritance | fake-only; P8.2 step 2 | Ephemeral source works without child material | Spawned descendant never inherits material/files/descriptors | Next slice |
+| network-policy | live-required; P8.2 step 4 network-policy fetch sentence | Real approved application policy fetched/applied | Unavailable/incompatible policy refuses inference | Pending approved live slice |
+| approved-routing | fake-only; P8.2 step 2 | Each candidate endpoint reaches only its selected local fake | Unlisted/external connect refuses and fails isolation | Next slice |
+| headless-inference | live-required; P8.2 step 4 successful-inference sentence | Bounded approved real headless inference succeeds | Authentication failure gives no false success/fallback | Pending approved live slice |
+| effective-source | fake-now + live-later; P8.2 steps 2/4 | Ephemeral external source; later vendor scopes/source verified | Native/helper/provider source cannot override or persist | Next slice |
+| vendor-callback-timeout | fake-now + live-later; P8.2 steps 2/4 | Bounded callback answers before cutoff | Eight-second broker/ten-second vendor timeout has no late success | Next slice |

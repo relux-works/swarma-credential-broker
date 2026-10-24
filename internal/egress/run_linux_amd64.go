@@ -125,6 +125,10 @@ func Run(ctx context.Context, c Config) (report Report, err error) {
 	defer func() { _ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL) }()
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
+	if c.Started != nil {
+		c.Started(cmd.Process.Pid)
+	}
+
 	listener := -1
 	for listener < 0 {
 		select {

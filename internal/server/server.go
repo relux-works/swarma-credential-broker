@@ -16,15 +16,16 @@ import (
 )
 
 type Server struct {
-	Manager     *lease.Manager
-	mu          sync.Mutex
-	connections map[*net.UnixConn]bool
-	listener    *net.UnixListener
-	wg          sync.WaitGroup
-	closed      bool
-	peer        func(*net.UnixConn) (uint32, error)
-	socketPath  string
-	socketInfo  os.FileInfo
+	Manager       *lease.Manager
+	mu            sync.Mutex
+	connections   map[*net.UnixConn]bool
+	listener      *net.UnixListener
+	wg            sync.WaitGroup
+	closed        bool
+	peer          func(*net.UnixConn) (uint32, error)
+	qualification bool
+	socketPath    string
+	socketInfo    os.FileInfo
 }
 
 func New(m *lease.Manager) *Server {
@@ -63,7 +64,11 @@ func (s *Server) Serve(ctx context.Context, l *net.UnixListener) error {
 	s.socketPath = l.Addr().String()
 	s.socketInfo, _ = os.Lstat(s.socketPath)
 	s.mu.Unlock()
-	if !socketPermissions(s.socketInfo) || checkSocketDirectory(filepath.Dir(s.socketPath)) != nil {
+	validSocket := socketPermissions(s.socketInfo) && checkSocketDirectory(filepath.Dir(s.socketPath)) == nil
+	if s.qualification {
+		validSocket = qualificationSocket(s.socketPath)
+	}
+	if !validSocket {
 		s.Close()
 		return wire.Refuse("lease_owner_unavailable")
 	}

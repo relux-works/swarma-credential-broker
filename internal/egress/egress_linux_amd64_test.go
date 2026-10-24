@@ -403,3 +403,25 @@ func TestAncillarySendRefused(t *testing.T) {
 		t.Fatalf("missing plain positive control: %v", e)
 	}
 }
+
+// Claim: the PID callback identifies the supervised child before execution,
+// exactly once; rejected launch configuration supplies no process identity.
+func TestLaunchPID(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	calls := 0
+	started := func(pid int) {
+		calls++
+		if pid <= 0 || pid == os.Getpid() {
+			t.Error("invalid supervised PID")
+		}
+	}
+	_, e := Run(ctx, Config{Launcher: launcher, Executable: probe, Args: []string{"env", "0"}, Env: []string{}, Started: started})
+	if e != nil || calls != 1 {
+		t.Fatal("missing supervised PID", e, calls)
+	}
+	_, e = Run(ctx, Config{Launcher: launcher, Executable: probe, Env: nil, Started: started})
+	if !errors.Is(e, ErrUnavailable) || calls != 1 {
+		t.Fatal("rejected launch gained PID")
+	}
+}

@@ -69,8 +69,8 @@ type Record struct {
 	Disposition      string   `json:"disposition"`
 }
 
-// RequiredCases is the fixed v0 registry. Bodies are deliberately absent in this
-// slice: the CLI records pending rows without executing or inventing an exit.
+// RequiredCases is the fixed v0 registry. Unimplemented bodies stay pending
+// without execution credit or an invented exit.
 func RequiredCases() []string {
 	return []string{
 		"peer-denied", "account-denied", "account-unknown", "release-unqualified", "source-conflict", "home-auth-present", "renew-unknown-digest", "renew-contention", "renew-late", "queue-full", "daemon-death", "replacement-contention", "rotation-crash", "cleanup-interrupted", "absence-unreadable", "store-missing", "store-rollback", "transient-ambiguous", "reenrol-unresolved", "duplicate-account", "owner-mismatch", "lease-ended", "time-untrusted", "init-without-capability", "resume-conflict", "frame-oversized", "frame-zero-length", "frame-truncated-header", "frame-malformed-first", "peer-identity-unavailable", "profile-unsupported",
@@ -78,8 +78,8 @@ func RequiredCases() []string {
 	}
 }
 
-// CaseCommand reserves exact argv for the future descriptor-bound row harness.
-// It grants no authority and is not dispatched by the production command yet.
+// CaseCommand names the retained broker worker descriptor, never a shell or
+// candidate path. The worker separately measures the approved candidate at FD6.
 func CaseCommand(id, control string) []string {
 	return []string{"/proc/self/fd/4", "qualification-case", id, control}
 }

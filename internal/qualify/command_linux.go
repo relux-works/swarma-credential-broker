@@ -24,6 +24,7 @@ import (
 
 type options struct {
 	executable, evidence, approval, account string
+	fixtureConfig                           string
 	fixtures, live                          bool
 }
 
@@ -35,6 +36,7 @@ func parse(args []string) (options, error) {
 	f.StringVar(&o.evidence, "evidence-dir", "", "")
 	f.StringVar(&o.approval, "approval-ref", "", "")
 	f.StringVar(&o.account, "account", "", "")
+	f.StringVar(&o.fixtureConfig, "fixture-config", "", "")
 	f.BoolVar(&o.fixtures, "fixtures", false, "")
 	f.BoolVar(&o.live, "live", false, "")
 	counts := map[string]int{}
@@ -50,14 +52,18 @@ func parse(args []string) (options, error) {
 	if f.Parse(args) != nil || f.NArg() != 0 || o.fixtures == o.live || !filepath.IsAbs(o.executable) || filepath.Clean(o.executable) != o.executable || !filepath.IsAbs(o.evidence) || filepath.Clean(o.evidence) != o.evidence || o.fixtures && (o.approval != "" || o.account != "") {
 		return o, qualification.ErrInvalid
 	}
+	if o.fixtureConfig != "" && (!o.fixtures || !filepath.IsAbs(o.fixtureConfig) || filepath.Clean(o.fixtureConfig) != o.fixtureConfig) {
+		return o, qualification.ErrInvalid
+	}
 	return o, nil
 }
 
 type driver struct {
-	path        string
-	environment []string
-	observer    func(policy.Config) qualification.IdentityObserver
-	ops         commandSyscalls
+	path          string
+	environment   []string
+	observer      func(policy.Config) qualification.IdentityObserver
+	ops           commandSyscalls
+	rowExecutable string // no production flag or environment selector
 }
 
 func Command(ctx context.Context, args []string, configPath string, environment []string, out io.Writer) int {
@@ -168,8 +174,11 @@ func (d driver) run(parent context.Context, args []string, out io.Writer) int {
 				return e
 			}
 		}
-		// Every required body is pending. -1 denotes no execution, not an exit.
+		// Unimplemented bodies remain pending. -1 denotes no execution.
 		pending := qualification.Pending(identity)
+		if identity.Executable.SHA256 == c.Policy.ExecutableSHA256 && identity.Version == "0.163.0" {
+			d.runRows(ctx, o.fixtureConfig, c.Policy, o.evidence, pending.Cases)
+		}
 		sort.Strings(missing)
 		r := report{Kind: "qualification-run/1", Identity: identity, Unavailable: missing, Cases: pending.Cases, Disposition: "pending", CompletedAt: pending.CompletedAt}
 		next, e := policy.Load(d.path, c.Policy.BrokerUID)

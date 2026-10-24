@@ -1,0 +1,65 @@
+//go:build linux
+
+package server
+
+import (
+	"errors"
+	"net"
+	"os"
+	"path/filepath"
+	"sync/atomic"
+	"syscall"
+
+	"github.com/relux-works/swarma-credential-broker/internal/lease"
+	"github.com/relux-works/swarma-credential-broker/internal/wire"
+)
+
+// NewQualification serves transport fixtures only. Kernel PID and UID bind
+// admission to the supervised transport worker; another process with the same UID cannot use
+// its private socket. The caller supplies an isolated, issuance-closed manager.
+// The optional probe fault is explicitly model evidence, never foreign-UID proof.
+func NewQualification(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64, probeFault bool) (*Server, func() bool, error) {
+	if pid == nil || m == nil || m.Policy().ExecutableSHA256 != digest || uid != uint32(os.Geteuid()) || !m.Policy().Peer(uid) {
+		return nil, nil, wire.Refuse("lease_owner_unavailable")
+	}
+	s := New(m)
+	s.qualification = true
+	var fired atomic.Bool
+	s.peer = func(c *net.UnixConn) (uint32, error) {
+		raw, e := c.SyscallConn()
+		if e != nil {
+			return 0, e
+		}
+		var cred *syscall.Ucred
+		var probeError error
+		e = raw.Control(func(fd uintptr) {
+			cred, probeError = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+		})
+		if e != nil || probeError != nil || cred == nil || int64(cred.Pid) != pid.Load() || cred.Uid != uid {
+			return 0, errors.New("qualification peer unavailable")
+		}
+		if probeFault {
+			fired.Store(true)
+			return 0, errors.New("qualification probe fault")
+		}
+		return cred.Uid, nil
+	}
+	return s, fired.Load, nil
+}
+
+func qualificationSocket(path string) bool {
+	for _, item := range []struct {
+		path string
+		mode os.FileMode
+	}{{filepath.Dir(path), os.ModeDir | 0700}, {path, os.ModeSocket | 0600}} {
+		s, e := os.Lstat(item.path)
+		if e != nil || s.Mode() != item.mode {
+			return false
+		}
+		st, ok := s.Sys().(*syscall.Stat_t)
+		if !ok || st.Uid != uint32(os.Geteuid()) {
+			return false
+		}
+	}
+	return true
+}
