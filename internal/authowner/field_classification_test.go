@@ -295,25 +295,7 @@ func TestRetainedFieldSubstitutions(t *testing.T) {
 				}
 			}
 			dir := filepath.Dir(authorityRecordPath(f, "owner-checkpoint.json"))
-			restore := func() {
-				t.Helper()
-				current, err := f.disk.Records()
-				if err != nil {
-					t.Fatal(err)
-				}
-				for name := range current {
-					if _, ok := baseline[name]; !ok && strings.HasPrefix(name, "owner-") {
-						if err := os.Remove(filepath.Join(dir, name)); err != nil {
-							t.Fatal(err)
-						}
-					}
-				}
-				for name, raw := range baseline {
-					if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
+			restore := func() { restoreFixtureRecords(t, f.disk, dir, baseline) }
 			// Restore once initially; sequential cases restore in their defers.
 			restore()
 			names := make([]string, 0, len(baseline))

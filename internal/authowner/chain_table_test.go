@@ -167,22 +167,7 @@ func TestRetainedChainTable(t *testing.T) {
 							}
 							// Restore only synthetic owner records, including any forbidden
 							// partial writes if a regression admits a new writer.
-							defer func() {
-								current, err := f.disk.Records()
-								if err != nil {
-									t.Fatal(err)
-								}
-								for n := range current {
-									if _, ok := baseline[n]; !ok && strings.HasPrefix(n, "owner-") {
-										if err := os.Remove(filepath.Join(dir, n)); err != nil {
-											t.Fatal(err)
-										}
-									}
-								}
-								for n, raw := range baseline {
-									write(n, raw)
-								}
-							}()
+							defer restoreFixtureRecords(t, f.disk, dir, baseline)
 							var changed map[string]any
 							if json.Unmarshal(baseline[name], &changed) != nil {
 								t.Fatal("decode fixture")
