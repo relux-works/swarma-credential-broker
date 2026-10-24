@@ -295,7 +295,7 @@ func TestRetainedFieldSubstitutions(t *testing.T) {
 				}
 			}
 			dir := filepath.Dir(authorityRecordPath(f, "owner-checkpoint.json"))
-			restore := func() { restoreFixtureRecords(t, f.disk, dir, baseline) }
+			restore := func() { restoreFixtureRecords(t, dir, baseline) }
 			// Restore once initially; sequential cases restore in their defers.
 			restore()
 			names := make([]string, 0, len(baseline))

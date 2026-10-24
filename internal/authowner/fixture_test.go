@@ -5,13 +5,13 @@ package authowner
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
-
-	"github.com/relux-works/swarma-credential-broker/internal/store"
 )
 
 // Claim: caching the fixture measurement never bypasses the real owner digest
@@ -49,13 +49,14 @@ func TestFixtureExecutableDigestRechecked(t *testing.T) {
 
 // Restore the full baseline after each case, writing only changed or missing
 // records. All unexpected owner records are still removed.
-func restoreFixtureRecords(t *testing.T, disk *store.Account, dir string, baseline map[string][]byte) {
+func restoreFixtureRecords(t *testing.T, dir string, baseline map[string][]byte) {
 	t.Helper()
-	current, err := disk.Records()
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name := range current {
+	for _, entry := range entries {
+		name := entry.Name()
 		if _, ok := baseline[name]; !ok && strings.HasPrefix(name, "owner-") {
 			if err := os.Remove(filepath.Join(dir, name)); err != nil {
 				t.Fatal(err)
@@ -63,16 +64,29 @@ func restoreFixtureRecords(t *testing.T, disk *store.Account, dir string, baseli
 		}
 	}
 	for name, raw := range baseline {
-		if previous, ok := current[name]; ok && bytes.Equal(previous, raw) {
-			continue
+		path := filepath.Join(dir, name)
+		// Cleanup compares bytes without repeating the store's JSON parser. The
+		// case's before/after assertions still use the real strict store reader.
+		file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		if err == nil {
+			previous, readErr := io.ReadAll(io.LimitReader(file, 1<<20+1))
+			closeErr := file.Close()
+			if readErr != nil || closeErr != nil {
+				t.Fatal("read fixture record", readErr, closeErr)
+			}
+			if bytes.Equal(previous, raw) {
+				continue
+			}
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
+		if err := os.WriteFile(path, raw, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
 }
 
-// Claim: fixture restoration repairs changed and missing records, removes
+// Claim: fixture restoration repairs malformed and missing records, removes
 // unexpected owner writes, and leaves the matching control's bytes/mtime alone.
 func TestFixtureRecordRestore(t *testing.T) {
 	f := newFixture(t, "rotate")
@@ -96,11 +110,11 @@ func TestFixtureRecordRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"owner-checkpoint.json", "owner-extra.json"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(`{"revision":2}`), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(`not-json`), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	restoreFixtureRecords(t, f.disk, dir, baseline)
+	restoreFixtureRecords(t, dir, baseline)
 	after, err := f.disk.Records()
 	if err != nil || len(after) != len(baseline) {
 		t.Fatal("restore record set", err)
