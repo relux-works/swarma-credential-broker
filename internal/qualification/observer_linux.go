@@ -34,19 +34,16 @@ type IdentityObserver interface {
 	Catalog(context.Context) (Measurement, Catalog, error)
 }
 type NativeObserver struct {
-	ExecutablePath string
-	StaticPolicy   []byte
+	ExecutablePath   string
+	StaticPolicy     []byte
+	ExecutableSHA256 string
+	LauncherPath     string
+	ScratchRoot      string
+	Evidence         *CandidateEvidence
 }
 
-func (o NativeObserver) Version(context.Context) (string, error) { return "", ErrUnavailable }
-func (o NativeObserver) Schema(context.Context) (Measurement, error) {
-	return Measurement{}, ErrUnavailable
-}
 func (o NativeObserver) Properties(context.Context) (Measurement, error) {
 	return Measurement{}, ErrUnavailable
-}
-func (o NativeObserver) Catalog(context.Context) (Measurement, Catalog, error) {
-	return Measurement{}, Catalog{}, ErrUnavailable
 }
 func measure(name string, b []byte) Measurement { return Measurement{name + "/1", Hash(b)} }
 func hashFile(ctx context.Context, f *os.File) (string, error) {
@@ -88,7 +85,7 @@ func OpenExecutable(path string) (*os.File, error) {
 		return nil, ErrUnavailable
 	}
 	st, ok := s.Sys().(*syscall.Stat_t)
-	if !ok || st.Uid != 0 && st.Uid != uint32(os.Geteuid()) {
+	if !ok || st.Nlink != 1 || st.Uid != 0 && st.Uid != uint32(os.Geteuid()) {
 		f.Close()
 		return nil, ErrUnavailable
 	}

@@ -66,12 +66,13 @@ func Command(ctx context.Context, args []string, configPath string, environment 
 }
 
 type report struct {
-	CompletedAt string                 `json:"completed_at"`
-	Kind        string                 `json:"kind"`
-	Identity    qualification.Identity `json:"identity"`
-	Unavailable []string               `json:"unavailable_observers"`
-	Cases       []qualification.Case   `json:"cases"`
-	Disposition string                 `json:"disposition"`
+	CompletedAt string                          `json:"completed_at"`
+	Kind        string                          `json:"kind"`
+	Identity    qualification.Identity          `json:"identity"`
+	Unavailable []string                        `json:"unavailable_observers"`
+	Cases       []qualification.Case            `json:"cases"`
+	Disposition string                          `json:"disposition"`
+	Observers   qualification.CandidateEvidence `json:"candidate_observers"`
 }
 
 // Inherited credentials are refused by name; their values and native homes are
@@ -137,7 +138,8 @@ func (d driver) run(parent context.Context, args []string, out io.Writer) int {
 	if e != nil {
 		return 69
 	}
-	var observer qualification.IdentityObserver = qualification.NativeObserver{ExecutablePath: o.executable, StaticPolicy: raw}
+	var candidateEvidence qualification.CandidateEvidence
+	var observer qualification.IdentityObserver = qualification.NativeObserver{ExecutablePath: o.executable, StaticPolicy: raw, ExecutableSHA256: c.Policy.ExecutableSHA256, ScratchRoot: o.evidence, Evidence: &candidateEvidence}
 	if d.observer != nil {
 		observer = d.observer(c)
 	}
@@ -186,6 +188,11 @@ func (d driver) run(parent context.Context, args []string, out io.Writer) int {
 		sort.Strings(missingAgain)
 		if again != identity || strings.Join(missingAgain, ",") != strings.Join(missing, ",") {
 			return qualification.ErrUnavailable
+		}
+		if source, ok := observer.(interface {
+			CandidateMeasurements() qualification.CandidateEvidence
+		}); ok {
+			r.Observers = source.CandidateMeasurements()
 		}
 		b, e := wire.Encode(r)
 		if e != nil {

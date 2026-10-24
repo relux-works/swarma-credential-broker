@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/relux-works/swarma-credential-broker/internal/qualification"
 	"github.com/relux-works/swarma-credential-broker/internal/qualify"
 	"github.com/relux-works/swarma-credential-broker/internal/runner"
 	"github.com/relux-works/swarma-credential-broker/timeconf"
@@ -13,6 +14,9 @@ import (
 
 func main() {
 	timeconf.CollectorEntry()
+	if handled, code := qualification.CandidateLauncherMain(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 	if handled, code := runner.SupervisorMain(os.Args[1:]); handled {
 		os.Exit(code)
 	}

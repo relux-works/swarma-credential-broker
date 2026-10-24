@@ -1,9 +1,10 @@
 # Qualification records and command frame
 
 `qualify-codex` implements the protected record, publication and pending-row
-frame for the mandatory 0.163.0 procedure in profile §8.2. This slice executes no
-candidate, fake qualification body or live row. It grants no production release
-qualification. The shipped owner also remains stopped.
+frame for the mandatory 0.163.0 procedure in profile §8.2. It measures the
+candidate's version, experimental schema and model catalog under the egress
+boundary. Qualification row bodies remain pending, so it grants no production
+release qualification. The shipped owner also remains stopped.
 
 ```sh
 swarma-credential-broker qualify-codex --executable "$CANDIDATE" --evidence-dir "$EVIDENCE" --fixtures
@@ -49,14 +50,70 @@ contract; a stored historical digest is never a measurement of current state.
 
 | Input | Current production implementation |
 |---|---|
-| Executable | SHA-256 through a retained no-follow open of every path component; regular executable, broker/root-owned, no group/world write |
+| Executable | SHA-256 through a retained no-follow open of every path component; regular single-link executable, broker/root-owned, no group/world write |
 | Runner | SHA-256 of `/proc/self/exe`, combined with `debug.ReadBuildInfo` main version and VCS revision |
 | Platform | Kernel release/version, OS ID/VERSION_ID, architecture and bounded `systemctl --version` first line, canonically hashed; no machine name |
 | Configuration | Canonical static daemon configuration plus harness/channel/profile, ephemeral-source policy and supervisor containment revision |
-| Version | Unavailable until the network-isolated launcher in the next qualification slice |
-| Experimental schema | Unavailable until candidate schema generation under that launcher |
+| Version | Exact `codex-cli 0.163.0` line from the isolated candidate; version string and its SHA-256 |
+| Experimental schema | Two fresh isolated generator runs; digest of the identical canonical schema bundle |
 | Applied properties | Unavailable until the contained owner's unit template and current-property observer are available |
-| Model catalog | Unavailable until the candidate app-server observer is available |
+| Model catalog | Account-free stdio app-server model/effort pairs, sorted and canonically hashed |
+
+### Candidate execution and measurements
+
+Every observer run opens and hashes the protected approved executable, matching
+the configured SHA-256 before execution and again afterwards. The retained
+candidate is descriptor 4; descriptor 5 retains the trusted broker launcher.
+The private `--internal-qualification-candidate` bootstrap installs
+`internal/egress` before executing descriptor 4. The explicit flag makes an
+embedding executable without that entry point reject the invocation promptly.
+It has no policy, account or lease authority. No pathname reopen selects the
+candidate between hashing and execution.
+
+Each run gets a newly created, empty, owned mode-0700 directory for both `HOME`
+and `CODEX_HOME`; teardown removes it. The environment contains only those
+homes, fixed `PATH`/`LANG` and the boundary's proxy variables. The proxy points
+to a reserved, non-listening loopback socket; network allowlists are empty.
+Runs have a 15-second deadline, bounded stdout/stderr and process-group cleanup.
+Any non-loopback refusal, unknown addressed network operation, incomplete
+boundary evidence, timeout or output overflow makes the measurement unavailable.
+No digest is returned after failed isolation, even if stdout looks valid.
+
+The commands and byte contracts are:
+
+- `--version`: stdout must equal `codex-cli 0.163.0\n` exactly, within 256 bytes.
+  The recorded version digest hashes the UTF-8 bytes `0.163.0` without a newline.
+- `app-server --help`, then `app-server generate-json-schema --help`: bounded
+  help must advertise the generator and its `--experimental`/`--out` flags.
+  `app-server generate-json-schema --experimental --out <schema-directory>`
+  runs twice in distinct fresh homes. Each output directory must contain only
+  regular owned single-link JSON files, with no symlinks. Files are limited to
+  8 MiB each, 32 MiB total and 2,048 files. JSON object keys and relative file
+  names are sorted, whitespace is removed, array order and number lexemes are
+  preserved, and duplicate keys, invalid UTF-8, trailing values and nesting
+  beyond 128 levels are rejected. The digest covers a JSON object mapping
+  relative filenames to canonical JSON values. Different canonical bundles
+  return unavailable with `schema_comparison: "different"`.
+- `app-server --listen stdio:// -c 'cli_auth_credentials_store="ephemeral"'`:
+  send `initialize` with experimental API capability, `initialized`, then
+  bounded paginated `model/list` requests. There is no login or account request.
+  Reject missing/empty/duplicate model or effort names and malformed responses.
+  Sort model names and each effort list; hash the canonical `Catalog` object
+  encoded by `internal/wire`. Frames are limited to 4 MiB, total output to
+  8 MiB, responses/notifications to 128, pages to 16 and models to 1,024.
+
+The catalog remains required: [profile §6](../spec/v0-codex-refresher.md#6-external-token-delivery-and-one-shot-runner)
+requires model/effort validation against the qualified catalog; §8.2 step 1
+requires version/schema identity. An account-free advertised catalog supplies
+identity evidence, not proof that any model is available to a particular account.
+
+`run.json` includes `candidate_observers`: the version measurement, bounded
+per-run command and egress summaries, and the schema comparison result.
+Commands use a fixed schema-directory placeholder. Raw candidate output,
+environment and temporary paths are excluded. This diagnostic evidence grants
+no publication authority. Applied properties remain unavailable, all required
+rows remain unexecuted, and `--fixtures` still returns 69 without a qualified
+entry.
 
 The static configuration identity covers socket/store/executable policy,
 account/vendor/profile allowlists, endpoints, generation, release references,
@@ -156,13 +213,14 @@ material publication, without holding its state locks over observer I/O.
 Release remains available for cleanup. The runner re-reads on each authority
 resolution. Binary, configuration, platform or other measured input drift,
 missing evidence, tampered provenance or an unavailable observer refuses the
-entry. Production version/schema/properties/catalog are unavailable today, so
+entry. Production applied properties and required row bodies remain unavailable, so
 ordinary admission stays `lease_harness_unqualified` (69 at the runner).
 
 ## Validation
 
 ```sh
 GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/qualification ./internal/qualify ./internal/runner -count=1
+CANDIDATE_EXECUTABLE="$CANDIDATE" CANDIDATE_EVIDENCE_DIR="$EVIDENCE" GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race -tags=realcandidate ./internal/qualification -run '^Test(RealCandidateObservers|CandidateTraceControls)$' -count=1 -v
 GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./... -count=1
 "$CURATOR_GO" build -o "$ARTIFACT" ./cmd/swarma-credential-broker
 "$CURATOR_GO" tool nm "$ARTIFACT"
@@ -175,3 +233,7 @@ runner, refresh and durable release with the fake app-server. Its live-shaped
 metadata is fixture data, never real row or account qualification evidence.
 Check that fixture observer/constructor symbols are absent from the production
 binary. Keep test logs, binaries and narrowing overlays in private scratch.
+The tagged observer test requires a protected executable, an explicit private
+evidence directory and `strace`. It executes only account-free observers through
+the boundary, compares two schema measurements, requires zero external grants
+and independently rejects external or undecodable connect trace records.

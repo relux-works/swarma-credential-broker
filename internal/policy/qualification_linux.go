@@ -16,7 +16,7 @@ func (c Config) Qualified(ctx context.Context, path string, observer qualificati
 		return qualification.Record{}, qualification.Catalog{}, qualification.ErrUnavailable
 	}
 	if observer == nil {
-		observer = qualification.NativeObserver{ExecutablePath: c.Policy.Executable, StaticPolicy: b}
+		observer = qualification.NativeObserver{ExecutablePath: c.Policy.Executable, StaticPolicy: b, ExecutableSHA256: c.Policy.ExecutableSHA256}
 	}
 	r, catalog, e := (qualification.Repository{Path: qualification.Directory(path), UID: c.Policy.BrokerUID, Observer: observer}).Read(ctx)
 	if e != nil || r.Identity.Executable.SHA256 != c.Policy.ExecutableSHA256 {

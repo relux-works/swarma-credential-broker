@@ -13,7 +13,9 @@ import (
 )
 
 // Claim: public CLI cannot select a fixture observer from flags/environment or
-// files; production pending rows never execute a synthetic candidate or publish.
+// files. This test embedding has no candidate bootstrap entry, so its synthetic
+// candidate cannot execute or publish. TestObservedReport exercises the broker
+// embedding with its actual bootstrap and the approved fixture candidate.
 func TestReviewPublicCommand(t *testing.T) {
 	for _, mode := range []string{"native", "environment-override", "argument-override", "cancelled", "existing-report", "live-with-reference"} {
 		t.Run(mode, func(t *testing.T) {

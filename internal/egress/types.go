@@ -25,7 +25,10 @@ type Policy struct {
 // descriptor 3 is private bootstrap transport and is closed before candidate exec.
 // Only regular files and pipes may be inherited in explicit slots.
 type Config struct {
-	Launcher              string
+	Launcher string
+	// LauncherArgs precede Executable and Args, for an embedding executable's
+	// private bootstrap entry point. They are never passed to the candidate.
+	LauncherArgs          []string
 	Executable            string
 	Args                  []string
 	Env                   []string

@@ -221,7 +221,8 @@ func TestEvidenceBudget(t *testing.T) {
 }
 
 // Claim: explicit environment selection excludes ambient values; inherited
-// socket FDs are rejected before launching, while a selected regular FD works.
+// socket FDs and malformed bootstrap prefixes are rejected before launching,
+// while a selected regular FD works.
 func TestExplicitInputs(t *testing.T) {
 	t.Setenv("EGRESS_CANARY", "ambient")
 	_, out, e := runProbe(t, Policy{}, "env", "0")
@@ -234,13 +235,17 @@ func TestExplicitInputs(t *testing.T) {
 	if !errors.Is(e, ErrUnavailable) {
 		t.Fatal("nil env accepted")
 	}
+	r, e := Run(ctx, Config{Launcher: launcher, LauncherArgs: []string{"bad\x00prefix"}, Executable: probe, Env: []string{}})
+	if !errors.Is(e, ErrUnavailable) || len(r.Events) != 0 {
+		t.Fatal("malformed bootstrap prefix accepted", e)
+	}
 	l, _ := tcp(t)
 	f, e := l.(*net.TCPListener).File()
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer f.Close()
-	r, e := Run(ctx, Config{Launcher: launcher, Executable: probe, Env: []string{}, ExtraFiles: []*os.File{f}})
+	r, e = Run(ctx, Config{Launcher: launcher, Executable: probe, Env: []string{}, ExtraFiles: []*os.File{f}})
 	if !errors.Is(e, ErrUnavailable) || len(r.Events) != 0 {
 		t.Fatal("inherited socket accepted", e)
 	}

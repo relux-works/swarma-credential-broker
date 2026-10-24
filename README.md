@@ -58,8 +58,9 @@ The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at
 | M-CB4 — owned storage, socket and removal | [storage-layout.puml](diagrams/storage-layout.puml) | [§5.3 Secret store](spec/broker.md#53-secret-store), [§12.4 Files](spec/broker.md#124-files), [§15 Installation and lifecycle](spec/broker.md#15-installation-and-lifecycle) |
 
 See [qualification](docs/qualification.md) for the protected release-evidence
-record and the pending `qualify-codex` administrative command. It runs no
-candidate in this slice and cannot qualify a production release.
+record and the pending `qualify-codex` administrative command. Its isolated
+candidate observers measure version, schema and catalog; pending row bodies
+still prevent production qualification.
 
 ## Tools
 
@@ -91,10 +92,10 @@ isolated helpers and that fake vendor, with fresh homes. No logged-in home is us
 | x/sys/unix | Pin process identities with Linux pidfds before signalling owned descendants; pinned by `go.mod`, downloaded by Go commands | Go module cache |
 | go-toml/v2 | Parse credential-source configuration, including nested and quoted keys; pinned by `go.mod`, downloaded automatically by Go commands | Go module cache; no generated repository artifacts |
 | Python 3 | Parse vector JSON with the command in [vectors/v0](vectors/v0/README.md); strict canonical-byte/link checks use temporary validation scripts | Terminal and private scratch logs; scripts are not shipped tooling |
-| Codex CLI | Inspect a selected release with `codex --version`, `codex app-server --help`, `codex app-server generate-json-schema --experimental --out <scratch-schema-directory>` | Schema in the chosen scratch directory; always use a fresh empty HOME/CODEX_HOME, never an existing login |
+| Codex CLI | Measure a protected selected release through `swarma-credential-broker qualify-codex --executable "$CANDIDATE" --evidence-dir "$EVIDENCE" --fixtures`; the isolated version/help/schema/catalog commands and tagged checks are in [qualification](docs/qualification.md) | Bounded measurements in private `run.json`; every candidate process runs under the egress boundary in a fresh empty HOME/CODEX_HOME, removed afterwards |
 | systemd user tools (Linux) | Inspect containment with `systemctl --user show <probe-unit>`; a bounded probe can use `systemd-run --user --unit=<probe-unit> --property=KillMode=control-group --property=RuntimeMaxSec=5s /usr/bin/true` | User-manager state and private scratch evidence; stop only the probe's own unit |
 | godbus/dbus v5.1.0 | Direct D-Bus transport in `internal/authowner`; fetch with `"$CURATOR_GO" mod download github.com/godbus/dbus/v5`; checks below exercise it | Module cache and `go.sum`; no token material in unit properties |
-| Qualification command | `swarma-credential-broker qualify-codex --executable "$CANDIDATE" --evidence-dir "$EVIDENCE" --fixtures`; live syntax and exit codes in [qualification](docs/qualification.md) | Owner-only `run.json` in the supplied evidence directory; protected admission fence beside static configuration. Required bodies are pending, so no qualified entry is published |
+| Qualification command | `swarma-credential-broker qualify-codex --executable "$CANDIDATE" --evidence-dir "$EVIDENCE" --fixtures`; live syntax, tagged real-candidate checks and exit codes in [qualification](docs/qualification.md) | Owner-only `run.json` with isolated version/schema/catalog measurements and egress summaries in the supplied evidence directory; protected admission fence beside static configuration. Required bodies are pending, so no qualified entry is published |
 | Go egress launcher | `GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" build -o "$TMPDIR/egress-launcher" ./internal/egress/cmd/launcher`; narrow checks and tagged version/HTTP probes are in [egress boundary](docs/egress-boundary.md) | Explicit private scratch: executable, bounded boundary JSON and connect trace; no account access |
 | Go | Build with `"$CURATOR_GO" build -o "$TMPDIR/swarma-credential-broker" ./cmd/swarma-credential-broker`; vet with `"$CURATOR_GO" vet ./...`; format-check with `"$("$CURATOR_GO" env GOROOT)/bin/gofmt" -l .` | Binary and captured logs in the selected private scratch directory; format-check output must be empty |
 

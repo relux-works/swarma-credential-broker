@@ -31,9 +31,11 @@ func validate(c Config) error {
 		}
 		keys[k] = true
 	}
-	for _, a := range c.Args {
-		if strings.ContainsRune(a, 0) {
-			return ErrUnavailable
+	for _, args := range [][]string{c.LauncherArgs, c.Args} {
+		for _, a := range args {
+			if strings.ContainsRune(a, 0) {
+				return ErrUnavailable
+			}
 		}
 	}
 	for _, p := range c.Policy.Ports {
@@ -104,7 +106,10 @@ func Run(ctx context.Context, c Config) (report Report, err error) {
 		child.Close()
 		return report, err
 	}
-	cmd := exec.Command(c.Launcher, append([]string{c.Executable}, c.Args...)...)
+	argv := append([]string{}, c.LauncherArgs...)
+	argv = append(argv, c.Executable)
+	argv = append(argv, c.Args...)
+	cmd := exec.Command(c.Launcher, argv...)
 	cmd.Env = append([]string{}, c.Env...)
 	cmd.Stdin = c.Stdin
 	cmd.Stdout = c.Stdout
