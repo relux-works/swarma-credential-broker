@@ -66,12 +66,11 @@ func TestReviewRealDaemonTerminal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	var serve sync.WaitGroup
-	serve.Add(1)
-	go func() { defer serve.Done(); done <- s.Serve(ctx, l) }()
+	serveDone := make(chan struct{})
+	go func() { defer close(serveDone); done <- s.Serve(ctx, l) }()
 	var stopOnce sync.Once
 	stopServer := func() {
-		stopOnce.Do(func() { cancel(); s.Close(); serve.Wait(); <-done; s.Wait() })
+		stopOnce.Do(func() { testutil.StopServer(func() { cancel(); s.Close() }, serveDone, s.Wait); <-done })
 	}
 	defer stopServer()
 	c, err := DialBroker(context.Background(), path)

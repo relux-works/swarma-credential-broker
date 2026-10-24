@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,11 +60,9 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 	t.Helper()
 	tracer, err := exec.LookPath("strace")
 	if err != nil {
-		if os.Getenv("RUNNER_QUALIFICATION") == "1" {
-			t.Fatalf("UNVERIFIED: %s requires strace: %v", t.Name(), err)
-		}
-		t.Skipf("UNVERIFIED: %s requires strace: %v", t.Name(), err)
+		unverifiedTrace(t, fmt.Errorf("strace unavailable: %w", err))
 	}
+	requirePtrace(t)
 	helper := exec.Command("/bin/cat")
 	helperInput, err := helper.StdinPipe()
 	must(t, err)
@@ -181,6 +180,115 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 	if runErr != nil {
 		t.Fatalf("lifecycle failed after proc observation: %v\n%s\n%s", runErr, output.String(), data)
 	}
+}
+
+func requirePtrace(t *testing.T) {
+	t.Helper()
+	if probeErr := ptraceAvailability(); probeErr != nil {
+		if errors.Is(probeErr, syscall.EPERM) || errors.Is(probeErr, syscall.EACCES) || errors.Is(probeErr, syscall.ENOSYS) {
+			unverifiedTrace(t, fmt.Errorf("ptrace unavailable: %w", probeErr))
+		}
+		t.Fatalf("ptrace probe failed: %v", probeErr)
+	}
+}
+
+func unverifiedTrace(t *testing.T, cause error) {
+	t.Helper()
+	if os.Getenv("RUNNER_QUALIFICATION") == "1" {
+		t.Fatalf("UNVERIFIED: %s: %v", t.Name(), cause)
+	}
+	t.Skipf("UNVERIFIED: %s: %v", t.Name(), cause)
+}
+
+// Probe both native attach mechanisms used by strace before launching it.
+// Start/ptrace return typed errno, so no tracer-output text is classified.
+// ptrace ownership belongs to an OS thread, including wait and detach.
+func ptraceAvailability() error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if err := ptraceTraceMe(); err != nil {
+		return fmt.Errorf("PTRACE_TRACEME: %w", err)
+	}
+	if err := ptraceSeize(); err != nil {
+		return fmt.Errorf("PTRACE_SEIZE: %w", err)
+	}
+	return nil
+}
+
+func ptraceTraceMe() error {
+	cmd := exec.Command("/bin/true")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Ptrace: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	defer func() {
+		if cmd.ProcessState == nil {
+			cmd.Process.Kill()
+			cmd.Wait()
+		}
+	}()
+	var status syscall.WaitStatus
+	for {
+		_, err := syscall.Wait4(cmd.Process.Pid, &status, 0, nil)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		break
+	}
+	if !status.Stopped() {
+		return fmt.Errorf("tracee did not acknowledge attach: %v", status)
+	}
+	if err := syscall.PtraceDetach(cmd.Process.Pid); err != nil {
+		return err
+	}
+	return cmd.Wait()
+}
+
+func ptraceSeize() error {
+	// The held stdin keeps only this owned tracee alive until attach completes.
+	cmd := exec.Command("/bin/cat")
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	defer func() {
+		if cmd.ProcessState == nil {
+			cmd.Process.Kill()
+			cmd.Wait()
+		}
+	}()
+	if err := unix.PtraceSeize(cmd.Process.Pid); err != nil {
+		return err
+	}
+	if err := unix.PtraceInterrupt(cmd.Process.Pid); err != nil {
+		return err
+	}
+	var status syscall.WaitStatus
+	for {
+		_, err := syscall.Wait4(cmd.Process.Pid, &status, 0, nil)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		break
+	}
+	if !status.Stopped() {
+		return fmt.Errorf("tracee did not acknowledge seize: %v", status)
+	}
+	if err := unix.PtraceDetach(cmd.Process.Pid); err != nil {
+		return err
+	}
+	input.Close()
+	return cmd.Wait()
 }
 
 // Blocked stdout preserves cancellation/deadline status, cleanup still wins,

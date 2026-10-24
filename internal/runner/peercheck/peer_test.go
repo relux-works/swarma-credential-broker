@@ -183,8 +183,12 @@ func TestConfiguredClientPins(t *testing.T) {
 	srv := server.New(env.Manager)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- srv.Serve(ctx, l) }()
-	defer func() { cancel(); srv.Close(); <-done; srv.Wait() }()
+	serveDone := make(chan struct{})
+	go func() { defer close(serveDone); done <- srv.Serve(ctx, l) }()
+	defer func() {
+		testutil.StopServer(func() { cancel(); srv.Close() }, serveDone, srv.Wait)
+		<-done
+	}()
 	cmd := peerCommand(t, peers.Allowed, "connect", allowed, path, strconv.FormatUint(uint64(os.Geteuid()), 10))
 	peerResult(t, cmd.Run())
 	t.Log("allowed_peer: PASS; distinct process verified broker UID and negotiated its own principal")

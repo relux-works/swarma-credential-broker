@@ -167,8 +167,12 @@ func TestConfiguredPeers(t *testing.T) {
 	s := New(e.Manager)
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan error, 1)
-	go func() { stopped <- s.Serve(ctx, l) }()
-	defer func() { cancel(); s.Close(); <-stopped; s.Wait() }()
+	serveDone := make(chan struct{})
+	go func() { defer close(serveDone); stopped <- s.Serve(ctx, l) }()
+	defer func() {
+		testutil.StopServer(func() { cancel(); s.Close() }, serveDone, s.Wait)
+		<-stopped
+	}()
 	beforeOwner := e.Owner.View()
 	peerRun(t, peers.Foreign, foreignUID, path, "denied", struct{}{}, "")
 	e.NoLeaseRecords(t)

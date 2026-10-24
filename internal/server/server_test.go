@@ -49,17 +49,13 @@ func start(t *testing.T, e *testutil.Env, mutate func(*Server)) string {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan error, 1)
-	var serve sync.WaitGroup
-	serve.Add(1)
-	go func() { defer serve.Done(); stopped <- s.Serve(ctx, l) }()
+	serveDone := make(chan struct{})
+	go func() { defer close(serveDone); stopped <- s.Serve(ctx, l) }()
 	t.Cleanup(func() {
-		cancel()
-		s.Close()
-		serve.Wait()
+		testutil.StopServer(func() { cancel(); s.Close() }, serveDone, s.Wait)
 		if <-stopped != nil {
 			t.Error("serve failed")
 		}
-		s.Wait()
 	})
 	return path
 }
@@ -447,11 +443,12 @@ func TestSocketPathOwnership(t *testing.T) {
 	srv := New(e.Manager)
 	ctx, cancel := context.WithCancel(context.Background())
 	stop := make(chan error, 1)
-	var serve sync.WaitGroup
-	serve.Add(1)
-	go func() { defer serve.Done(); stop <- srv.Serve(ctx, l) }()
+	serveDone := make(chan struct{})
+	go func() { defer close(serveDone); stop <- srv.Serve(ctx, l) }()
 	var stopOnce sync.Once
-	stopServer := func() { stopOnce.Do(func() { cancel(); srv.Close(); serve.Wait(); <-stop; srv.Wait() }) }
+	stopServer := func() {
+		stopOnce.Do(func() { testutil.StopServer(func() { cancel(); srv.Close() }, serveDone, srv.Wait); <-stop })
+	}
 	defer stopServer()
 	c := dial(t, path)
 	hello(t, c)
