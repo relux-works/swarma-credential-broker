@@ -5,7 +5,7 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/lease"
 	"github.com/relux-works/swarma-credential-broker/internal/policy"
 	"github.com/relux-works/swarma-credential-broker/internal/testutil"
-	"github.com/relux-works/swarma-credential-broker/internal/timeconf"
+	"github.com/relux-works/swarma-credential-broker/timeconf"
 	"os"
 	"path/filepath"
 	"strings"

@@ -1,4 +1,3 @@
-// Package timeconf collects independent clock confidence for local services.
 package timeconf
 
 import (

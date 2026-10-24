@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/relux-works/swarma-credential-broker/internal/timeconf"
+	"github.com/relux-works/swarma-credential-broker/timeconf"
 	"os"
 	"os/exec"
 	"path/filepath"

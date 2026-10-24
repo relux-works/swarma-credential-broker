@@ -8,7 +8,7 @@ import (
 
 	"github.com/relux-works/swarma-credential-broker/internal/qualify"
 	"github.com/relux-works/swarma-credential-broker/internal/runner"
-	"github.com/relux-works/swarma-credential-broker/internal/timeconf"
+	"github.com/relux-works/swarma-credential-broker/timeconf"
 )
 
 func main() {

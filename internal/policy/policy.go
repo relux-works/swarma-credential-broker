@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/relux-works/swarma-credential-broker/internal/store"
-	"github.com/relux-works/swarma-credential-broker/internal/timeconf"
+	"github.com/relux-works/swarma-credential-broker/timeconf"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 	"path/filepath"
 	"strings"

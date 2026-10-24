@@ -1,10 +1,69 @@
 # Platform time policy
 
 This is the shared time-confidence policy for local services. The provider is
-`internal/timeconf`; its [implementation and collection contract](time-confidence.md)
+`github.com/relux-works/swarma-credential-broker/timeconf`; its [implementation and collection contract](time-confidence.md)
 applies independently of account or lease state. The selected v0 evidence source
 is option A below. Production admission remains closed until activation, and an
 absent protected policy selects no source and returns unavailable.
+
+## Embedding the public provider
+
+The import path is `github.com/relux-works/swarma-credential-broker/timeconf`.
+Pin a specific commit until a tagged version exists; untagged commits do not
+promise API compatibility. The production collector and protected policy loaders
+require Linux. Collector execution also requires Linux 5.11+ and proc access.
+
+Call `CollectorEntry()` as the first statement in `main`, before any argument
+parsing. Initialization that runs before `main` must be safe to repeat when the
+collector re-executes the service. Load policy from the deployment's fixed,
+protected path, owned by the service UID with mode 0600; missing or invalid policy
+refuses confidence. A minimal embedding is:
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+
+	"github.com/relux-works/swarma-credential-broker/timeconf"
+)
+
+func main() {
+	timeconf.CollectorEntry()
+	// Use the deployment's fixed protected policy path; there is no source flag.
+	policy, err := timeconf.LoadPolicy("/etc/timeconf/policy.json", uint32(os.Geteuid()))
+	if err != nil {
+		log.Fatal("time policy unavailable")
+	}
+	provider, err := timeconf.Production(&policy, nil)
+	if err != nil {
+		log.Fatal("time provider unavailable")
+	}
+	sample, err := provider.StartSample(context.Background())
+	if err != nil {
+		log.Fatal("time confidence unavailable")
+	}
+	// Apply Now, Uncertainty and AuthorityUntil to the service's time decision.
+	log.Print(sample.Now)
+}
+```
+
+`LoadPolicy` applies the strict JSON and protected-file checks. A service that
+narrows a separately loaded shared policy uses
+`LoadServicePolicy(servicePath, uid, sharedPolicy)`; it rejects looser bounds.
+`Production(nil, nil)` leaves confidence off. A successful start sample is an
+observation, and later time decisions still require fresh confidence under the
+consumer protocol below. The example does not provide durable hold continuity.
+
+The separate module in `testdata/timeconf-consumer` builds this example against
+the local source without running it. Check with
+`go test ./timeconf -run '^TestExternalModuleConsumer$' -count=1 -v`; this also
+requires the test-only `ParseSources` wrapper to be absent from production builds.
+The provider's parsers for tracking and authdata, evidence interfaces, strict
+policy loaders, and system collector remain public; test fixtures and constructors
+are confined to test files.
 
 ## Shared rules
 

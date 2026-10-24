@@ -148,13 +148,6 @@ func ParseAuthData(b []byte) (Authentication, error) {
 	return out, nil
 }
 
-// ParseSources accepts an intentionally closed chrony configuration subset.
-// Filesystem directives require the protected recursive reader used by the
-// system collector; this standalone parser refuses them without that reader.
-func ParseSources(b []byte) (Sources, error) {
-	return parseSources(b, false, nil)
-}
-
 type expandDirectory func(string, []string) (Sources, error)
 
 func parseSources(b []byte, sourceOnly bool, expand expandDirectory) (Sources, error) {

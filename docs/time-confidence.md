@@ -1,6 +1,6 @@
 # Independent time confidence
 
-`internal/timeconf` supplies independent clock evidence. It depends only on the
+`timeconf` supplies independent clock evidence. It depends only on the
 standard library and `golang.org/x/sys`; it has no account, lease or server
 imports. `internal/ownerconfidence` adapts its samples to `authowner.Confidence`.
 The owner still applies the [effective-time and durable-watermark model](auth-owner.md#normative-trusted-time-model).
@@ -40,8 +40,8 @@ sorts the union by filename and
 uses the first directory's file for duplicate filenames. Source files permit
 only NTS `server`/`pool` directives and require newline-terminated lines;
 configuration files recursively use the same closed directive parser. Selection
-matching uses the union of all accepted associations. The standalone
-`ParseSources` parser has no filesystem authority and refuses directory directives.
+matching uses the union of all accepted associations. The test-only standalone
+parser has no filesystem authority and refuses directory directives.
 Expansion is bounded to eight directory levels, 128 files, 128 directory visits,
 4096 directory entries (including ignored suffixes), and one MiB of aggregate
 configuration, in addition to the per-file policy limit. Cycles exhaust the depth
@@ -239,14 +239,14 @@ watermark.
 Fixture tests exercise collectors without system time changes or vendor access:
 
 ```sh
-go test ./internal/timeconf ./internal/ownerconfidence ./internal/policy -count=1
+go test ./timeconf ./internal/ownerconfidence ./internal/policy -count=1
 go test ./internal/authowner -run '^TestConfidence' -count=1
 ```
 
 For a read-only installation diagnostic, explicitly opt into:
 
 ```sh
-go test -tags=timeconf_smoke ./internal/timeconf -run '^TestHostTimeConfidenceSmoke$' -count=1 -v
+go test -tags=timeconf_smoke ./timeconf -run '^TestHostTimeConfidenceSmoke$' -count=1 -v
 ```
 
 The diagnostic prints only fixed verdicts and parsed numeric/enum aggregates.

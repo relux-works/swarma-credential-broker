@@ -7,7 +7,7 @@ import (
 	"errors"
 	"github.com/relux-works/swarma-credential-broker/internal/authowner"
 	"github.com/relux-works/swarma-credential-broker/internal/ownerconfidence"
-	"github.com/relux-works/swarma-credential-broker/internal/timeconf"
+	"github.com/relux-works/swarma-credential-broker/timeconf"
 	"reflect"
 	"sync"
 	"testing"
