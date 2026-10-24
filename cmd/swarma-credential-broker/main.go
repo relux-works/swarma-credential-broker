@@ -8,9 +8,11 @@ import (
 
 	"github.com/relux-works/swarma-credential-broker/internal/qualify"
 	"github.com/relux-works/swarma-credential-broker/internal/runner"
+	"github.com/relux-works/swarma-credential-broker/internal/timeconf"
 )
 
 func main() {
+	timeconf.CollectorEntry()
 	if handled, code := runner.SupervisorMain(os.Args[1:]); handled {
 		os.Exit(code)
 	}

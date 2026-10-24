@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/relux-works/swarma-credential-broker/internal/store"
+	"github.com/relux-works/swarma-credential-broker/internal/timeconf"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 	"path/filepath"
 	"strings"
@@ -24,13 +25,14 @@ type Account struct {
 	NetworkRequired bool     `json:"network_required"`
 }
 type Policy struct {
-	Installation     string    `json:"installation_id"`
-	Generation       uint64    `json:"policy_generation"`
-	BrokerUID        uint32    `json:"broker_uid"`
-	Executable       string    `json:"executable"`
-	ExecutableSHA256 string    `json:"executable_sha256"`
-	MaxLeaseSeconds  int64     `json:"max_lease_seconds"`
-	Accounts         []Account `json:"accounts"`
+	TimeConfidence   *timeconf.Policy `json:"time_confidence,omitempty"`
+	Installation     string           `json:"installation_id"`
+	Generation       uint64           `json:"policy_generation"`
+	BrokerUID        uint32           `json:"broker_uid"`
+	Executable       string           `json:"executable"`
+	ExecutableSHA256 string           `json:"executable_sha256"`
+	MaxLeaseSeconds  int64            `json:"max_lease_seconds"`
+	Accounts         []Account        `json:"accounts"`
 }
 type Config struct {
 	SocketPath string `json:"socket_path"`
@@ -54,6 +56,9 @@ func Load(path string, uid uint32) (Config, error) {
 	return c, nil
 }
 func (p Policy) Validate(uid uint32) error {
+	if p.TimeConfidence != nil && (p.TimeConfidence.Validate() != nil || p.TimeConfidence.BackwardTolerance != 0) {
+		return wire.Refuse("lease_not_authorised")
+	}
 	if p.Installation == "" || p.Generation == 0 || p.Generation > 9007199254740991 || p.BrokerUID != uid || !filepath.IsAbs(p.Executable) || !Hash(p.ExecutableSHA256) || p.MaxLeaseSeconds <= 0 || p.MaxLeaseSeconds > int64((1<<63-1)/time.Second) {
 		return wire.Refuse("lease_not_authorised")
 	}

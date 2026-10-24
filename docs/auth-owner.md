@@ -60,7 +60,9 @@ unloads; its connected control and collected-unit refusal exercise the boundary.
 ## Normative trusted-time model
 
 Independent confidence MUST come from outside the restored store's rollback
-domain; there is no shipped always-fresh provider. The process-wide effective
+domain. The [independent time-confidence provider](time-confidence.md) ships
+with source selection off pending activation; no always-fresh provider
+is supplied. The process-wide effective
 time E is the maximum of every nonzero independently trusted sample observed in
 this process and every account watermark observed here. E MUST never decrease.
 Each account's durable time D is its persisted checkpoint watermark.
