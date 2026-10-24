@@ -72,7 +72,7 @@ func TestRowsHarness(t *testing.T) {
 		}
 		n++
 		t.Run(row.ID, func(t *testing.T) {
-			if row.Positive.Verdict != "passed" || row.Negative.Verdict != "passed" || validateRow(root, c.Policy.ExecutableSHA256, row) != nil {
+			if row.Positive.Verdict != "passed" || row.Negative.Verdict != "passed" || validateRow(root, c.Policy.ExecutableSHA256, c.Policy.Generation, row) != nil {
 				t.Fatalf("paired controls: %+v", row)
 			}
 			for side, control := range map[string]qualification.Control{"positive": row.Positive, "negative": row.Negative} {
@@ -108,11 +108,17 @@ func TestRowsHarness(t *testing.T) {
 	if row.ID != "frame-oversized" {
 		t.Fatal("registry assumption")
 	}
+	if row.Positive.Verdict != "passed" || row.Negative.Verdict != "passed" {
+		t.Fatal("paired controls required for evidence baseline")
+	}
 	// Claim: each evidence defect independently refuses an otherwise green row.
-	for _, defect := range []string{"positive", "missing", "case", "digest", "observation", "duration"} {
+	for _, defect := range []string{"positive", "missing", "case", "digest", "observation", "duration", "envelope-missing", "envelope-kind", "envelope-id", "envelope-size", "envelope-code", "envelope-message", "envelope-result", "envelope-generation", "envelope-variant"} {
 		t.Run("evidence-"+defect, func(t *testing.T) {
 			bad := row
 			file := rowFile(root, row.ID, "negative")
+			if defect == "envelope-generation" {
+				file = rowFile(root, row.ID, "positive")
+			}
 			original, _ := os.ReadFile(file)
 			defer os.WriteFile(file, original, 0600)
 			switch defect {
@@ -135,8 +141,46 @@ func TestRowsHarness(t *testing.T) {
 				b, _ := wire.Encode(a)
 				os.WriteFile(file, b, 0600)
 				bad.Negative.Artifacts = []string{qualification.Hash(b)}
+			default:
+				// Rehashing edited facts cannot hide an invalid envelope, even
+				// when the refusal label and exit code remain correct.
+				var a rowArtifact
+				if wire.Decode(original, &a) != nil {
+					t.Fatal("artifact")
+				}
+				f := &a.Observation.Envelopes[0]
+				switch defect {
+				case "envelope-missing":
+					a.Observation.Envelopes = []rowEnvelope{}
+				case "envelope-kind":
+					f.Kind = "hello"
+				case "envelope-id":
+					id := "fixture-hello"
+					f.RequestID = &id
+				case "envelope-size":
+					f.PayloadBytes++
+				case "envelope-code":
+					f.Refusal.Code = "peer_identity_unavailable"
+				case "envelope-message":
+					f.Refusal.Message = "unexpected"
+				case "envelope-result":
+					f.Hello = &rowHello{}
+				case "envelope-generation":
+					f.Hello.Generation++
+				case "envelope-variant":
+					a.Observation.Envelopes = append(a.Observation.Envelopes, *f)
+				}
+				b, e := wire.Encode(a)
+				if e != nil || os.WriteFile(file, b, 0600) != nil || qualification.Hash(b) == qualification.Hash(original) {
+					t.Fatal("envelope fact plant")
+				}
+				if defect == "envelope-generation" {
+					bad.Positive.Artifacts = []string{qualification.Hash(b)}
+				} else {
+					bad.Negative.Artifacts = []string{qualification.Hash(b)}
+				}
 			}
-			if validateRow(root, c.Policy.ExecutableSHA256, bad) == nil {
+			if validateRow(root, c.Policy.ExecutableSHA256, c.Policy.Generation, bad) == nil {
 				t.Fatal("evidence defect credited", defect)
 			}
 		})

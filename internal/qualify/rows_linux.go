@@ -90,7 +90,7 @@ type rowArtifact struct {
 
 func rowFile(root, id, side string) string { return filepath.Join(root, "row-"+id+"-"+side+".json") }
 
-func validateRow(root, digest string, c qualification.Case) error {
+func validateRow(root, digest string, generation uint64, c qualification.Case) error {
 	if !rowImplemented(c.ID) {
 		return qualification.ErrUnavailable
 	}
@@ -113,7 +113,7 @@ func validateRow(root, digest string, c qualification.Case) error {
 				want = rowRefusal(c.ID)
 			}
 			o := a.Observation
-			if x.ExitCode != 0 || !rowIsolated(a) || o.ID != c.ID || o.Side != side || o.Candidate != digest || !o.NoEffects || o.Refusal != want || o.ProbeFault != (c.ID == "peer-identity-unavailable" && side == "negative") {
+			if x.ExitCode != 0 || !rowIsolated(a) || o.ID != c.ID || o.Side != side || o.Candidate != digest || !o.NoEffects || !validRowEnvelopes(o, generation) || o.Refusal != want || o.ProbeFault != (c.ID == "peer-identity-unavailable" && side == "negative") {
 				return qualification.ErrUnavailable
 			}
 		} else if x.Verdict != "failed" {
@@ -147,7 +147,7 @@ func (d driver) runRows(ctx context.Context, configuration string, p policy.Poli
 		}
 		c.Positive = d.runRow(ctx, q, root, c.ID, "positive")
 		c.Negative = d.runRow(ctx, q, root, c.ID, "negative")
-		if validateRow(root, p.ExecutableSHA256, *c) != nil {
+		if validateRow(root, p.ExecutableSHA256, p.Generation, *c) != nil {
 			// Unverifiable evidence is never credited, including a missing
 			// positive control. Retain no fabricated execution or artifact.
 			pending := qualification.Pending(qualification.Identity{})
@@ -311,7 +311,11 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 		}
 	}
 	var observation rowObservation
-	passed := noEffects && runError == nil && out.e == nil && diag.e == nil && rowIsolated(rowArtifact{Network: report.Summary, Incomplete: report.Incomplete, IsolationFailed: isolation}) && wire.Decode(out.b, &observation) == nil
+	observationValid := wire.Decode(out.b, &observation) == nil && validRowEnvelopes(observation, p.Generation)
+	if !observationValid {
+		observation = rowObservation{Envelopes: []rowEnvelope{}}
+	}
+	passed := noEffects && runError == nil && out.e == nil && diag.e == nil && rowIsolated(rowArtifact{Network: report.Summary, Incomplete: report.Incomplete, IsolationFailed: isolation}) && observationValid
 	// Only the parent can attest that the injected server probe actually fired.
 	if passed && id == "peer-identity-unavailable" && side == "negative" {
 		observation.ProbeFault = true

@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -41,12 +40,13 @@ type rowInput struct {
 	Socket string        `json:"socket"`
 }
 type rowObservation struct {
-	ID         string `json:"id"`
-	Side       string `json:"side"`
-	Candidate  string `json:"candidate"`
-	Refusal    string `json:"refusal"`
-	NoEffects  bool   `json:"no_effects"`
-	ProbeFault bool   `json:"probe_fault"`
+	ID         string        `json:"id"`
+	Side       string        `json:"side"`
+	Candidate  string        `json:"candidate"`
+	Refusal    string        `json:"refusal"`
+	NoEffects  bool          `json:"no_effects"`
+	ProbeFault bool          `json:"probe_fault"`
+	Envelopes  []rowEnvelope `json:"envelopes"`
 }
 
 func descriptorDigest(f *os.File) (string, error) {
@@ -96,7 +96,7 @@ func CaseMain(args []string) (bool, int) {
 	if e != nil || len(entries) != 0 || os.Getenv("HOME") != os.Getenv("CODEX_HOME") {
 		return true, 125
 	}
-	observation.Refusal, e = transportExchange(input.Socket, input.ID, input.Side, input.Policy.Generation)
+	observation.Refusal, observation.Envelopes, e = transportExchangeFacts(input.Socket, input.ID, input.Side, input.Policy.Generation)
 	if e != nil {
 		return true, 1
 	}
@@ -182,20 +182,28 @@ func startTransportRow(ctx context.Context, root string, input rowInput, pid *at
 	return path, closeRow, nil
 }
 
+// transportExchange retains the small exchange entry point used by protocol
+// regressions; the descriptor worker also returns every validated envelope fact.
 func transportExchange(path, id, side string, generation uint64) (string, error) {
+	code, _, e := transportExchangeFacts(path, id, side, generation)
+	return code, e
+}
+
+func transportExchangeFacts(path, id, side string, generation uint64) (string, []rowEnvelope, error) {
+	var envelopes []rowEnvelope
 	variants := 1
 	if (id == "profile-unsupported" || id == "frame-malformed-first") && side == "negative" {
 		variants = 2
 	}
 	for variant := 0; variant < variants; variant++ {
-		code, e := func() (string, error) {
+		code, envelope, e := func() (string, rowEnvelope, error) {
 			c, e := net.DialUnix("unix", nil, &net.UnixAddr{Name: path, Net: "unix"})
 			if e != nil {
-				return "", e
+				return "", rowEnvelope{}, e
 			}
 			defer c.Close()
 			if c.SetDeadline(time.Now().Add(3*time.Second)) != nil {
-				return "", qualification.ErrUnavailable
+				return "", rowEnvelope{}, qualification.ErrUnavailable
 			}
 			hello := wire.Hello{Versions: []int{1}, Profile: wire.Profile}
 			if side == "negative" {
@@ -210,10 +218,10 @@ func transportExchange(path, id, side string, generation uint64) (string, error)
 						b = b[:2]
 					}
 					if _, e = c.Write(b); e != nil {
-						return "", e
+						return "", rowEnvelope{}, e
 					}
 					if e = c.CloseWrite(); e != nil {
-						return "", e
+						return "", rowEnvelope{}, e
 					}
 				case "frame-malformed-first":
 					if variant == 0 {
@@ -221,12 +229,12 @@ func transportExchange(path, id, side string, generation uint64) (string, error)
 						var header [4]byte
 						binary.BigEndian.PutUint32(header[:], uint32(len(body)))
 						if _, e = c.Write(append(header[:], body...)); e != nil {
-							return "", e
+							return "", rowEnvelope{}, e
 						}
 						break
 					}
 					if e = wire.Write(c, map[string]any{"request_id": "apparent", "method": "not-hello", "params": map[string]any{}}); e != nil {
-						return "", e
+						return "", rowEnvelope{}, e
 					}
 				case "profile-unsupported":
 					if variant == 0 {
@@ -239,60 +247,46 @@ func transportExchange(path, id, side string, generation uint64) (string, error)
 			if side == "positive" || id == "profile-unsupported" {
 				params, e := wire.Encode(hello)
 				if e != nil {
-					return "", e
+					return "", rowEnvelope{}, e
 				}
 				if e = wire.Write(c, wire.Request{Method: "hello", ID: "fixture-hello", Params: params}); e != nil {
-					return "", e
+					return "", rowEnvelope{}, e
 				}
 			}
 			b, e := wire.Read(c)
 			if side == "negative" && (id == "frame-zero-length" || id == "frame-truncated-header" || id == "frame-malformed-first") {
 				if !errors.Is(e, io.EOF) || len(b) != 0 {
-					return "", qualification.ErrUnavailable
+					return "", rowEnvelope{}, qualification.ErrUnavailable
 				}
-				return "closed", nil
+				return "closed", rowEnvelope{Kind: "closed"}, nil
 			}
-			var reply struct {
-				ID     *string         `json:"request_id"`
-				Result json.RawMessage `json:"result,omitempty"`
-				Error  *wire.Error     `json:"error,omitempty"`
+			if e != nil {
+				return "", rowEnvelope{}, qualification.ErrUnavailable
 			}
-			if e != nil || wire.Decode(b, &reply) != nil {
-				return "", qualification.ErrUnavailable
+			envelope, e := decodeRowEnvelope(b, id, side, generation)
+			if e != nil {
+				return "", rowEnvelope{}, e
 			}
 			if side == "positive" {
-				var helloResult struct {
-					Version   int    `json:"version"`
-					Profile   string `json:"profile"`
-					Principal struct {
-						UID uint32 `json:"uid"`
-					} `json:"principal"`
-					Generation uint64 `json:"policy_generation"`
-				}
-				if reply.ID == nil || *reply.ID != "fixture-hello" || reply.Error != nil || wire.Decode(reply.Result, &helloResult) != nil || helloResult.Version != 1 || helloResult.Profile != wire.Profile || helloResult.Principal.UID != uint32(os.Geteuid()) || helloResult.Generation != generation {
-					return "", qualification.ErrUnavailable
-				}
-				return "hello", nil
+				return "hello", envelope, nil
 			}
 			want := rowRefusal(id)
-			if reply.Error == nil || reply.Error.Code != want || (id == "profile-unsupported") != (reply.ID != nil) || reply.ID != nil && *reply.ID != "fixture-hello" {
-				return "", qualification.ErrUnavailable
-			}
 			var one [1]byte
 			n, e := c.Read(one[:])
 			if n != 0 || !errors.Is(e, io.EOF) {
-				return "", qualification.ErrUnavailable
+				return "", rowEnvelope{}, qualification.ErrUnavailable
 			}
-			return want, nil
+			return want, envelope, nil
 		}()
 		if e != nil {
-			return "", e
+			return "", nil, e
 		}
+		envelopes = append(envelopes, envelope)
 		if variant == variants-1 {
-			return code, nil
+			return code, envelopes, nil
 		}
 	}
-	return "", qualification.ErrUnavailable
+	return "", nil, qualification.ErrUnavailable
 }
 
 func rowRefusal(id string) string {

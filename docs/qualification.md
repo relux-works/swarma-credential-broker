@@ -274,7 +274,14 @@ The report records actual argv, exit, monotonic duration and bound for both
 controls. Owned 0600 `row-<id>-<side>.json` files contain closed
 `qualification-row-control/1` diagnostic evidence with the exact control,
 candidate digest, bounded observation and aggregate egress counts. Their hashes
-are verified before crediting the report. They contain no raw frames, private
+are verified before crediting the report. Each exchange retains its validated
+closed envelope kind, request ID, payload byte count and hello or refusal fields.
+The validator rechecks these facts against the configured generation and the
+exact response shapes in profile §7: errors have no result, empty details, fixed
+sanitized text, the expected code and null or validated ID, and at most 512
+payload bytes; hello responses have no error member, even when null. Both
+unsupported negotiation variants and both malformed-first variants need facts.
+They contain no raw frames, private
 role mapping or material. They are deliberately distinct from publishable
 `qualification-case/1` artifacts: the full current identity, including applied
 properties, is unavailable. Missing, mismatched or partial evidence gains no

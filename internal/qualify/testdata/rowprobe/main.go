@@ -3,10 +3,12 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/relux-works/swarma-credential-broker/internal/qualification"
-	"golang.org/x/sys/unix"
 	"io"
 	"os"
+
+	"github.com/relux-works/swarma-credential-broker/internal/qualification"
+	"github.com/relux-works/swarma-credential-broker/internal/wire"
+	"golang.org/x/sys/unix"
 )
 
 func main() {
@@ -18,7 +20,8 @@ func main() {
 	}
 	var input struct {
 		Policy struct {
-			Digest string `json:"executable_sha256"`
+			Digest     string `json:"executable_sha256"`
+			Generation uint64 `json:"policy_generation"`
 		}
 		ID, Side string
 	}
@@ -27,5 +30,8 @@ func main() {
 	json.Unmarshal(b, &input)
 	// Invalid FD guarantees no traffic even if a boundary mutant grants the call.
 	unix.Connect(-1, &unix.SockaddrInet4{Addr: [4]byte{192, 0, 2, 1}, Port: 443})
-	json.NewEncoder(os.Stdout).Encode(map[string]any{"id": input.ID, "side": input.Side, "candidate": input.Policy.Digest, "refusal": "hello", "no_effects": true, "probe_fault": false})
+	hello := map[string]any{"version": 1, "profile": wire.Profile, "principal": map[string]any{"uid": os.Geteuid()}, "policy_generation": input.Policy.Generation}
+	payload, _ := wire.Encode(map[string]any{"request_id": "fixture-hello", "result": hello})
+	facts := []any{map[string]any{"kind": "hello", "request_id": "fixture-hello", "payload_bytes": len(payload), "hello": hello, "refusal": nil}}
+	json.NewEncoder(os.Stdout).Encode(map[string]any{"id": input.ID, "side": input.Side, "candidate": input.Policy.Digest, "refusal": "hello", "no_effects": true, "probe_fault": false, "envelopes": facts})
 }
