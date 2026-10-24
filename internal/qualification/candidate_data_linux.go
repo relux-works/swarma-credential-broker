@@ -12,16 +12,17 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"unicode/utf8"
 )
 
 // canonicalJSON preserves JSON number lexemes, orders object keys, removes
-// insignificant whitespace and rejects duplicate keys, trailing values and
-// excessive nesting. Array order is significant and is preserved.
+// insignificant whitespace and rejects invalid Unicode escapes, duplicate keys,
+// trailing values and excessive nesting. Array order is preserved.
 func canonicalJSON(raw []byte) ([]byte, error) {
-	if !utf8.Valid(raw) {
+	if !utf8.Valid(raw) || !validJSONEscapes(raw) {
 		return nil, ErrUnavailable
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
@@ -38,6 +39,57 @@ func canonicalJSON(raw []byte) ([]byte, error) {
 	}
 	return json.Marshal(v)
 }
+
+// encoding/json replaces unpaired surrogate escapes before returning tokens.
+// Check the original string bytes first, including object keys. Other JSON
+// syntax is still checked by the decoder; escaped backslashes are skipped so
+// literal text such as "\\ud800" is not mistaken for a Unicode escape.
+func validJSONEscapes(raw []byte) bool {
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '"' {
+			continue
+		}
+		i++
+		for i < len(raw) && raw[i] != '"' {
+			if raw[i] != '\\' {
+				i++
+				continue
+			}
+			i++
+			if i >= len(raw) {
+				return false
+			}
+			if raw[i] == 'u' {
+				if i+4 >= len(raw) {
+					return false
+				}
+				n, e := strconv.ParseUint(string(raw[i+1:i+5]), 16, 16)
+				if e != nil {
+					return false
+				}
+				i += 4
+				if n >= 0xd800 && n <= 0xdbff {
+					if i+6 >= len(raw) || raw[i+1] != '\\' || raw[i+2] != 'u' {
+						return false
+					}
+					low, e := strconv.ParseUint(string(raw[i+3:i+7]), 16, 16)
+					if e != nil || low < 0xdc00 || low > 0xdfff {
+						return false
+					}
+					i += 6
+				} else if n >= 0xdc00 && n <= 0xdfff {
+					return false
+				}
+			}
+			i++
+		}
+		if i >= len(raw) {
+			return false
+		}
+	}
+	return true
+}
+
 func jsonValue(d *json.Decoder, depth int) (any, error) {
 	if depth > 128 {
 		return nil, ErrUnavailable
@@ -195,6 +247,24 @@ func catalogExchange(ctx context.Context, in, out *os.File) ([]byte, error) {
 	scanner.Buffer(make([]byte, 4096), 4<<20)
 	total := 0
 	messages := 0
+	// Every frame, including shutdown output, consumes this same budget.
+	nextFrame := func() ([]byte, error) {
+		if ctx.Err() != nil {
+			return nil, ErrUnavailable
+		}
+		if !scanner.Scan() {
+			if scanner.Err() != nil {
+				return nil, ErrUnavailable
+			}
+			return nil, io.EOF
+		}
+		total += len(scanner.Bytes())
+		messages++
+		if total > 8<<20 || messages > 128 || ctx.Err() != nil {
+			return nil, ErrUnavailable
+		}
+		return scanner.Bytes(), nil
+	}
 	send := func(v any) error {
 		b, e := json.Marshal(v)
 		if e != nil {
@@ -204,13 +274,12 @@ func catalogExchange(ctx context.Context, in, out *os.File) ([]byte, error) {
 		return e
 	}
 	receive := func(id int) (json.RawMessage, error) {
-		for scanner.Scan() {
-			total += len(scanner.Bytes())
-			messages++
-			if total > 8<<20 || messages > 128 || ctx.Err() != nil {
+		for {
+			raw, e := nextFrame()
+			if e != nil {
 				return nil, ErrUnavailable
 			}
-			b, e := canonicalJSON(scanner.Bytes())
+			b, e := canonicalJSON(raw)
 			if e != nil {
 				return nil, e
 			}
@@ -234,7 +303,6 @@ func catalogExchange(ctx context.Context, in, out *os.File) ([]byte, error) {
 			}
 			return m.Result, nil
 		}
-		return nil, ErrUnavailable
 	}
 	if send(map[string]any{"id": 1, "method": "initialize", "params": map[string]any{"clientInfo": map[string]string{"name": "credential_broker_qualification", "version": "1"}, "capabilities": map[string]bool{"experimentalApi": true}}}) != nil {
 		return nil, ErrUnavailable
@@ -295,16 +363,15 @@ func catalogExchange(ctx context.Context, in, out *os.File) ([]byte, error) {
 			in.Close()
 			// Drain only bounded shutdown output, so a leftover writer cannot hide
 			// an unbounded stream or strand the collector after the response.
-			for scanner.Scan() {
-				total += len(scanner.Bytes())
-				if total > 8<<20 {
-					return nil, ErrUnavailable
+			for {
+				_, e := nextFrame()
+				if e == io.EOF {
+					return json.Marshal(catalog)
+				}
+				if e != nil {
+					return nil, e
 				}
 			}
-			if scanner.Err() != nil {
-				return nil, ErrUnavailable
-			}
-			return json.Marshal(catalog)
 		}
 		if *result.Next == "" || len(*result.Next) > 1024 || cursors[*result.Next] {
 			return nil, ErrUnavailable

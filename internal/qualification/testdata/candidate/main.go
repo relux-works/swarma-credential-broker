@@ -138,6 +138,35 @@ func main() {
 			os.Symlink(cfg.Counter, filepath.Join(dir, "schema.json"))
 			return
 		}
+
+		switch cfg.Mode {
+		case "schema-utf8":
+			b = append([]byte(`{"value":"`), 255, '"', '}')
+		case "schema-trailing":
+			b = []byte(`{} {}`)
+		case "schema-depth":
+			b = []byte(strings.Repeat(`{"x":`, 130) + `0` + strings.Repeat(`}`, 130))
+		case "schema-escaped-duplicate":
+			b = []byte(`{"value":1,"\u0076alue":2}`)
+		case "schema-surrogate-high":
+			b = []byte(`{"value":"\ud800"}`)
+		case "schema-surrogate-low":
+			b = []byte(`{"value":"\udfff"}`)
+		case "schema-surrogate-drift":
+			if n%2 == 0 {
+				b = []byte(`{"value":"\ud801"}`)
+			} else {
+				b = []byte(`{"value":"\ud800"}`)
+			}
+		case "schema-surrogate-valid":
+			b = []byte(`{"value":"\ud83d\ude00"}`)
+		case "schema-hardlink":
+			target := filepath.Join(home, "shared.json")
+			if os.WriteFile(target, b, 0600) != nil || os.Link(target, filepath.Join(dir, "schema.json")) != nil {
+				os.Exit(9)
+			}
+			return
+		}
 		if os.WriteFile(filepath.Join(dir, "schema.json"), b, 0600) != nil {
 			os.Exit(6)
 		}
@@ -164,7 +193,53 @@ func main() {
 				}
 			}
 			b, _ := json.Marshal(map[string]any{"id": req.ID, "result": result})
+
+			if req.Method == "model/list" {
+				switch cfg.Mode {
+				case "catalog-duplicate-model":
+					b = []byte(`{"id":2,"result":{"data":[{"model":"one","supportedReasoningEfforts":[{"reasoningEffort":"low"}]},{"model":"one","supportedReasoningEfforts":[{"reasoningEffort":"low"}]}],"nextCursor":null}}`)
+				case "catalog-duplicate-effort":
+					b = []byte(`{"id":2,"result":{"data":[{"model":"one","supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"low"}]}],"nextCursor":null}}`)
+				case "catalog-duplicate-field":
+					b = []byte(`{"id":2,"id":2,"result":{"data":[]}}`)
+				case "catalog-empty-efforts":
+					b = []byte(`{"id":2,"result":{"data":[{"model":"one","supportedReasoningEfforts":[]}],"nextCursor":null}}`)
+				case "catalog-null":
+					b = []byte(`{"id":2,"result":null}`)
+				case "catalog-login-request":
+					b = []byte(`{"id":99,"method":"account/login/start","params":{}}`)
+				case "catalog-refresh-request":
+					b = []byte(`{"id":99,"method":"account/chatgptAuthTokens/refresh","params":{}}`)
+				case "catalog-paginated", "catalog-cursor-repeat", "catalog-page-limit":
+					next := any(nil)
+					if cfg.Mode != "catalog-paginated" || req.ID.(float64) == 2 {
+						next = "next"
+					}
+					if cfg.Mode == "catalog-page-limit" {
+						next = fmt.Sprint(req.ID)
+					}
+					result = map[string]any{"data": []any{map[string]any{"model": fmt.Sprint("model-", req.ID), "supportedReasoningEfforts": []any{map[string]string{"reasoningEffort": "low"}}}}, "nextCursor": next}
+					b, _ = json.Marshal(map[string]any{"id": req.ID, "result": result})
+				case "catalog-prefinal-limit":
+					for n := 0; n < 127; n++ {
+						fmt.Println(`{"method":"fixture/progress","params":{}}`)
+					}
+				}
+			}
 			fmt.Println(string(b))
+			if req.Method == "model/list" {
+				count := 0
+				if cfg.Mode == "catalog-tail126" {
+					count = 126
+				}
+				if cfg.Mode == "catalog-tail127" {
+					count = 127
+				}
+				for n := 0; n < count; n++ {
+					fmt.Println(`{"method":"fixture/progress","params":{}}`)
+				}
+			}
+
 		}
 		return
 	}
