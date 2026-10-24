@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -210,8 +211,14 @@ func TestCommandOutputCancellation(t *testing.T) {
 			if kind == "broken-pipe-cancel" {
 				out = cancelBrokenWriter{cancel}
 			}
+			var workers sync.WaitGroup
+			defer func() { cancel(); rd.Close(); wr.Close(); workers.Wait() }()
 			done := make(chan int, 1)
-			go func() { done <- Command(ctx, f.args(), IO{strings.NewReader("prompt"), out, &f.err}, f.d) }()
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				done <- Command(ctx, f.args(), IO{strings.NewReader("prompt"), out, &f.err}, f.d)
+			}()
 			if kind == "signal" || kind == "release-failure" || kind == "deadline" {
 				awaitPipeFull(t, rd)
 				if kind != "deadline" {
@@ -220,7 +227,8 @@ func TestCommandOutputCancellation(t *testing.T) {
 			}
 			drained := make(chan struct{})
 			if kind == "writable" {
-				go func() { io.Copy(io.Discard, rd); close(drained) }()
+				workers.Add(1)
+				go func() { defer workers.Done(); io.Copy(io.Discard, rd); close(drained) }()
 			}
 			got := <-done
 			wr.Close()

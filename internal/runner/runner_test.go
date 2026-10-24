@@ -741,7 +741,9 @@ func TestExitDominance(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if strings.Contains(kind, "signal") {
-				go func() { waitFile(filepath.Join(f.home, "server-pid")); cancel() }()
+				stopped := make(chan struct{})
+				go func() { defer close(stopped); waitFile(filepath.Join(f.home, "server-pid")); cancel() }()
+				defer func() { <-stopped }()
 			}
 			got := Command(ctx, f.args(), IO{strings.NewReader("prompt"), &f.out, &f.err}, f.d)
 			want := 75
@@ -996,8 +998,15 @@ func TestBlockedOutputCancellation(t *testing.T) {
 	defer write.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	var workers sync.WaitGroup
+	workers.Add(1)
+	defer func() { cancel(); read.Close(); write.Close(); workers.Wait() }()
 	done := make(chan error, 1)
-	go func() { _, err := (contextWriter{ctx, write}).Write(make([]byte, 1<<20)); done <- err }()
+	go func() {
+		defer workers.Done()
+		_, err := (contextWriter{ctx, write}).Write(make([]byte, 1<<20))
+		done <- err
+	}()
 	awaitPipeFull(t, read)
 	cancel()
 	select {

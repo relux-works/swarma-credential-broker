@@ -229,6 +229,7 @@ func TestCommandStatusTable(t *testing.T) {
 			var wait chan struct{}
 			if r.method != "" && r.origin == "own-interrupt" {
 				wait = make(chan struct{})
+				defer func() { <-wait }()
 				go func() {
 					defer close(wait)
 					if err := awaitFixtureBytes(filepath.Join(f.home, "events.jsonl"), func(b []byte) bool {

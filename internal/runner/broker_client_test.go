@@ -26,6 +26,15 @@ func clientPeer(t *testing.T, serve func(*net.UnixConn)) *SocketClient {
 	l, e := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	must(t, e)
 	done := make(chan struct{})
+	var client *SocketClient
+	t.Cleanup(func() {
+		if client != nil {
+			client.Close()
+		}
+		l.Close()
+		<-done // Includes every callback that may report through t.
+		os.RemoveAll(root)
+	})
 	go func() {
 		defer close(done)
 		c, e := l.AcceptUnix()
@@ -34,11 +43,33 @@ func clientPeer(t *testing.T, serve func(*net.UnixConn)) *SocketClient {
 			serve(c)
 		}
 	}()
-	c, e := DialBroker(context.Background(), path)
+	client, e = DialBroker(context.Background(), path)
 	must(t, e)
-	t.Cleanup(func() { c.Close(); l.Close(); <-done; os.RemoveAll(root) })
-	return c
+	return client
 }
+
+// Claim: subtest cleanup closes the owned client to interrupt a blocked callback
+// and joins that callback before returning to the parent test.
+func TestSocketPeerCleanupJoinsCallback(t *testing.T) {
+	exited := make(chan struct{})
+	t.Run("blocked-peer", func(t *testing.T) {
+		entered := make(chan struct{})
+		clientPeer(t, func(peer *net.UnixConn) {
+			defer close(exited)
+			close(entered)
+			if _, err := wire.Read(peer); err != io.EOF {
+				t.Error("cleanup did not close callback input", err)
+			}
+		})
+		<-entered
+	})
+	select {
+	case <-exited:
+	default:
+		t.Fatal("callback survived subtest cleanup")
+	}
+}
+
 func peerRequest(c *net.UnixConn) wire.Request {
 	b, e := wire.Read(c)
 	if e != nil {
@@ -267,6 +298,9 @@ func TestSocketCancellation(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			entered := make(chan struct{})
 			reply := make(chan struct{})
+			var replyOnce sync.Once
+			unblock := func() { replyOnce.Do(func() { close(reply) }) }
+			defer unblock()
 			c := clientPeer(t, func(c *net.UnixConn) {
 				r := peerRequest(c)
 				close(entered)
@@ -276,10 +310,12 @@ func TestSocketCancellation(t *testing.T) {
 			must(t, c.VerifyServer(context.Background(), uint32(os.Geteuid())))
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			done := make(chan error, 1)
-			go func() { _, e := c.Hello(ctx, HelloRequest{[]int{1}, ProtocolProfile}); done <- e }()
-			<-entered
 			var wg sync.WaitGroup
+			t.Cleanup(func() { cancel(); c.Close(); unblock(); wg.Wait() })
+			done := make(chan error, 1)
+			wg.Add(1)
+			go func() { defer wg.Done(); _, e := c.Hello(ctx, HelloRequest{[]int{1}, ProtocolProfile}); done <- e }()
+			<-entered
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -299,7 +335,7 @@ func TestSocketCancellation(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("call did not stop")
 			}
-			close(reply)
+			unblock()
 			wg.Wait()
 			if _, e := c.Hello(context.Background(), HelloRequest{[]int{1}, ProtocolProfile}); e == nil {
 				t.Fatal("uncertain stream reused")

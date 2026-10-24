@@ -96,8 +96,12 @@ func TestImmediateReleaseRetirement(t *testing.T) {
 			if schedule == "interrupt-inflight" {
 				writer.interruptResume = interruptResume
 			}
+			var workers sync.WaitGroup
+			defer func() { finishInterrupt(); unblock(); socket.Close(); workers.Wait() }()
 			published := make(chan error, 1)
+			workers.Add(1)
 			go func() {
+				defer workers.Done()
 				published <- e.Manager.Publish(context.Background(), e.UID, e.Policy.Generation, material, func(ctx context.Context, until time.Time) error {
 					return writeFrame(ctx, writer, map[string]any{"request_id": "issue", "result": material}, until)
 				})
@@ -115,7 +119,9 @@ func TestImmediateReleaseRetirement(t *testing.T) {
 				}
 			}
 			released := make(chan error, 1)
+			workers.Add(1)
 			go func() {
+				defer workers.Done()
 				out := e.Manager.Call(context.Background(), e.UID, "lease.release", wire.Release{LeaseID: received.LeaseID}, time.Now())
 				if out.Err != nil {
 					released <- out.Err

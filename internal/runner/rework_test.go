@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -78,7 +79,13 @@ func TestReviewCancelBlockedRPC(t *testing.T) {
 				prompt = strings.Repeat("x", MaxPrompt)
 				marker = "stopped-reading"
 			}
-			go func() { done <- Command(ctx, f.args(), IO{strings.NewReader(prompt), &f.out, &f.err}, f.d) }()
+			var workers sync.WaitGroup
+			workers.Add(1)
+			defer func() { cancel(); workers.Wait() }()
+			go func() {
+				defer workers.Done()
+				done <- Command(ctx, f.args(), IO{strings.NewReader(prompt), &f.out, &f.err}, f.d)
+			}()
 			if !waitFile(filepath.Join(f.home, marker)) {
 				cancel()
 				<-done

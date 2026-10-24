@@ -121,6 +121,13 @@ func TestDescriptorDeadlineProvenance(t *testing.T) {
 				go func() { defer close(done); io.Copy(io.Discard, rd) }()
 			}
 			defer cancel()
+			defer func() {
+				rd.Close()
+				wr.Close()
+				if done != nil {
+					<-done
+				}
+			}()
 			_, err := (contextWriter{ctx: ctx, out: wr}).Write([]byte(strings.Repeat("x", 1<<20)))
 			wr.Close()
 			if done != nil {

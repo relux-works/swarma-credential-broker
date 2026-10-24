@@ -87,7 +87,10 @@ func TestReviewRevokedPartialFrame(t *testing.T) {
 				p := e.Policy.Clone()
 				p.Generation++
 				replaced := make(chan error, 1)
-				go func() { replaced <- m.Replace(p) }()
+				var replacement sync.WaitGroup
+				replacement.Add(1)
+				defer replacement.Wait()
+				go func() { defer replacement.Done(); replaced <- m.Replace(p) }()
 				select {
 				case err := <-replaced:
 					if err != nil {

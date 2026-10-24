@@ -219,6 +219,7 @@ func TestStatusDominanceRegression(t *testing.T) {
 				if kind == "signal" {
 					want = 130
 					stopDone = make(chan struct{})
+					defer func() { <-stopDone }()
 					go func() {
 						defer close(stopDone)
 						if waitFile(filepath.Join(f.home, "server-pid")) {

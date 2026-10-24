@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -18,6 +19,8 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/server"
 	"github.com/relux-works/swarma-credential-broker/internal/testutil"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
+
+	"golang.org/x/sys/unix"
 )
 
 // Claim: a valid accept-time terminal refusal remains readable and typed when
@@ -63,8 +66,14 @@ func TestReviewRealDaemonTerminal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- s.Serve(ctx, l) }()
-	defer func() { s.Close(); cancel(); <-done; s.Wait() }()
+	var serve sync.WaitGroup
+	serve.Add(1)
+	go func() { defer serve.Done(); done <- s.Serve(ctx, l) }()
+	var stopOnce sync.Once
+	stopServer := func() {
+		stopOnce.Do(func() { cancel(); s.Close(); serve.Wait(); <-done; s.Wait() })
+	}
+	defer stopServer()
 	c, err := DialBroker(context.Background(), path)
 	must(t, err)
 	defer c.Close()
@@ -83,7 +92,24 @@ func TestReviewRealDaemonTerminal(t *testing.T) {
 	if n != 4 {
 		t.Fatal("terminal header unavailable")
 	}
-	s.Wait() // The admission handler itself closes; do not force daemon shutdown.
+	// RDHUP proves the admission handler closed its peer naturally while its
+	// terminal frame stays queued. Join the accept loop before Wait: socket I/O
+	// is not a Go happens-before edge for Serve's WaitGroup.Add versus Wait.
+	must(t, raw.Control(func(fd uintptr) {
+		for {
+			fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLRDHUP}}
+			_, pe = unix.Poll(fds, -1)
+			if pe == syscall.EINTR {
+				continue
+			}
+			if pe == nil && fds[0].Revents&unix.POLLRDHUP == 0 {
+				pe = syscall.EIO
+			}
+			break
+		}
+	}))
+	must(t, pe)
+	stopServer()
 	_, err = c.Hello(context.Background(), HelloRequest{[]int{1}, ProtocolProfile})
 	if r, ok := err.(*Refusal); ok {
 		t.Logf("observed code=%s status=%d; expected role_not_permitted", r.Code, r.Status)

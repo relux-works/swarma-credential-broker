@@ -68,8 +68,11 @@ func TestFixtureReadiness(t *testing.T) {
 	must(t, awaitFixtureBytes(path, func(b []byte) bool { return string(b) == "earlier" }))
 	checked := make(chan struct{})
 	result := make(chan error, 1)
+	exited := make(chan struct{})
+	defer func() { os.WriteFile(path, []byte("ready"), 0600); <-exited }()
 	first := true
 	go func() {
+		defer close(exited)
 		result <- awaitFixtureBytes(path, func(b []byte) bool {
 			if first {
 				first = false

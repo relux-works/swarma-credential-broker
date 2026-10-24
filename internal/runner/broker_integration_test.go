@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -121,10 +122,13 @@ func integratedFixture(t *testing.T, f *fixture, stopped bool, timeout bool, gat
 	srv := server.New(m)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- srv.Serve(ctx, l) }()
+	var serve sync.WaitGroup
+	serve.Add(1)
+	go func() { defer serve.Done(); done <- srv.Serve(ctx, l) }()
 	t.Cleanup(func() {
 		cancel()
 		srv.Close()
+		serve.Wait()
 		if <-done != nil {
 			t.Error("daemon failed")
 		}

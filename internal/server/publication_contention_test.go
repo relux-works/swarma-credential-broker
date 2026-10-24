@@ -77,6 +77,13 @@ func TestReviewSlowPublicationDeadline(t *testing.T) {
 				}
 			})
 			var peers []*net.UnixConn
+			var readers sync.WaitGroup
+			defer func() {
+				for _, peer := range peers {
+					peer.Close()
+				}
+				readers.Wait()
+			}()
 			for i := 0; i < 6; i++ {
 				c := dial(t, path)
 				c.SetDeadline(time.Now().Add(20 * time.Second))
@@ -93,7 +100,8 @@ func TestReviewSlowPublicationDeadline(t *testing.T) {
 			drained := make(chan error, len(peers))
 			if !slow {
 				for _, c := range peers {
-					go func(c *net.UnixConn) { _, err := wire.Read(c); drained <- err }(c)
+					readers.Add(1)
+					go func(c *net.UnixConn) { defer readers.Done(); _, err := wire.Read(c); drained <- err }(c)
 				}
 			}
 			c := dial(t, path)
@@ -280,6 +288,13 @@ func defaultSocketPublication(t *testing.T, slow bool, variants ...publicationVa
 	victim := e.Issue(t)
 	path := start(t, e, nil)
 	var peers []*net.UnixConn
+	var readers sync.WaitGroup
+	defer func() {
+		for _, peer := range peers {
+			peer.Close()
+		}
+		readers.Wait()
+	}()
 	var warmBytes []int
 	for i := 0; i < cfg.peers; i++ {
 		c := dial(t, path)
@@ -310,7 +325,9 @@ func defaultSocketPublication(t *testing.T, slow bool, variants ...publicationVa
 	drained := make(chan error, len(peers))
 	if !slow {
 		for _, peer := range peers {
+			readers.Add(1)
 			go func(c *net.UnixConn) {
+				defer readers.Done()
 				for i := 0; i < 4; i++ {
 					if _, err := wire.Read(c); err != nil {
 						drained <- err

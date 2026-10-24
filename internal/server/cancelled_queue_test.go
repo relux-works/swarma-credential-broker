@@ -31,7 +31,13 @@ func cancelledQueueProbe(t *testing.T, cycles int) {
 	unblock := func() { once.Do(func() { close(gate) }) }
 	defer unblock()
 	done := make(chan lease.Outcome, 1)
-	go func() { done <- e.Renew(context.Background(), running, lease.Digest(running.Payload.AccessToken)) }()
+	var runningWorker sync.WaitGroup
+	runningWorker.Add(1)
+	defer func() { unblock(); runningWorker.Wait() }()
+	go func() {
+		defer runningWorker.Done()
+		done <- e.Renew(context.Background(), running, lease.Digest(running.Payload.AccessToken))
+	}()
 	testutil.Await(t, func() bool { n, _ := e.Owner.Counts(); return n == 1 })
 	path := start(t, e, nil)
 	for i := 0; i < cycles; i++ {
@@ -112,7 +118,13 @@ func TestCancelledQueueConcurrentLeases(t *testing.T) {
 	unblock := func() { once.Do(func() { close(gate) }) }
 	defer unblock()
 	done := make(chan lease.Outcome, 1)
-	go func() { done <- e.Renew(context.Background(), running, lease.Digest(running.Payload.AccessToken)) }()
+	var runningWorker sync.WaitGroup
+	runningWorker.Add(1)
+	defer func() { unblock(); runningWorker.Wait() }()
+	go func() {
+		defer runningWorker.Done()
+		done <- e.Renew(context.Background(), running, lease.Digest(running.Payload.AccessToken))
+	}()
 	testutil.Await(t, func() bool { n, _ := e.Owner.Counts(); return n == 1 })
 	path := start(t, e, nil)
 	enqueue := func(r wire.LeaseResult) *net.UnixConn {

@@ -21,7 +21,9 @@ func TestGateEntryNotification(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := f.Refresh(ctx, "fixture", 1); done <- err }()
+	exited := make(chan struct{})
+	defer func() { cancel(); <-exited }()
+	go func() { defer close(exited); _, err := f.Refresh(ctx, "fixture", 1); done <- err }()
 	<-entered
 	if n, _ := f.Counts(); n != 1 {
 		t.Fatal("entry before call count")
