@@ -48,25 +48,39 @@ func clientPeer(t *testing.T, serve func(*net.UnixConn)) *SocketClient {
 	return client
 }
 
-// Claim: subtest cleanup closes the owned client to interrupt a blocked callback
-// and joins that callback before returning to the parent test.
+// Claim: subtest cleanup interrupts blocked socket input or releases a held
+// reply, then joins the callback before returning to the parent test.
 func TestSocketPeerCleanupJoinsCallback(t *testing.T) {
-	exited := make(chan struct{})
-	t.Run("blocked-peer", func(t *testing.T) {
-		entered := make(chan struct{})
-		clientPeer(t, func(peer *net.UnixConn) {
-			defer close(exited)
-			close(entered)
-			if _, err := wire.Read(peer); err != io.EOF {
-				t.Error("cleanup did not close callback input", err)
+	for _, mode := range []string{"blocked-peer", "held-reply"} {
+		exited := make(chan struct{})
+		t.Run(mode, func(t *testing.T) {
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			defer close(release)
+			clientPeer(t, func(peer *net.UnixConn) {
+				defer close(exited)
+				close(entered)
+				if mode == "held-reply" {
+					<-release
+					t.Log("reply gate released during cleanup")
+					return
+				}
+				if _, err := wire.Read(peer); err != io.EOF {
+					t.Error("cleanup did not close callback input", err)
+				}
+			})
+			<-entered
+			select {
+			case <-exited:
+				t.Fatal("callback exited before its release")
+			default:
 			}
 		})
-		<-entered
-	})
-	select {
-	case <-exited:
-	default:
-		t.Fatal("callback survived subtest cleanup")
+		select {
+		case <-exited:
+		default:
+			t.Fatal("callback survived subtest cleanup")
+		}
 	}
 }
 
@@ -431,6 +445,9 @@ func TestSocketLifecycle(t *testing.T) {
 		for _, mode := range []string{"valid", "loss", "partial", "late", "wrong-result"} {
 			t.Run(method+"/"+mode, func(t *testing.T) {
 				resume := make(chan struct{})
+				var resumeOnce sync.Once
+				resumeReply := func() { resumeOnce.Do(func() { close(resume) }) }
+				defer resumeReply()
 				c := clientPeer(t, func(c *net.UnixConn) {
 					r := peerRequest(c)
 					wire.Write(c, map[string]any{"request_id": r.ID, "result": helloPayload()})
@@ -486,7 +503,7 @@ func TestSocketLifecycle(t *testing.T) {
 				case "release":
 					e = c.Release(ctx, "lease")
 				}
-				close(resume)
+				resumeReply()
 				if method == "renew" && mode == "late" {
 					code = "renew_timeout"
 				}
