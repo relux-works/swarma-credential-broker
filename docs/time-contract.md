@@ -8,27 +8,104 @@ relax its limits or establish correctness of an incorrect authenticated server.
 
 ## Facts and binding
 
-The receipt has exactly the eleven fields of the executor contract's §6.1
-`TimeFacts`, below. All are required, including nested members; unknown versions,
+The **provider receipt** below is distinct from the executor's closed logical
+`TimeFacts` (§6.1). Its eleven facts supply that record through the validated
+adapter below; it is not an executor wire codec or journal extension.
+The provider wire envelope is exactly `{version,facts}`: `version` is the
+16-byte ASCII literal `qualified-time/1`; `facts` has the eleven members below.
+All are required, including nested members; unknown versions,
 missing/null values, duplicate members, invalid encodings and arithmetic overflow
 refuse. UTC instants use signed 64-bit Unix nanoseconds; durations use nonnegative
 signed 64-bit nanoseconds. If serialized as JSON, these integers are decimal
-strings, without fractions or exponents. Digests are `sha256:` followed by 64
-lowercase hex digits. IDs are enrolled opaque strings, compared exactly.
+strings matching `0|-?[1-9][0-9]*`, without plus signs, leading zeroes,
+negative zero, fractions or exponents. Generations use unsigned 64-bit decimal
+strings matching `0|[1-9][0-9]*`; no wrap is permitted. Digests are
+`sha256:` followed by 64 lowercase hex digits. Unless a narrower type is listed, enrolled IDs are
+1–128 ASCII bytes matching `[A-Za-z0-9._:-]+`, compared exactly; owner versions
+are 1–32 bytes in that alphabet. Git revisions are full lowercase hex object
+IDs of the pinned repository's object format; boot UUIDs are canonical nonzero
+lowercase UUIDs. No truncation, coercion or Unicode normalization is allowed.
+The envelope is at most 65536 bytes, nesting at most 16; reject before allocation
+on excess. Encode it as UTF-8 JSON with ASCII lexicographic member order, no
+whitespace or final LF, and no escapes for the admitted ASCII string values;
+booleans are `true`/`false`. Decode strictly and require byte-identical re-encoding.
+These provider wire rules do not change consumer Scope's integer/ref codecs.
 
-| `TimeFacts` field | Representation and meaning |
+| Provider receipt fact | Representation and meaning |
 | --- | --- |
-| `authority` | `{id, qualification_digest}`: enrolled time authority and protected qualification record. The consumer authenticates the provider/channel against that enrollment; caller-supplied hashes or confidence flags confer no authority. |
+| `authority` | `{id, version, trust_root_digest, qualification_digest}`: enrolled time authority, exact owner contract/validator version, enrolled trust-root digest, and protected qualification record. The consumer authenticates the provider/channel against that enrollment; caller-supplied hashes or confidence flags confer no authority. |
 | `evidence` | `{qualified, source, nts_config, nts_association, reference, digest}`: qualified is boolean true; source is `chrony-nts-config` or `chrony-nts-authdata`; `nts_config` must be true; `nts_association` is `verified` or `unproven`; reference is a UTC instant; digest binds the collected evidence. Configuration-only evidence does not prove negotiated association authentication; a policy requiring authdata refuses `unproven`. |
 | `adapter` | `{revision, collector_entry, image_digest, chronyc_digest, closure_digest}`: full pinned `timeconf` Git commit, exact entry `timeconf.CollectorEntry`, embedding executable, actual descriptor-pinned collector executable, and transitive provider/executable qualification manifest. They must match the deployed qualified closure. |
 | `policy` | `{shared_digest, service_digest, effective_digest}`: hashes of protected shared bytes, protected override bytes (literal `none` if absent), and the versioned canonical effective-policy manifest. The manifest binds all applied inputs and stricter bounds. |
-| `scope` | `{machine, consumer, purpose, continuity_scope}`: exact protected enrollment for this operation. A caller cannot choose a new scope to escape prior time or a hold. |
+| `scope` | `{machine, consumer, purpose, continuity_scope, operation_digest}`: protected provider enrollment plus the exact consumer operation binding defined below. A caller cannot choose a new enrollment or operation to escape prior time or a hold. |
 | `sample` | `{id, challenge, generation, fresh}`: new random 128-bit lowercase hex observation ID, current operation's 128-bit lowercase hex challenge, unsigned 64-bit store generation, and boolean true. One consumption only; retries require new collection and a new challenge. A recent earlier pass is not fresh. |
 | `clock` | `{boot, wall, monotonic, before_ns, observed_ns}`: current kernel boot UUID, literal `CLOCK_REALTIME/UTC`, literal `CLOCK_BOOTTIME`, and within-boot elapsed observations bracketing collection. Elapsed values are nonnegative nanoseconds; they cannot be compared across boots. |
 | `observed` | UTC instant `O`, the post-collection observed time (`Sample.Now`). |
 | `uncertainty` | Duration `δ`, conservative and within the effective policy; preserve upward rounding, including skew in ppm. The observation interval is `[L,U] = [O−δ,O+δ]`. |
 | `authority_until` | UTC instant `A` (`Sample.AuthorityUntil`), exclusive, no later than `min(O + policy authority window, reference + policy max sync age)`. The shared ceilings remain 300 and 2048 seconds. |
 | `continuity` | `{store, generation, record_digest, witness_digest, prior_high_water, high_water, journal_floor, prior_boot, transition, held}`: matching durable checkpoint receipt; high-waters/floor are UTC upper bounds, transition is `same-boot` or `qualified-reboot`, and held is boolean false for a successful receipt. Generation must equal `sample.generation`. |
+
+### Executor adapter and operation binding
+
+The executor fills its own closed `Scope` exactly as defined in its §2:
+`{deployment,boot,attempt,old_state,candidate_state,transactions,plan}`.
+Deployment is its protected deployment identity, boot is the intended current
+kernel UUID, attempt is the reserved intent sequence, and the remaining members
+are the complete frozen-object references, including both SHA-256 and size.
+Derive these values independently from the retained intent and protected inputs;
+validate the referenced original objects in their owning codecs. Preserve
+historical recorder boot tokens inside those objects; never replace them with
+the sampling boot.
+
+For this adapter, the provider receipt's `scope.operation_digest` is exactly
+`sha256:` plus the lowercase hex SHA-256 of the ASCII bytes
+`qualified-time/executor-scope/1`, one zero byte, then `CCJ-1(Scope)` without LF.
+Use the executor journal §2.1 pinned canonicalizer and its closed types/bounds;
+include all seven members and complete references, with no normalization or
+omission. Missing published bounds, unknown fields or invalid references refuse.
+This digest is a provider binding, **not a new field in executor Scope**. The
+consumer independently recomputes it; the authenticated receipt must match it,
+the enrolled provider scope and the current one-use challenge. Changing even a
+reference size, an attempt or current boot requires a new bound observation.
+The provider authenticates its enrolled consumer; a supplied digest alone gives
+no authority. A new operation digest never selects a new continuity history.
+
+The adapter constructs exactly the existing eleven-field logical `TimeFacts`:
+`scope` is the consumer-derived Scope above; `authority` and `evidence` are
+produced by the enrolled owner's identity/authenticity and retained-evidence
+validators, not by copying an unverified hash into those logical types. The
+other eight fields (`adapter`, `policy`, `sample`, `clock`, `observed`,
+`uncertainty`, `authority_until`, `continuity`) preserve the corresponding
+validated provider facts and their exact source representations. All fields
+refer to this same authenticated receipt. This adds no fields to the executor's
+closed records, reports, journal entries or frozen intent links. Provider wire
+codec/validator publication and consumer review remain prerequisites to code.
+
+The protected enrollment pins `authority.id`, owner `version`,
+`trust_root_digest`, qualification, receipt version and exact validator/codec.
+Authenticate them against the independently installed trust root; receipt
+values cannot select their own root or validator. For logical `Evidence`, the
+provider durably retains the exact canonical receipt bytes before reply; the
+executor retains a checked protected descriptor and constructs its existing
+`Ref={sha256,size}` over those exact bytes (bare lowercase SHA-256 and byte
+count, without adding LF). The inline `evidence` is validated inside this owner
+object, not substituted for `Ref`. Its `digest` binds retained original source
+evidence; `continuity.record_digest` and `continuity.witness_digest` bind the
+checkpoint and witness proofs. The owner's published closed codec validates
+those original records together, without a record hashing its own receipt. Bound that retained closure to 64 objects and 8 MiB total, each
+object at most 8 MiB, with no cycles and depth at most 16. All original bytes,
+authenticity and semantic bindings must be independently validated through
+retained descriptors; a receipt hash alone is insufficient. Missing bytes,
+unknown codec or unqualified validator refuses. This retention adds no journal
+field or replacement frozen report; later pre-pin evidence remains provider-owned.
+Receipt retention and validation share the single operation deadline below.
+
+Paired binding example: let `S` contain deployment `d`, current boot `b`,
+attempt 7 and the four validated frozen references `r_old`, `r_candidate`,
+`r_transactions`, `r_plan`. A fresh receipt for the enrolled consumer, challenge
+and digest of exactly `S` maps to `TimeFacts.scope=S`. With the same receipt,
+attempt 8, a changed plan reference or a changed reference size refuses; it
+cannot be made valid by copying the receipt's digest into expected Scope.
 
 These facts are bound together by the protected receipt, not recombined from
 separate samples. The consumer checks its expected authority, adapter, policy,
@@ -59,6 +136,26 @@ of at most 60 seconds. Other consumer checks, including its durable watermark
 and release validity, still apply. A consumer may narrow these rules, never
 widen them; a time-control pass is not acceptance of the enclosing operation.
 
+### Interval-preserving consumer projections
+
+A smaller consumer time view requires an adapter over the complete validated
+`TimeFacts`; it cannot replace that record. First bind the full receipt, current
+boot, one-use challenge and confirmed durable acknowledgment. In continuity,
+`prior_high_water` is the provider's previous consumed bound, `high_water` is
+its newly consumed upper bound, and `journal_floor` is the imported consumer
+floor. They are distinct quantities. Refusing the later consumer operation
+leaves the provider's consumed bound intact. Derive availability flags from
+confirmed protected continuity, never from a request's claimed availability.
+
+Keep the original nanosecond facts and check their predicates. When projecting
+to coarser units, round interval lower bounds down, interval upper bounds and
+retained upper-bound floors up, and exclusive endpoints down. The converted
+predicates must pass too: conversion can cause extra refusals, never convert an
+original refusal into acceptance. Reject overflow, values the target cannot
+represent and unusable converted intervals. A lone `observed` value cannot
+stand in for `[observed−δ,observed+δ]`. Each consumer must publish its complete
+interval-aware adapter mapping before activation.
+
 ## Durable continuity
 
 There is one enrolled continuity history per authority/clock scope, shared by its
@@ -67,9 +164,36 @@ the maximum **upper bound of every consumed effective time** `W`, the sticky
 backward-step hold and its incident/reference bounds, the last wall/monotonic
 pair and boot, provider/policy identities, an in-flight observation marker, and
 its previous record digest.
-Consumers durably bind their own decision journal to the receipt's `W`, boot,
-generation, sample ID and identities. A decision journal is not a substitute for
-this history: it can omit an attempt that failed after consuming time.
+
+**The provider owns durable retention of later consumed continuity for each
+consumer and operation scope.** In the same final settlement that advances `W`,
+its protected history retains the consumer enrollment, continuity scope,
+operation digest, sample ID/challenge, current boot, provider/policy identities,
+generation, imported floor `J`, observation/uncertainty/authority and consumed
+upper bound. The authenticated receipt identifies that committed record; there
+is no separate consumer write needed to make its association durable. Retain
+these associations under the same witness/restore protections as `W`; replacing
+an operation or retrying cannot discard them or partition the shared high-water.
+
+Executor-style consumers keep their **closed journal unchanged**, including
+frozen intent links and earlier reports. They import its §3.3 floor, but the
+later pre-pin receipt is not inserted into that journal and is not claimed to
+be encoded in an older report. The provider history supplies that later bound
+across failure/reboot. A journal is not a substitute for this history: it can
+omit an attempt that failed after consuming time. Consumers that own a durable
+watermark retain their required `W` (at least the previous decision's effective
+upper bound) and boot identity in their own published format, outside rollback,
+before acknowledging their decision. No blanket requirement adds receipt
+fields to any consumer's journal. Both consumer-owned floors and provider `W`
+apply; neither can reset or replace the other.
+
+For example, leave the frozen executor floor at 140. Immediately before pin,
+consume observed 200 with δ=1: the provider durably retains `W=201` and its
+consumer/operation association before replying, while the journal remains at
+140. After a crash or reboot, new `[170,172]` refuses against 201;
+`[210,212]` may pass only with confirmed provider continuity, fresh current-boot
+evidence, sufficient authority and valid releases. An intact journal at 140
+cannot authorize either interval if provider history is missing or rolled back.
 
 Consumption has this order:
 
@@ -77,13 +201,16 @@ Consumption has this order:
    observation in flight before starting collection. An unfinished marker blocks
    competing calls; after a crash it is held, never silently discarded. Obtain
    new qualified evidence and verify current boot, non-held state and authority.
-   Import executor journal floor `J` (its §3.3 maximum of retained prior time
-   facts), or
-   the consumer's stricter previous decision upper bound. Require
+   Import executor journal floor
+   `J = max(imported A3b LastTime, ObservedTime of every authenticated retained report through the accepted checkpoint)`
+   (§3.3), derived from original source evidence, not Q's audit timestamp; or
+   import a watermark-owning consumer's stricter previous decision upper bound.
+   Require
    **`L > max(W,J)`**; equality refuses. Compare against the checkpoint preceding
    this consumption, not the receipt's newly raised high-water.
 2. Atomically advance the checkpoint generation and `W` to `U`, persisting the
-   clock baseline and settling the in-flight marker. A detected step instead
+   clock baseline and the consumer/operation association, and settling the
+   in-flight marker. A detected step instead
    latches the hold with no time receipt; qualification failure cannot erase it.
    Uncertain writes or incomplete incident bounds remain held and cannot use
    automatic resynchronization. A failed collection may settle as refused with
@@ -95,7 +222,8 @@ Consumption has this order:
    expired release, later refusal, crash, cancellation or lost reply **never
    undoes** the consumed upper bound. A candidate that never passes qualification
    is not a consumed sample; a committed reservation with no delivered reply
-   still burns its upper bound. Never retry it as a cached pass.
+   still burns its upper bound. No executor journal write is required by this
+   step. Never retry it as a cached pass.
 
 ### Storage and crash ordering plan
 
@@ -128,8 +256,15 @@ consumption; error recovery cannot create a replacement history. Changing a
 provider, policy or scope requires an authorized migration that retains the
 maximum high-water and all holds, never a new empty store. The concrete witness
 backend and enforceable restore exclusions are deployment decisions required
-before implementation/activation. If both history and its witness can be rolled
-back together, this contract cannot be met and qualification must refuse.
+before implementation/activation. Shared snapshots are rollback domains too:
+a file, directory or daemon restored with the checkpoint cannot be this witness.
+Until the independent monotonic CAS authority and its restore boundary are
+selected and qualified, consumption **refuses**. If both history and its witness
+can be rolled back together, this contract cannot be met and qualification
+must refuse. A proposed off-node witness remains a conditional alternative,
+not a selected backend; its acknowledgments do not satisfy the local-CAS plan
+without separate lock/deadline qualification. The latency decision is recorded
+in [unresolved questions](../UNRESOLVED_QUESTIONS.md).
 
 ### Restart and reboot guarantees
 
@@ -155,9 +290,14 @@ repaired by sleeping, an ordinary good report or the journal's older floor.
 ## Bounded sample immediately before the pin
 
 The planned `ConsumeBeforePin(deadline, expected identities, challenge, J)` API
-runs while the executor retains its package/journal/state exclusions, immediately
-before the pin. It performs a **new local chronyd query** through the protected
-collector child and bracketing clock reads, then the durable consumption above.
+includes the enrolled scope and independently derived operation digest in
+`expected identities`. It runs while the executor retains its
+external exclusions F, B, W, root-writer exclusion and exclusive D, immediately
+before the pin. Here W names the worker exclusion, not the time high-water.
+Release effects/core, gate, data, recorder R and journal append before this call;
+none may overlap it. The entire provider graph must have no acquisition or wait
+back to F, B, W, root-writer exclusions, D or R, directly or indirectly.
+It performs a **new local chronyd query** through the protected collector child and bracketing clock reads, then the durable consumption above.
 The source has already been enrolled and qualified; its previous sample is not
 reused. This specifies fresh collection, replacing the earlier proposal to read
 an already-qualified cached sample under the lock.
@@ -167,15 +307,44 @@ qualification, policy preparation and service startup occur outside consumer
 locks. Under locks, the fixed collector commands contact only the already-running
 local daemon: no remote acquisition, DNS, service restart or attempt to obtain
 fresh synchronization. The protected configuration inventory is bounded and
-rechecked; changed/unqualified inputs refuse. The effective operation deadline
-is at most the policy timeout (currently capped at ten seconds), or the stricter
-caller deadline, including contention, collection, child teardown and durable
-acknowledgment. Timeout, missing daemon, blocked storage or busy provider refuses;
+rechecked; changed/unqualified inputs refuse. The proposed API uses
+**one absolute operation deadline**, at most ten seconds and no later than the
+stricter caller deadline. It budgets all commands together,
+connect/queue waits, contention, collection, store/witness/receipt writes, output
+drain, teardown and fence verification. The existing per-command policy timeout
+(currently at most ten seconds) does not establish this aggregate bound.
+Timeout, missing daemon, blocked storage or busy provider refuses;
 the caller returns refusal by its deadline even if cleanup remains unresolved.
 No pass is possible without completed cleanup and durable acknowledgment. No
 sleeping for a better sample, unbounded mutex wait, background success reply or
 restart is allowed. No implementation may claim this path until the deadline and child
 cleanup properties are qualified on its target platform.
+
+Consumption remains a refusal until the installed path has a reviewed full
+executor §7 `CallContract`, exactly
+`{id,target,entry,argv,environment,cwd,identity,inputs,outputs,leases,deadline,graph,completion,failure,fence}`,
+including §5.1 and §7.4 completion/fencing. Pin the embedding initialization,
+collector, loader/libraries/configuration, cwd `/`, local daemon endpoint,
+chronyd and all store/witness dependencies, IPC, helper and failure paths.
+Chronyd is a separately qualified long-lived dependency, not a child the caller
+can kill. An unknown daemon/store/witness graph or back edge refuses.
+Reuse the [collector execution contract](time-confidence.md#source-selection-and-policy):
+`CollectorEntry()` first, descriptor-pinned native execution, only
+`chronyc -c tracking`, `chronyc -c -N tracking`, `chronyc -c authdata -a`,
+only `LC_ALL=C`, `LANG=C`, `TZ=UTC`, no stdin, and the policy's shared
+stdout/stderr per-command limit (256–65536 bytes); overflow refuses.
+
+Success needs authenticated terminal evidence for the **whole subtree** and a
+bounded output drain. Direct-child exit, `CommandContext`, `WaitDelay`, byte
+caps or a successful unit result do not prove that completion. Qualify retained
+subtree identity from launch, no escape/reactivation, post-cancellation fence
+and resolution or owner-fencing of every delegated effect, including lost
+acknowledgments and delayed work, as required by executor §5.1. A subtree fence
+must preserve that identity and prevent repopulation through recovery; process
+absence or one empty observation cannot authorize replacement. If completion,
+drain, cleanup or fencing is unresolved at the absolute deadline, refuse and
+keep the path fenced with no overlapping retry. No activation or accepting
+fixture may substitute for these unpublished native qualification results.
 
 The provider takes no lock shared with a consumer. Its private state/storage
 locks are leaves: no consumer callback, incident handler, consumer lock or
@@ -223,6 +392,11 @@ covers the qualified delivery/pin delay. A pass is a
 | Stricter consumer | A local policy cannot increase source-age/uncertainty ceilings, extend expiry or reduce a required margin. | An extra local restriction may refuse the base case; retaining the shared bounds may pass it. |
 | Local bounded call | Busy leaf, deadline/teardown failure, attempted remote acquisition or service restart refuses without waiting under consumer locks. | New bounded local daemon query plus durable receipt and child cleanup completes before the caller deadline, with no consumer callback under the leaf. |
 | Emergency stop | Unavailable time must refuse issuance/pin/publication. Requiring time or its leaf for stop is forbidden. | The same unavailable/held state, including a pending pre-pin call, still dispatches an otherwise authorized emergency stop without awaiting the provider, store or their indirect lock holders. |
+| Executor operation binding | Receipt for `S` with attempt 7 is presented for attempt 8, another plan, or a changed frozen-reference size: the independently recomputed operation digest differs; refuse. | Same consumer-derived closed `S`, complete frozen references, current boot and challenge match the authenticated receipt's operation digest; map `TimeFacts.scope=S` without extra executor fields. |
+| Intact frozen journal, lost provider history | Frozen executor journal and reports remain intact at floor 140; after consuming 200 with δ=1, provider history is missing or restored to 140 against the witness for 201. Refuse even for `[210,212]`; the journal cannot reconstruct continuity. | Journal remains unchanged at 140; confirmed provider history and consumer/operation association retain `W=201`. Fresh current-boot `[170,172]` refuses; `[210,212]` with sufficient authority and valid releases passes as a time control only. |
+| Receipt codec and authority mapping | Request-asserted availability, unknown version/root/validator, overlong identifier, excess receipt/evidence bounds, noncanonical integer/generation, or unavailable original evidence refuses; an inline hash cannot stand in for retained `Ref`. | Confirmed protected continuity, enrolled version/root and canonical bounded owner receipt plus original evidence authenticate; its exact retained bytes map to the existing logical `Evidence` Ref without changing frozen journal objects. |
+| Qualified full call and completion | Missing any CallContract field, unknown init/daemon/store/witness dependency, consumer-lock back edge, per-command-only deadline, or direct-child-only completion refuses. | Exact installed closure and all fifteen fields qualified, stated inner locks released, whole-subtree terminal evidence and bounded drain/fencing complete within one absolute deadline; independently reachable stop remains required. |
+| Conservative coarse projection | With `W=200.2`, `[L,U]=[200.1,200.3]`, `A=230.9`, exact `L>W` fails. Ceil-L/floor-W would falsely give `201>200`; refuse. Required floor-L/ceil-W gives `200>201`, also refusing. | With the same `W`, fresh `[202.1,202.3]`, `A=230.9` and `J=140`, exact predicates pass; coarse lower 202, upper 203, floor 201 and exclusive authority 230 also pass. Retain and check both representations. |
 
 ## Existing code and implementation slice
 

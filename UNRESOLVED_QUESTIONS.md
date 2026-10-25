@@ -84,8 +84,16 @@ Implementation integration questions:
   and hold continuity across restart and reboot; the owner's watermark alone
   is insufficient. Before implementation, select the independent local rollback
   witness backend and enforce storage/restore exclusions for both checkpoint and
-  witness. No missing or restored history may be reset. The bounded pre-pin API
-  and consumer review are also pending. Broker backward tolerance is zero.
+  witness. No missing or restored history may be reset. A proposed off-node
+  witness protocol is only a conditional candidate, not the selected backend.
+  It would require a separate time-continuity stream (not the consumer journal
+  stream), fresh authenticated reads, and durable begin and end records. Its
+  off-node acknowledgment round trips conflict with the current local-CAS
+  assumption and a registry consumer's five-second decision budget until a
+  bounded, lock-compatible protocol is qualified. The time-provider and platform
+  owners must resolve that latency/authority decision before activation; no
+  remote-to-local adapter is assumed. The bounded pre-pin API and consumer review
+  are also pending. Broker backward tolerance is zero.
 
 - The `time-untrusted` qualification row needs a bounded durable synthetic-owner
   enrollment/restart fixture using the real time provider, adapter and retained
