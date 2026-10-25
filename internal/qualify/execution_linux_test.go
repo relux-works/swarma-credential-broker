@@ -63,9 +63,8 @@ func TestPeerStartupReportDiagnostics(t *testing.T) {
 	}
 }
 
-// Claim: genuine canonical zero/nonzero fixtures retain only parent-observed
-// launcher status, with no canonical credit. For peer, the outer launcher exits
-// zero for either inner status: its case status is intentionally unknown.
+// Claim: attested transport/admission retain genuine canonical 0/17 statuses;
+// peer and runner retain only launcher diagnostics and no canonical credit.
 func TestCaseCompletionStatus(t *testing.T) {
 	fake := rowTool(t, "../runner/testdata/appserver")
 	for _, status := range []int{0, 17} {
@@ -89,7 +88,11 @@ func TestCaseCompletionStatus(t *testing.T) {
 					assertOriginPending(t, root, id, row.Positive)
 				} else {
 					control := d.runRow(context.Background(), c.Policy, root, id, "positive")
-					assertOriginPending(t, root, id, control)
+					if runnerRow(id) {
+						assertOriginPending(t, root, id, control)
+					} else if !control.Executed || control.ExitCode != status || control.Verdict != map[int]string{0: "passed", 17: "failed"}[status] {
+						t.Fatal("canonical status lost", control)
+					}
 				}
 				if len(records) == 0 {
 					t.Fatal("missing launcher diagnostics")
@@ -98,6 +101,12 @@ func TestCaseCompletionStatus(t *testing.T) {
 				want := status
 				if id == "peer-denied" {
 					want = 0
+				}
+				if id != "peer-denied" && !runnerRow(id) {
+					if !e.credit(false) || e.CaseExit != status {
+						t.Fatal("canonical wait/status missing", e)
+					}
+					return
 				}
 				if !e.Joined || e.HelperExit != want || e.Started || e.Completed || e.WorkerExit != -1 || e.CaseExit != -1 {
 					t.Fatal("launcher status promoted to case", e)
@@ -186,7 +195,7 @@ func TestRowStartupEvidence(t *testing.T) {
 					t.Fatal("worker phase evidence", records)
 				}
 				e := records[0].Execution
-				if kind == "early" && (!e.Launched || !e.Joined || e.HelperExit != 17 || e.Diagnostic != "case_not_started") {
+				if kind == "early" && (!e.Launched || !e.Joined || e.HelperExit != 17 || e.Diagnostic != "case_not_started" && e.Diagnostic != "case_origin_unavailable") {
 					t.Fatal("worker actual wait status lost", e)
 				}
 			})

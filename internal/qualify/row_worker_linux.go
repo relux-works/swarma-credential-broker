@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/relux-works/swarma-credential-broker/internal/egress"
 	"github.com/relux-works/swarma-credential-broker/internal/lease"
 	"github.com/relux-works/swarma-credential-broker/internal/owner"
 	"github.com/relux-works/swarma-credential-broker/internal/policy"
@@ -75,7 +76,7 @@ func CaseMain(args []string) (bool, int) {
 	if os.Args[0] != "/proc/self/fd/4" || len(args) != 3 || !rowImplemented(args[1]) || args[2] != "positive" && args[2] != "negative" {
 		return true, 125
 	}
-	if signalCaseStart() != nil {
+	if runnerRow(args[1]) && signalCaseStart() != nil {
 		return true, 125
 	}
 	f := os.NewFile(5, "row-context")
@@ -110,6 +111,9 @@ func CaseMain(args []string) (bool, int) {
 	if e != nil || !runnerRow(input.ID) && len(entries) != 0 || os.Getenv("HOME") != os.Getenv("CODEX_HOME") {
 		return true, 125
 	}
+	if !runnerRow(input.ID) && egress.EnterCase() != nil {
+		return true, 125
+	}
 	if runnerRow(input.ID) {
 		observation.Refusal, observation.Runner, e = runnerExchange(input)
 	} else if admissionRow(input.ID) {
@@ -141,7 +145,7 @@ func (o *rowStoppedOwner) Refresh(context.Context, string, uint64) (owner.Snapsh
 	return owner.Snapshot{State: owner.Unavailable}, nil
 }
 
-func startTransportRow(ctx context.Context, root string, input rowInput, pid *atomic.Int64) (string, func() bool, error) {
+func startTransportRow(ctx context.Context, root string, input rowInput, pid *atomic.Int64, origins ...*rowOrigin) (string, func() bool, error) {
 	dir := filepath.Join(root, "q")
 	if os.Mkdir(dir, 0700) != nil {
 		return "", nil, qualification.ErrUnavailable
@@ -157,37 +161,21 @@ func startTransportRow(ctx context.Context, root string, input rowInput, pid *at
 		return "", nil, e
 	}
 	probeFault := input.ID == "peer-identity-unavailable" && input.Side == "negative"
-	srv, fired, e := server.NewQualification(m, input.Policy.ExecutableSHA256, input.Peer, pid, probeFault)
+	srv, fired, e := server.NewQualification(m, input.Policy.ExecutableSHA256, input.Peer, pid, probeFault, originCheck(origins)...)
 	if e != nil {
 		m.Close()
 		disk.Close()
 		return "", nil, e
 	}
 	path := filepath.Join(dir, "s")
-	listener, e := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	closeListener, e := prepareRowListener(ctx, srv, path, 0600, origins...)
 	if e != nil {
 		m.Close()
 		disk.Close()
 		return "", nil, e
 	}
-	listener.SetUnlinkOnClose(false)
-	if os.Chmod(path, 0600) != nil {
-		listener.Close()
-		m.Close()
-		disk.Close()
-		return "", nil, qualification.ErrUnavailable
-	}
-	// Serve may still be starting when a launch fails. Joining it before Wait
-	// avoids racing a late accepted connection's WaitGroup.Add.
-	serveCtx, cancel := context.WithCancel(ctx)
-	done := make(chan error, 1)
-	go func() { done <- srv.Serve(serveCtx, listener) }()
 	closeRow := func() bool {
-		cancel()
-		listener.Close()
-		serveError := <-done
-		srv.Close()
-		srv.Wait()
+		serveError := closeListener()
 		records, e := disk.Account(input.Policy.Accounts[0].Label, false)
 		good := false
 		if e == nil {

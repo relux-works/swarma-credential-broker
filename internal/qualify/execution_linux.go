@@ -16,6 +16,8 @@ import (
 type rowDiagnostic string
 
 type rowExecution struct {
+	artifact   string        `json:"-"` // exact bytes produced by this parent-owned invocation
+	attested   bool          `json:"-"` // private parent evidence; never accepted from artifact JSON
 	Launched   bool          `json:"launched"`
 	Handshake  bool          `json:"identity_handshake"`
 	Started    bool          `json:"case_started"`
@@ -63,9 +65,7 @@ func (d driver) recordExecution(id, side string, e rowExecution) {
 }
 
 func (e rowExecution) credit(peer bool) bool {
-	// No current path implements the origin witness in qualification.md.
-	// Self-consistent lifecycle fields cannot reopen qualification.
-	return false
+	return !peer && e.attested && e.Launched && e.Handshake && e.Started && e.Completed && e.Joined && e.CaseExit >= 0 && e.CaseExit == e.WorkerExit && e.CaseExit == e.HelperExit
 }
 
 func pendingRowControl() qualification.Control {

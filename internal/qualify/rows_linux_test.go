@@ -43,8 +43,8 @@ func rowConfiguration(t *testing.T, p policy.Policy, root string) string {
 	return path
 }
 
-// Claim: every emitted row remains pending without artifacts, and each
-// unavailable invocation suppresses its neighbour. No approved candidate runs.
+// Claim: ten attested transport/admission pairs run; peer, runner and missing
+// bodies remain pending. None of these synthetic cases runs the candidate.
 func TestRowsHarness(t *testing.T) {
 	worker := rowTool(t, "../../cmd/swarma-credential-broker")
 	path, c, root := setup(t)
@@ -61,17 +61,28 @@ func TestRowsHarness(t *testing.T) {
 	if wire.Decode(bytes.TrimSpace(out.Bytes()), &r) != nil || r.Disposition != "pending" {
 		t.Fatal("report")
 	}
+	credited := 0
 	for _, row := range r.Cases {
-		assertOriginPending(t, root, row.ID, row.Positive)
-		assertOriginPending(t, root, row.ID, row.Negative)
+		if rowImplemented(row.ID) && row.ID != "peer-denied" && !runnerRow(row.ID) {
+			if !row.Positive.Executed || !row.Negative.Executed || row.Positive.Verdict != "passed" || row.Negative.Verdict != "passed" {
+				t.Fatal("attested pair unavailable", row)
+			}
+			credited++
+		} else {
+			assertOriginPending(t, root, row.ID, row.Positive)
+			assertOriginPending(t, root, row.ID, row.Negative)
+		}
+	}
+	if credited != 10 {
+		t.Fatal("transport/admission count", credited)
 	}
 	for _, record := range r.Executions {
-		if record.Execution.Started || record.Execution.Completed || record.Execution.CaseExit != -1 {
-			t.Fatal("origin credit", record)
-		}
-		suppressed := record.Side == "negative" && record.ID != "peer-denied" || record.Side == "positive" && record.ID == "peer-denied"
-		if suppressed && record.Execution.Launched {
-			t.Fatal("neighbor launched", record)
+		if record.ID == "peer-denied" || runnerRow(record.ID) {
+			if record.Execution.Started || record.Execution.Completed || record.Execution.CaseExit != -1 {
+				t.Fatal("unproved origin credit", record)
+			}
+		} else if !record.Execution.Completed || record.Execution.CaseExit != 0 {
+			t.Fatal("attested execution missing", record)
 		}
 	}
 	homes, e := filepath.Glob(filepath.Join(os.TempDir(), "qualification-row-*"))

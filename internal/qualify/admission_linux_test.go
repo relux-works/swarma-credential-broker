@@ -114,7 +114,7 @@ func TestAdmissionPublicationFence(t *testing.T) {
 	d := driver{path: path, rowExecutable: worker}
 	d.runRows(context.Background(), config, c.Policy, root, cases)
 	for _, row := range cases {
-		if admissionRow(row.ID) && (row.Positive.Verdict != "pending" || row.Negative.Verdict != "pending" || row.Positive.Executed || row.Negative.Executed) {
+		if admissionRow(row.ID) && !runnerRow(row.ID) && (row.Positive.Verdict != "passed" || row.Negative.Verdict != "passed" || !row.Positive.Executed || !row.Negative.Executed) {
 			t.Fatal("publication control", row.ID)
 		}
 	}

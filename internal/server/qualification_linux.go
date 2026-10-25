@@ -18,18 +18,18 @@ import (
 // admission to the supervised transport worker; another process with the same UID cannot use
 // its private socket. The caller supplies an isolated, issuance-closed manager.
 // The optional probe fault is explicitly model evidence, never foreign-UID proof.
-func NewQualification(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64, probeFault bool) (*Server, func() bool, error) {
-	return newQualificationPeer(m, digest, uid, pid, probeFault)
+func NewQualification(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64, probeFault bool, live ...func(int) bool) (*Server, func() bool, error) {
+	return newQualificationPeer(m, digest, uid, pid, probeFault, live...)
 }
 
 // NewQualificationAdmission is a separate synthetic-fixture authority. It
 // retains the transport identity/DAC checks and allows one request in total.
 // There is no command-line or environment selector for this constructor.
-func NewQualificationAdmission(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64) (*Server, error) {
+func NewQualificationAdmission(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64, live ...func(int) bool) (*Server, error) {
 	if m == nil || m.Policy().MaxLeaseSeconds > 5 || len(m.Policy().Accounts) != 2 {
 		return nil, wire.Refuse("lease_owner_unavailable")
 	}
-	s, _, err := newQualificationPeer(m, digest, uid, pid, false)
+	s, _, err := newQualificationPeer(m, digest, uid, pid, false, live...)
 	if err != nil {
 		return nil, err
 	}
@@ -49,8 +49,8 @@ func NewQualificationAdmission(m *lease.Manager, digest string, uid uint32, pid 
 	return s, nil
 }
 
-func newQualificationPeer(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64, probeFault bool) (*Server, func() bool, error) {
-	if pid == nil || m == nil || m.Policy().ExecutableSHA256 != digest || uid != uint32(os.Geteuid()) || !m.Policy().Peer(uid) {
+func newQualificationPeer(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64, probeFault bool, live ...func(int) bool) (*Server, func() bool, error) {
+	if len(live) > 1 || len(live) == 1 && live[0] == nil || pid == nil || m == nil || m.Policy().ExecutableSHA256 != digest || uid != uint32(os.Geteuid()) || !m.Policy().Peer(uid) {
 		return nil, nil, wire.Refuse("lease_owner_unavailable")
 	}
 	s := New(m)
@@ -66,7 +66,7 @@ func newQualificationPeer(m *lease.Manager, digest string, uid uint32, pid *atom
 		e = raw.Control(func(fd uintptr) {
 			cred, probeError = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
 		})
-		if e != nil || probeError != nil || cred == nil || int64(cred.Pid) != pid.Load() || cred.Uid != uid {
+		if e != nil || probeError != nil || cred == nil || int64(cred.Pid) != pid.Load() || cred.Uid != uid || len(live) == 1 && !live[0](int(cred.Pid)) {
 			return 0, errors.New("qualification peer unavailable")
 		}
 		if probeFault {

@@ -313,37 +313,48 @@ same listener. Only role-verification booleans leave the private handshake.
 
 ### Execution evidence origin
 
-This section is normative and supersedes the execution-credit claims in the
-fixture descriptions below. All four paths are **UNRUN** in qualification.
-The current architecture cannot establish canonical entry independently of a
-stage that runs before the case. Running a fixture is not qualification credit.
+This section is normative. With protected fixtures on Linux/amd64, six transport
+and four admission rows have execution credit. Peer and runner remain **UNRUN**;
+all unavailable paths emit `executed=false`, `exit_code=-1`, no artifact, and
+suppress the neighbouring control. No approved candidate runs in these cases.
 
-In the table, **P** is the trusted qualification parent and **K** the kernel
-acting on its behalf. **U** means P records pending, `executed=false`,
-`exit_code=-1`, no control artifact, and suppresses the neighbouring control.
-Every missing required fact has classification U. Launcher diagnostics may
-record P's own Start/wait, but never rename a launcher exit as a case exit.
+Here P is the trusted qualification parent and K the kernel. A CaseOrigin is
+optional in the egress supervisor: ordinary Run retains its existing contract.
+It accepts only a parent-created typed endpoint, never generic socket ExtraFiles.
 
-| Path and named test | Launched | Identity established | Canonical case entered | Case completed | Actual case exit status | Artifact produced |
-| --- | --- | --- | --- | --- | --- | --- |
-| Peer — `TestExecutionOrigin/peer` | P observes its own sudo Start. A helper cannot forge that syscall result; it identifies only the launcher, so canonical launch remains U. | K supplies SO_PEERCRED to P's private server. It identifies the connected PID/UID/GID, but the helper's claimed PID is not an independently identified measured case. No case identity: U. | P has no kernel witness binding entry to a measured case process. Helper metadata and the helper-owned receipt can both precede entry. U. | P waits for sudo, not the inner case. No independently verified trusted waiter on the exact case exists. Helper completion is insufficient: U. | P retains only its own launcher wait status. A helper number cannot prove the case status; no verified exact-case wait: U. | P alone writes artifacts after all prior facts hold. They do not hold, so no artifact; helper output cannot authorize one. U. |
-| Transport — `TestExecutionOrigin/transport` | P observes its own boundary launcher Start. A pre-case write cannot forge Start, but Start alone is not canonical launch. U. | K supplies SO_PEERCRED to P's private server, binding a connection to the launched PID. The current check does not also bind `/proc/<pid>/exe` to the retained measured worker. Identity incomplete: U. | P currently has only an inherited receipt and a connection PID. The launcher holds the receipt too; neither proves the measured canonical invocation entered. U. | P waits for the exact launcher PID, which execs the worker when bootstrap succeeds. Without independent entry/exec identity, that wait might terminate before the case. U. | P's wait is authoritative for the launched process, but cannot be classified as case status without the missing entry fact. U. | P alone writes artifacts after all prior facts hold. An inherited receipt cannot satisfy those prerequisites. No artifact: U. |
-| Admission — `TestExecutionOrigin/admission` | P observes its own boundary launcher Start. No helper report can manufacture it, but canonical launch is not established by Start. U. | K supplies SO_PEERCRED to P's private server. PID/UID matching lacks an independent retained-worker executable comparison. Missing measured-case identity: U. | P observes synthetic protocol effects, but current origin checking does not bind those effects to an independently identified measured canonical worker. The pre-case stage also inherits the receipt. U. | P waits for the launched PID; bootstrap can exit without case entry. No verified exact-case identity precedes this wait. U. | P retains the actual launcher exit only. Neither an observation nor a receipt converts that number into case status. U. | P owns artifact creation. Missing entry/completion/status prevents creation regardless of reported observations. U. |
-| Runner — `TestExecutionOrigin/runner` | P observes its own direct worker Start. A report cannot forge Start, but Start does not prove the worker reached Command. U. | K identifies the launched PID; the current path does not independently attest its executable and canonical entry. An inherited receipt can be written earlier. U. | P has **no kernel-attested fact proving real Command preflight ran in the measured binary**. The negative makes no broker connection. Claimed local refusal, silence, file metadata and a receipt cannot supply that fact. U. | P waits for the direct worker, but without the missing preflight/entry fact the process may have exited before the case. U. | P records its own worker wait as launcher diagnostics only; no proof links it to canonical preflight completion. U. | P alone writes artifacts. Missing preflight evidence suppresses artifacts and the clean neighbour even if the helper reports success. U. |
+| Path and tests | Launch and identity | Canonical entry | Completion and actual status | Artifact authority |
+| --- | --- | --- | --- | --- |
+| Transport — `TestOriginExecIdentity`, `TestRowsHarness` | P observes Start, retains the worker image and pidfd. At K's exec stop P compares `/proc` image device/inode and exact bounded initial argv. | P sends a fresh challenge only after verified exec; the measured dispatcher answers on FD9 after input, candidate and empty-home checks. K's SO_PASSCRED supplies the same PID/UID/GID. P acknowledges before exchange. | The locked Start thread owns trace stops and the sole consuming `cmd.Wait`. It retains actual case status, including genuine 0/17 (`TestCaseCompletionStatus`). | P alone writes artifacts after verified entry and join. A passing pair additionally requires exact envelopes and unchanged fixture effects. |
+| Admission — same origin tests, `TestRowRefusalEnvelope` | Same retained-image, initial-argv and pidfd proof. | Same post-exec challenge; server checks live origin together with SO_PEERCRED. | Same exact-process wait authority; no helper-supplied status. | P checks grant bounds, store state and Snapshot/Refresh counts before accepting both artifacts. |
+| Peer — `TestExecutionOrigin/peer` | P observes sudo Start and kernel connection credentials, but lacks independent measured inner-case identity. | Helper metadata or its receipt can precede entry. UNRUN. | P waits for sudo; no trusted exact-inner-case waiter. Only launcher diagnostics. | Missing origin prevents artifacts and neighbour launch. |
+| Runner — `TestExecutionOrigin/runner` | P observes direct Start, without an independent witness of real Command preflight. | Negative preflight makes no broker connection. Silence, file metadata or an inherited receipt cannot prove Command ran. UNRUN. | Actual launcher status cannot establish canonical preflight completion. | Missing preflight authority prevents artifacts and neighbour launch. |
 
-This deliberately chooses no new attestation mechanism. Re-enabling any path
-requires implementing its missing origin checks and restoring real zero/nonzero
-canonical execution controls. Restore the paired-artifact rejection checks too:
-missing positive evidence, identity/digest mismatch, duration, envelope fields
-and variants, parent counters, grant bounds and runner/peer effects. Those
-artifact-dependent assertions cannot establish coverage while all artifacts
-are forbidden. In particular, SO_PASSCRED on an inherited channel
-alone would identify a sender, not distinguish two stages of that same process.
-A PID or executable measurement alone does not prove that Command ran.
-`row_executions` retains bounded parent-observed launcher diagnostics; case entry,
-completion and case exit remain unset. Missing launchers retain their existing
-closed diagnostic codes. A usable launcher without case-origin proof records
-`case_origin_unavailable`.
+The origin exchange uses a fresh SOCK_SEQPACKET pair with SO_PASSCRED; FD9 is
+marked CLOEXEC on dispatcher entry and closed after acknowledgement. Pre-exec,
+wrong-sender, missing-credential, malformed and duplicate replies fail closed.
+An additional exec invalidates the origin. This attests the measured dispatcher
+and its defined entry boundary, not an arbitrary function call inside the image.
+
+The fixture pathname is selected early, but its listening socket is created only
+inside the verified-exec callback while the tracee is stopped
+(`TestOriginListenerEpoch`). The server admits only the verified, entered, live
+case PID and its real kernel credentials. No pre-exec connection can be queued
+on that socket object. Seccomp filters and policy decisions are unchanged.
+Unsupported tracing, pidfd, exec metadata or notification facilities fail closed.
+
+Trace handling follows runtime non-leader exec and consumes only stop events
+with `waitid(WSTOPPED)`. Terminal state for the case stays waitable until the sole
+final `cmd.Wait`; cancellation kills the pinned case and drains trace stops on
+that same owner. `TestOriginWaitOwnership` covers cancellation and 0/17 status.
+
+`TestRowArtifactPair` rejects either missing artifact, substituted identity or
+hash, invalid duration, lifecycle metadata, closed envelope fields/variants,
+parent counters and grant bounds. Serialized lifecycle claims cannot replace
+the private parent proof bound to these exact artifact bytes. Failed genuine cases retain their actual nonzero
+status, but cannot pass qualification. `row_executions` retains bounded typed
+launcher diagnostics for unavailable origins; helper text never becomes authority.
+Peer and runner still require their own ownership decisions before credit can
+be restored. The any-peer control remains a declared survivor for that boundary.
 
 Runner source rows execute the real runner Command and SocketClient. The
 protected fake app-server descriptor is measured separately; its exact digest
@@ -413,8 +424,8 @@ observer checks remain the separate candidate measurement procedure.
 The registry below has all 46 required IDs. “Next slice” means unexecuted,
 never a skipped pass. This implementation covers the harness, framing,
 peer-probe, genuine peer denial, account, release qualification, runner source
-and ended-lease fixture implementations. All 13 rows are now UNRUN because
-execution origin is unavailable, even with usable protected fixtures.
+and ended-lease fixture implementations. Ten transport/admission rows execute with attested origin and paired artifacts.
+The peer row and two runner rows remain UNRUN even with usable fixtures.
 Other bodies remain pending; the time row
 requires the durable owner integration described above.
 P9 means [profile §9](../spec/v0-codex-refresher.md#9-negative-cases-and-adjacent-positive-controls);
@@ -432,9 +443,9 @@ fixture result cannot satisfy the live part of a combined row.
 | Required ID | Class; reference | Positive control | Negative control | Current row body |
 |---|---|---|---|---|
 | peer-denied | fake-only; P9, P8.2 step 2 | Genuine configured allowed process negotiates and leases | Genuine foreign UID gets null-ID role_not_permitted before input, no effects | UNRUN: execution origin unavailable; real configured fixture; P8.1:695–724, P9:800 |
-| account-denied | fake-only; P9 | Exact allowed peer/account/profile leases | Known disallowed account gets lease_not_authorised, no writer | UNRUN: execution origin unavailable; disabled subject, zero Snapshot; P7:582–598, P9:801 |
-| account-unknown | fake-only; P9 | Existing allowed label leases | Missing label gets lease_account_unknown, no creation/fallback | UNRUN: execution origin unavailable; missing label, zero Snapshot; P7:582–598, P9:802 |
-| release-unqualified | fake-now + live-later; P9, P8.2 steps 2/4 | Exact approved fake tuple leases; later real tuple | Unqualified digest gets lease_harness_unqualified, no child | UNRUN: execution origin unavailable; fake tuple; no production publication; P8.2:749–788, P9:803, B9.6:575–587 |
+| account-denied | fake-only; P9 | Exact allowed peer/account/profile leases | Known disallowed account gets lease_not_authorised, no writer | Executed with attested paired artifacts; disabled subject, zero Snapshot; P7:582–598, P9:801 |
+| account-unknown | fake-only; P9 | Existing allowed label leases | Missing label gets lease_account_unknown, no creation/fallback | Executed with attested paired artifacts; missing label, zero Snapshot; P7:582–598, P9:802 |
+| release-unqualified | fake-now + live-later; P9, P8.2 steps 2/4 | Exact approved fake tuple leases; later real tuple | Unqualified digest gets lease_harness_unqualified, no child | Executed with attested paired artifacts; fake tuple; no production publication; P8.2:749–788, P9:803, B9.6:575–587 |
 | source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | UNRUN: execution origin unavailable; empty reserved-variable pair; P6:493–507, P9:804 |
 | home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | UNRUN: execution origin unavailable; synthetic-file pair; retained runner link regression; P6:499–502, P9:805 |
 | renew-unknown-digest | fake-only; P9 | Superseded delivered token returns current payload without refresh | Unknown digest gets renew_not_current, generation unchanged | Next slice |
@@ -452,16 +463,16 @@ fixture result cannot satisfy the live part of a combined row.
 | reenrol-unresolved | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Confirmed absence then fresh-home enrolment | Unknown prior writer prevents enrolment child | Next slice |
 | duplicate-account | fake-now + live-later; P9, P8.2 steps 2/4 | Distinct vendor ID activates independently | Repeated vendor ID gets account_duplicate, no second mapping | Next slice |
 | owner-mismatch | fake-only; P9 | Same UID/context renews/releases | Other UID gets lease_not_owner, lease unchanged | Next slice |
-| lease-ended | fake-only; P9 | Before-limit renewal and idempotent release | Released/expired renewal gets lease_not_active, no extension/writer | UNRUN: execution origin unavailable; release pair + independent expiry unit; P7:624–630, P9:821 |
+| lease-ended | fake-only; P9 | Before-limit renewal and idempotent release | Released/expired renewal gets lease_not_active, no extension/writer | Executed with attested paired artifacts; release pair + independent expiry unit; P7:624–630, P9:821 |
 | time-untrusted | fake-only; P9 | Trusted current evidence permits bounded lease | Missing freshness after restart gets lease_owner_unavailable, no advance | Unrun; needs real retained-watermark integration; P9:822 |
 | init-without-capability | fake-only; P9, P8.2 step 2 | Experimental initialize then external login | Missing capability gets external_token_init_failed, stop/release | Next slice |
 | resume-conflict | fake-now + live-later; P9, P8.2 step 4 optional resume | Fresh lease/login for qualified same-account resume | Drift/native file refuses before inference, no old lease reuse | Next slice; live resume optional |
-| frame-oversized | fake-only; P9 | Canonical hello echoes validated ID | Header 65537 gets null-ID frame_too_large then EOF; no records/owner calls | UNRUN: execution origin unavailable; no Codex launch |
-| frame-zero-length | fake-only; P9 | Canonical hello echoes validated ID | Zero header closes without response/effects | UNRUN: execution origin unavailable; no Codex launch |
-| frame-truncated-header | fake-only; P9 | Canonical hello echoes validated ID | Two-byte header then half-close yields EOF, no response/effects | UNRUN: execution origin unavailable; no Codex launch |
-| frame-malformed-first | fake-only; P9 | Canonical hello echoes validated ID | Invalid JSON/non-hello first request closes, no apparent-ID echo/effects | UNRUN: execution origin unavailable; no Codex launch |
-| peer-identity-unavailable | fake-only; P9 | Genuine own-PID SO_PEERCRED completes hello | Fired injected probe failure gets null-ID peer_identity_unavailable before input | UNRUN: execution origin unavailable; model-only fault; no Codex launch |
-| profile-unsupported | fake-only; P9 | Exact profile and versions [1] negotiate | Unknown profile/version gets version_unsupported then EOF, no effects | UNRUN: execution origin unavailable; no Codex launch |
+| frame-oversized | fake-only; P9 | Canonical hello echoes validated ID | Header 65537 gets null-ID frame_too_large then EOF; no records/owner calls | Executed with attested paired artifacts; no Codex launch |
+| frame-zero-length | fake-only; P9 | Canonical hello echoes validated ID | Zero header closes without response/effects | Executed with attested paired artifacts; no Codex launch |
+| frame-truncated-header | fake-only; P9 | Canonical hello echoes validated ID | Two-byte header then half-close yields EOF, no response/effects | Executed with attested paired artifacts; no Codex launch |
+| frame-malformed-first | fake-only; P9 | Canonical hello echoes validated ID | Invalid JSON/non-hello first request closes, no apparent-ID echo/effects | Executed with attested paired artifacts; no Codex launch |
+| peer-identity-unavailable | fake-only; P9 | Genuine own-PID SO_PEERCRED completes hello | Fired injected probe failure gets null-ID peer_identity_unavailable before input | Executed with attested paired artifacts; model-only fault; no Codex launch |
+| profile-unsupported | fake-only; P9 | Exact profile and versions [1] negotiate | Unknown profile/version gets version_unsupported then EOF, no effects | Executed with attested paired artifacts; no Codex launch |
 | external-login | fake-now + live-later; P8.2 steps 2/4 | Synthetic login; later approved real device-code login | Missing capability/rejected login leaves no active child/lease | Next slice |
 | account-identity | fake-now + live-later; P8.2 steps 2/4 | Matching synthetic ID; later verified real account | Mismatched ID refuses without replacing active mapping | Next slice |
 | managed-refresh | fake-now + live-later; P8.2 steps 2/4 | Approved executable refreshes synthetic store; later vendor | Failed/ambiguous rotation never publishes stale material or retries blindly | Next slice |

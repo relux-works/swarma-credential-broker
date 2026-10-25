@@ -33,7 +33,8 @@ func TestQualificationAuthority(t *testing.T) {
 	e := testutil.New(t, lease.Options{Qualification: func(context.Context, policy.Policy) error { return qualification.ErrUnavailable }})
 	var pid atomic.Int64
 	pid.Store(int64(os.Getpid()))
-	s, _, err := NewQualification(e.Manager, e.Policy.ExecutableSHA256, e.UID, &pid, false)
+	var live atomic.Bool
+	s, _, err := NewQualification(e.Manager, e.Policy.ExecutableSHA256, e.UID, &pid, false, func(n int) bool { return n == os.Getpid() && live.Load() })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +54,22 @@ func TestQualificationAuthority(t *testing.T) {
 	defer cancel()
 	stopped := make(chan error, 1)
 	go func() { stopped <- s.Serve(ctx, l) }()
-	// The successful exchange is also the Serve-start barrier before Close.
+	// Matching credentials alone cannot replace a live origin. The adjacent
+	// hello succeeds after the parent opens the gate, and revocation refuses.
+	refuse := func() {
+		c := dial(t, path)
+		r := reply(t, c)
+		if r.ID != nil || r.Error == nil || r.Error.Code != "peer_identity_unavailable" {
+			t.Fatal("closed origin admitted")
+		}
+		closed(t, c)
+	}
+	refuse()
+	live.Store(true)
 	hello(t, dial(t, path))
+	live.Store(false)
+	refuse()
+	live.Store(true)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestQualificationAuthority$")
 	cmd.Env = []string{"QUALIFICATION_SOCKET_FIXTURE=" + path, "TMPDIR=" + os.TempDir(), "GOMAXPROCS=2"}
 	if out, err := cmd.CombinedOutput(); err != nil {

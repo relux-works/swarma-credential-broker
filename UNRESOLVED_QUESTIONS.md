@@ -47,8 +47,12 @@ Implementation integration questions:
   experimental schema and model catalog remain unavailable until the next
   qualification slice supplies a network-isolated candidate launcher and row
   bodies. Applied unit properties remain unavailable until the contained owner
-  supplies its template and current-property observer. Thirteen configured fixture rows can execute; remaining rows stay
-  pending, live execution remains refused, and no production tuple qualifies.
+  supplies its template and current-property observer. Ten transport/admission
+  fixture rows have attested paired execution; the peer row needs an independently
+  trusted inner-case waiter and image identity. Both runner rows need an approved
+  witness of real Command preflight; kernel process identity alone is insufficient.
+  These ownership/trust decisions remain open. Other rows stay pending, live
+  execution remains refused, and no production tuple qualifies.
   See [qualification](docs/qualification.md). An interrupted-run fence, missing activation or recovered pending activation
   requires operator reconciliation while closed; an automatic recovery tool is
   not shipped.

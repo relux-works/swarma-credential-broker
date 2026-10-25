@@ -93,7 +93,7 @@ type rowArtifact struct {
 
 func rowFile(root, id, side string) string { return filepath.Join(root, "row-"+id+"-"+side+".json") }
 
-func validateRow(root, digest string, generation uint64, c qualification.Case) error {
+func validateRow(root, digest string, generation uint64, c qualification.Case, parents ...[]rowExecutionRecord) error {
 	if !rowImplemented(c.ID) {
 		return qualification.ErrUnavailable
 	}
@@ -108,6 +108,23 @@ func validateRow(root, digest string, generation uint64, c qualification.Case) e
 		}
 		x.Artifacts = []string{}
 		if !reflect.DeepEqual(a.Control, x) {
+			return qualification.ErrUnavailable
+		}
+		proved := false
+		for _, records := range parents {
+			for _, r := range records {
+				if r.ID == c.ID && r.Side == side && r.Execution.attested && r.Execution.artifact == qualification.Hash(b) && a.Execution != nil {
+					expected := r.Execution
+					expected.attested = false
+					expected.artifact = ""
+					if reflect.DeepEqual(*a.Execution, expected) {
+						proved = true
+						a.Execution.attested = true
+					}
+				}
+			}
+		}
+		if !proved {
 			return qualification.ErrUnavailable
 		}
 		if a.Execution == nil || !a.Execution.credit(c.ID == "peer-denied") || a.Execution.CaseExit != x.ExitCode {
@@ -145,6 +162,15 @@ func rowIsolated(a rowArtifact) bool {
 }
 
 func (d driver) runRows(ctx context.Context, configuration string, p policy.Policy, root string, cases []qualification.Case) {
+	previous := d.executions
+	var records []rowExecutionRecord
+	d.executions = &records
+	defer func() {
+		if previous != nil {
+			*previous = append(*previous, records...)
+		}
+	}()
+
 	q, e := fixturePolicy(configuration, p)
 	if e != nil {
 		return
@@ -173,7 +199,7 @@ func (d driver) runRows(ctx context.Context, configuration string, p policy.Poli
 			e.Diagnostic = "case_pair_unavailable"
 			d.recordExecution(c.ID, "negative", e)
 		}
-		if validateRow(root, p.ExecutableSHA256, p.Generation, *c) != nil {
+		if validateRow(root, p.ExecutableSHA256, p.Generation, *c, records) != nil {
 			// Unverifiable evidence is never credited, including a missing
 			// positive control. Retain no fabricated execution or artifact.
 			pending := qualification.Pending(qualification.Identity{})
@@ -192,7 +218,7 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	execution := newRowExecution()
 	execution.Diagnostic = "fixture_unavailable"
 	defer func() { d.recordExecution(id, side, execution) }()
-	if !rowImplemented(id) || side != "positive" && side != "negative" {
+	if !rowImplemented(id) || id == "peer-denied" || side != "positive" && side != "negative" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
@@ -241,6 +267,21 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	if os.Mkdir(home, 0700) != nil {
 		return
 	}
+	var origins []*rowOrigin
+	if !runnerRow(id) && id != "peer-denied" {
+		proof := &rowOrigin{}
+		proof.origin, e = egress.NewCaseOrigin(broker, func() error {
+			if proof.bind == nil {
+				return qualification.ErrUnavailable
+			}
+			return proof.bind()
+		})
+		if e != nil {
+			return
+		}
+		defer proof.origin.Close()
+		origins = []*rowOrigin{proof}
+	}
 	var pid atomic.Int64
 	inputValue := rowInput{Policy: p, Peer: uint32(os.Geteuid()), ID: id, Side: side}
 	var socket string
@@ -261,9 +302,9 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 			defer runnerFixture.close()
 			serviceRoot = filepath.Join(scratch, "service")
 		}
-		socket, closeRow, phaseFiles, e = startAdmissionRow(ctx, serviceRoot, inputValue, &pid, &effects)
+		socket, closeRow, phaseFiles, e = startAdmissionRow(ctx, serviceRoot, inputValue, &pid, &effects, origins...)
 	} else {
-		socket, closeRow, e = startTransportRow(ctx, scratch, inputValue, &pid)
+		socket, closeRow, e = startTransportRow(ctx, scratch, inputValue, &pid, origins...)
 	}
 	for _, f := range phaseFiles {
 		defer f.Close()
@@ -368,7 +409,7 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 			execution.waited(cmd.ProcessState)
 		}
 	} else {
-		report, runError = egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", Waited: execution.waited, Started: func(n int) { execution.Launched = true; pid.Store(int64(n)) }, LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: env, Policy: egress.Policy{UnixPaths: []string{socket}, MaxEvents: 4096}, Stdout: outW, Stderr: errW, ExtraFiles: files})
+		report, runError = egress.Run(ctx, egress.Config{Origin: origins[0].origin, Launcher: "/proc/self/fd/4", Waited: execution.waited, Started: func(n int) { execution.Launched = true; pid.Store(int64(n)) }, LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: env, Policy: egress.Policy{UnixPaths: []string{socket}, MaxEvents: 4096}, Stdout: outW, Stderr: errW, ExtraFiles: files[:5]})
 	}
 	elapsed := time.Since(start)
 	noEffects := closeRow()
@@ -376,20 +417,29 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	outW.Close()
 	errW.Close()
 	out, diag := <-output, <-diagnostic
-	// Drain the legacy receipt, but do not promote an inherited-channel byte
-	// or a launcher wait into independently established canonical entry.
-	receipt := readCaseStart(startR, startW)
-	if !execution.Launched {
-		execution.Diagnostic = launchDiagnostic(runError)
-	} else if !receipt {
-		execution.Diagnostic = "case_not_started"
-	} else if !execution.Completed {
-		execution.Diagnostic = "case_status_unavailable"
+	if len(origins) == 1 {
+		facts := origins[0].origin.Facts()
+		execution.Handshake, execution.Started = facts.Verified, facts.Entered
+		if facts.Verified && facts.Entered && facts.Joined && execution.Joined && execution.HelperExit >= 0 {
+			execution.Completed = true
+			execution.WorkerExit = execution.HelperExit
+			execution.CaseExit = execution.HelperExit
+			execution.attested = true
+			execution.Diagnostic = ""
+		} else if execution.Launched {
+			execution.Diagnostic = "case_origin_unavailable"
+			execution.unavailableOrigin()
+		} else {
+			execution.Diagnostic = launchDiagnostic(runError)
+		}
 	} else {
-		execution.Diagnostic = ""
-		execution.CaseExit = execution.WorkerExit
+		if !readCaseStart(startR, startW) {
+			execution.Diagnostic = "case_not_started"
+		} else {
+			execution.Diagnostic = "case_origin_unavailable"
+		}
+		execution.unavailableOrigin()
 	}
-	execution.unavailableOrigin()
 	control = executionControl(id, side, execution, elapsed)
 	if !control.Executed {
 		return
@@ -444,6 +494,7 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	if e != nil {
 		return
 	}
-	control.Artifacts = []string{qualification.Hash(b)}
+	execution.artifact = qualification.Hash(b)
+	control.Artifacts = []string{execution.artifact}
 	return
 }

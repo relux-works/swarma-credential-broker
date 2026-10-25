@@ -117,10 +117,10 @@ func syntheticMaterial() (string, error) {
 // This setup is distinct from the issuance-closed transport setup. Material
 // exists only in the parent, wire exchange and isolated lease metadata store;
 // neither material nor its digest is returned as diagnostic evidence.
-func startAdmissionRow(ctx context.Context, root string, in rowInput, pid *atomic.Int64, effects *admissionEffects) (string, func() bool, []*os.File, error) {
-	return startAdmissionFixture(ctx, root, in, pid, effects, nil)
+func startAdmissionRow(ctx context.Context, root string, in rowInput, pid *atomic.Int64, effects *admissionEffects, origins ...*rowOrigin) (string, func() bool, []*os.File, error) {
+	return startAdmissionFixture(ctx, root, in, pid, effects, nil, origins...)
 }
-func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *atomic.Int64, effects *admissionEffects, peers *peerFixture) (string, func() bool, []*os.File, error) {
+func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *atomic.Int64, effects *admissionEffects, peers *peerFixture, origins ...*rowOrigin) (string, func() bool, []*os.File, error) {
 	deadline, bounded := ctx.Deadline()
 	if !bounded || time.Until(deadline) > 30*time.Second || ctx.Err() != nil || effects == nil || !validAdmissionInput(in) || in.Policy.Validate(in.Peer) != nil {
 		return "", nil, nil, qualification.ErrUnavailable
@@ -163,7 +163,7 @@ func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *a
 		disk.Close()
 		return "", nil, nil, e
 	}
-	srv, err := server.NewQualificationAdmission(m, p.ExecutableSHA256, in.Peer, pid)
+	srv, err := server.NewQualificationAdmission(m, p.ExecutableSHA256, in.Peer, pid, originCheck(origins)...)
 	if peers != nil {
 		srv, err = server.NewQualificationPeerAdmission(m, p.ExecutableSHA256, in.Peer, peers.foreign, peers.group, peers.foreignGID, peers.group, pid)
 	}
@@ -178,18 +178,12 @@ func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *a
 		return fail(qualification.ErrUnavailable)
 	}
 	path := filepath.Join(dir, "s")
-	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
-	if err != nil {
-		return fail(err)
-	}
-	l.SetUnlinkOnClose(false)
 	mode := os.FileMode(0600)
 	if peers != nil {
 		mode = 0660
 	}
-	if err = os.Chmod(path, mode); err != nil {
-		l.Close()
-		os.Remove(path)
+	closeListener, err := prepareRowListener(ctx, srv, path, mode, origins...)
+	if err != nil {
 		return fail(err)
 	}
 	records := func() (map[string][]byte, error) {
@@ -211,14 +205,12 @@ func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *a
 	}
 	homeBefore, err := os.Stat(filepath.Join(root, "home"))
 	if err != nil {
-		l.Close()
-		os.Remove(path)
+		closeListener()
 		return fail(err)
 	}
 	initialTree, err := admissionTree(filepath.Join(root, "store"))
 	if err != nil {
-		l.Close()
-		os.Remove(path)
+		closeListener()
 		return fail(err)
 	}
 	if peers != nil {
@@ -249,8 +241,7 @@ func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *a
 					f.Close()
 				}
 			}
-			l.Close()
-			os.Remove(path)
+			closeListener()
 			return fail(err)
 		}
 		phaseFiles = []*os.File{phaseWrite, ackRead}
@@ -299,15 +290,8 @@ func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *a
 			good = e == nil && n == 1
 		}()
 	}
-	serveCtx, cancel := context.WithCancel(ctx)
-	done := make(chan error, 1)
-	go func() { done <- srv.Serve(serveCtx, l) }()
 	closeRow := func() bool {
-		cancel()
-		l.Close()
-		serveErr := <-done
-		srv.Close()
-		srv.Wait()
+		serveErr := closeListener()
 		phaseOK := true
 		if phaseRead != nil {
 			phaseRead.Close()
