@@ -29,18 +29,23 @@ func rowImplemented(id string) bool {
 	case "frame-oversized", "frame-zero-length", "frame-truncated-header", "frame-malformed-first", "profile-unsupported", "peer-identity-unavailable":
 		return true
 	}
-	return admissionRow(id)
+	return admissionRow(id) || id == "peer-denied"
 }
 
 type rowInput struct {
-	Policy  policy.Policy `json:"policy"`
-	Peer    uint32        `json:"peer"`
-	ID      string        `json:"id"`
-	Side    string        `json:"side"`
-	EndedBy string        `json:"ended_by"`
-	Socket  string        `json:"socket"`
+	ApprovedDigest string        `json:"approved_digest,omitempty"`
+	Policy         policy.Policy `json:"policy"`
+	Peer           uint32        `json:"peer"`
+	ID             string        `json:"id"`
+	Side           string        `json:"side"`
+	EndedBy        string        `json:"ended_by"`
+	RunnerDigest   string        `json:"runner_digest,omitempty"`
+	RunnerConfig   string        `json:"runner_config,omitempty"`
+	Socket         string        `json:"socket"`
 }
 type rowObservation struct {
+	Runner     *runnerRowEffects `json:"runner,omitempty"`
+	Peer       *peerRowEffects   `json:"peer,omitempty"`
 	Admission  *admissionEffects `json:"admission,omitempty"`
 	ID         string            `json:"id"`
 	Side       string            `json:"side"`
@@ -90,15 +95,21 @@ func CaseMain(args []string) (bool, int) {
 	}
 	defer candidate.Close()
 	digest, e := descriptorDigest(candidate)
-	if e != nil || digest != input.Policy.ExecutableSHA256 {
+	expectedDigest := input.Policy.ExecutableSHA256
+	if runnerRow(input.ID) {
+		expectedDigest = input.ApprovedDigest
+	}
+	if e != nil || digest != expectedDigest {
 		return true, 125
 	}
-	observation := rowObservation{ID: input.ID, Side: input.Side, Candidate: input.Policy.ExecutableSHA256, NoEffects: true}
+	observation := rowObservation{Envelopes: []rowEnvelope{}, ID: input.ID, Side: input.Side, Candidate: expectedDigest, NoEffects: true}
 	entries, e := os.ReadDir(os.Getenv("HOME"))
-	if e != nil || len(entries) != 0 || os.Getenv("HOME") != os.Getenv("CODEX_HOME") {
+	if e != nil || !runnerRow(input.ID) && len(entries) != 0 || os.Getenv("HOME") != os.Getenv("CODEX_HOME") {
 		return true, 125
 	}
-	if admissionRow(input.ID) {
+	if runnerRow(input.ID) {
+		observation.Refusal, observation.Runner, e = runnerExchange(input)
+	} else if admissionRow(input.ID) {
 		observation.Refusal, observation.Envelopes, e = admissionExchange(input)
 	} else {
 		observation.Refusal, observation.Envelopes, e = transportExchangeFacts(input.Socket, input.ID, input.Side, input.Policy.Generation)
@@ -303,6 +314,10 @@ func rowRefusal(id string) string {
 		return "version_unsupported"
 	case "peer-identity-unavailable":
 		return "peer_identity_unavailable"
+	case "peer-denied":
+		return "role_not_permitted"
+	case "home-auth-present", "source-conflict":
+		return "credential_source_conflict"
 	case "account-denied":
 		return "lease_not_authorised"
 	case "account-unknown":

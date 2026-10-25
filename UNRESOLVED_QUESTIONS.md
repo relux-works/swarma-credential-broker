@@ -35,9 +35,10 @@ Implementation integration questions:
   implemented time/restore confidence provider, configured service identities,
   and installation of the approved empty-home echo helper for manager readiness.
   No existing login is adopted and no qualification is manufactured locally.
-- Which configured accounts and intended socket access will supply genuine
-  foreign-UID qualification? The optional gate returns PENDING until that fixture
-  can run; same-UID kernel coverage does not close this row.
+- Deployments must provision the protected peer mapping, helper and intended
+  shared group for genuine foreign-UID qualification. The group-only fixture now
+  checks a real configured pair; unavailable mappings still remain PENDING, and
+  same-UID coverage does not substitute for that deployment evidence.
 - Which release evidence will establish safe transient backoff and unknown-expiry
   handling? The core rejects unknown expiry and delegates retries to the owner.
 
@@ -46,7 +47,7 @@ Implementation integration questions:
   experimental schema and model catalog remain unavailable until the next
   qualification slice supplies a network-isolated candidate launcher and row
   bodies. Applied unit properties remain unavailable until the contained owner
-  supplies its template and current-property observer. Every required row is
+  supplies its template and current-property observer. Thirteen configured fixture rows can execute; remaining rows stay
   pending, live execution remains refused, and no production tuple qualifies.
   See [qualification](docs/qualification.md). An interrupted-run fence, missing activation or recovered pending activation
   requires operator reconciliation while closed; an automatic recovery tool is

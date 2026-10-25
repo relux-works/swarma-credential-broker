@@ -245,21 +245,20 @@ and independently rejects external or undecodable connect trace records.
 ## Fixture row dispatch and limits
 
 `--fixtures --fixture-config "$FIXTURE_CONFIG"` selects a protected, owned 0600
-JSON file with exactly `broker`, `allowed_peer`, `foreign_peer`, `account` and
-`same_user_r2`. The first three fields are OS account names; `account` is an
-explicit enabled policy label. This transport slice resolves broker and allowed
-peer through the OS database and requires both to be the current broker user,
-with `same_user_r2: true`. No default account or UID is inferred. The foreign
-role is reserved but not resolved or executed here: `peer-denied` is in the next
-slice with a genuine foreign-UID helper. Missing configuration leaves all rows
-pending. This format is separate from the existing multi-UID test
-helper configuration, which also needs a helper executable and shared socket
-directory; it does not claim that helper's evidence.
+JSON file with required `broker`, `allowed_peer`, `foreign_peer`, `account` and
+`same_user_r2` fields. Broker and allowed roles resolve to the current broker
+user in declared same-user R2 mode. Optional `runner_fixture`, `socket_group`
+and `peer_helper` enable the synthetic runner and genuine peer bodies. They are
+protected configuration, not CLI or environment bypasses. The runner fixture is
+built from `internal/runner/testdata/appserver`; the peer helper from
+`internal/qualify/testdata/peerhelper` (use `go build -o <private-output> <package>`).
+No account or UID is inferred. Missing inputs leave affected rows pending.
+The older tagged multi-UID configuration remains a separate format.
 
 Each implemented control executes the retained broker descriptor as
 `/proc/self/fd/4 qualification-case <id> <positive|negative>`. FD5 is a bounded
 private input pipe; FD6 retains the measured approved Codex executable. These
-rows do not execute Codex. Every worker executes under `internal/egress`
+rows do not execute Codex. Transport and direct admission workers execute under `internal/egress`
 with an empty fresh HOME/CODEX_HOME, closed proxy port and only its private Unix
 socket allowlisted. The trusted parent creates the listener outside the client
 boundary; candidate listener creation remains forbidden. Use an owned short TMPDIR because Unix socket paths have a
@@ -298,6 +297,43 @@ change only after the grant/release reply. Joined teardown checks the exact
 record state, authorization limit, counters and empty unchanged home, then
 removes the entire scratch store and home.
 
+The genuine `peer-denied` pair shares a separate listener in an owned 0750
+root/directory with a 0660 socket, all in the configured group. Both entries
+must retain that exact ownership and mode; the transport listener stays
+0700/0600. The foreign role must differ from broker/allowed and belong to the
+configured group. Each helper starts as its real configured account through
+noninteractive sudo; the same-user allowed helper selects the configured group.
+A private handshake checks effective UID/GID and binds the supervised child PID.
+The server independently obtains PID/UID/GID through SO_PEERCRED. After the
+identity transition, the helper's own egress boundary supervises its fixed
+client. The foreign client sends no bytes, checks the broker UID, validates the
+closed null-ID terminal and EOF; the parent checks the unchanged store and zero
+Snapshot/Refresh calls before the allowed client negotiates and leases on that
+same listener. Only role-verification booleans leave the private handshake.
+
+Runner source rows execute the real runner Command and SocketClient. The
+protected fake app-server descriptor is measured separately; its exact digest
+binds both the synthetic broker policy and runner policy. The approved candidate
+remains separately measured diagnostic identity and is never run. The parent
+creates a fresh launch home/project, an empty reserved source for
+`source-conflict`, or an unreadable synthetic native-path file for
+`home-auth-present`. The real preflight produces the typed local refusal;
+there is no invented wire error. Parent checks require zero authority resolution,
+connections, requests, records, Snapshot/Refresh calls and child/login events.
+Lstat metadata and inotify verify the fixture path was unchanged and never
+opened. The clean neighbor performs one synthetic external login and releases
+its bounded lease. Only its expected scenario, event and runner bookkeeping
+files are used; the native path stays absent.
+
+The trusted runner establishes its normal session/supervisor before starting
+the fake app-server. The fake's qualification scenario confines its version and
+protocol children under the existing egress boundary, with no network allowlist.
+This placement preserves the boundary's refusal of setsid inside untrusted code
+and the runner's real containment setup. Parent validation requires exactly two
+complete boundary reports and rejects refused traffic. Negatives start no child
+and have no boundary report. This is synthetic runner qualification, not a real
+Codex login, inference or release qualification.
+
 `time-untrusted` remains unrun. The snapshot-only fixture has no retained owner
 watermark, so a provider Boolean or a fake checkpoint would not prove profile
 §9's no-watermark-advance invariant. The real owner's successful Snapshot loads
@@ -329,7 +365,8 @@ stdout and exit zero. Pending rows are never launched. Live rows and applied
 properties keep fixture reports at exit 69 and prevent publication.
 
 The six transport rows below have real adjacent hello controls. The four
-admission rows have real bounded synthetic lease controls. Malformed
+admission rows and the genuine peer row have bounded synthetic lease controls;
+two runner source rows have synthetic external-login controls. Malformed
 first frames cover both invalid JSON with an apparent ID and a valid non-hello
 first request. Unsupported profile covers both an unknown profile and an
 unsupported version. The injected peer-probe fault is explicitly model-only;
@@ -341,7 +378,9 @@ observer checks remain the separate candidate measurement procedure.
 
 The registry below has all 46 required IDs. “Next slice” means unexecuted,
 never a skipped pass. This implementation covers the harness, framing,
-peer-probe, account, release qualification and ended-lease rows. Other bodies remain pending; the time row
+peer-probe, genuine peer denial, account, release qualification, runner source
+and ended-lease rows: 13 execute when all protected fixture inputs are usable.
+Other bodies remain pending; the time row
 requires the durable owner integration described above.
 P9 means [profile §9](../spec/v0-codex-refresher.md#9-negative-cases-and-adjacent-positive-controls);
 P9.1 means its broker mapping; B9.6 means [broker §9.6](../spec/broker.md#96-qualification);
@@ -357,12 +396,12 @@ fixture result cannot satisfy the live part of a combined row.
 
 | Required ID | Class; reference | Positive control | Negative control | Current row body |
 |---|---|---|---|---|
-| peer-denied | fake-only; P9, P8.2 step 2 | Genuine configured allowed process negotiates and leases | Genuine foreign UID gets null-ID role_not_permitted before input, no effects | Next slice; genuine helper |
+| peer-denied | fake-only; P9, P8.2 step 2 | Genuine configured allowed process negotiates and leases | Genuine foreign UID gets null-ID role_not_permitted before input, no effects | Implemented real configured pair; P8.1:695–724, P9:800 |
 | account-denied | fake-only; P9 | Exact allowed peer/account/profile leases | Known disallowed account gets lease_not_authorised, no writer | Implemented; disabled subject, zero Snapshot; P7:582–598, P9:801 |
 | account-unknown | fake-only; P9 | Existing allowed label leases | Missing label gets lease_account_unknown, no creation/fallback | Implemented; missing label, zero Snapshot; P7:582–598, P9:802 |
 | release-unqualified | fake-now + live-later; P9, P8.2 steps 2/4 | Exact approved fake tuple leases; later real tuple | Unqualified digest gets lease_harness_unqualified, no child | Implemented fake tuple; no production publication; P8.2:749–788, P9:803, B9.6:575–587 |
-| source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | Next slice |
-| home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | Next slice |
+| source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | Implemented empty reserved-variable pair; P6:493–507, P9:804 |
+| home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | Implemented synthetic-file pair; retained runner link regression; P6:499–502, P9:805 |
 | renew-unknown-digest | fake-only; P9 | Superseded delivered token returns current payload without refresh | Unknown digest gets renew_not_current, generation unchanged | Next slice |
 | renew-contention | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | One rejection causes one refresh | Eight same-token rejecters share exactly one refresh/generation | Next slice |
 | renew-late | fake-now + live-later; P9, P8.2 steps 2/4 | In-budget result answers once | After-eight-second result gets renew_timeout, no late callback | Next slice |

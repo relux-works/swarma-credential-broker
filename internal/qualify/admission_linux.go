@@ -30,10 +30,13 @@ func admissionRow(id string) bool {
 	case "account-denied", "account-unknown", "release-unqualified", "lease-ended":
 		return true
 	}
-	return false
+	return runnerRow(id)
 }
 func rowPositive(id string) string {
-	if admissionRow(id) {
+	if runnerRow(id) {
+		return "external-login"
+	}
+	if admissionRow(id) || id == "peer-denied" {
 		return "lease"
 	}
 	return "hello"
@@ -47,6 +50,9 @@ func admissionInput(in rowInput) rowInput {
 	a := p.Accounts[0]
 	a.Label, a.VendorID, a.Endpoint = "synthetic-subject", "synthetic-vendor", "https://example.invalid/inference"
 	a.ReleaseVersion, a.QualificationID, a.NetworkRequired = "0.163.0", "synthetic-evidence", false
+	if runnerRow(in.ID) {
+		a.VendorID = "vendor-account"
+	}
 	anchor := a
 	anchor.Label, anchor.VendorID = "synthetic-anchor", "synthetic-anchor-vendor"
 	anchor.ReleaseVersion, anchor.QualificationID = "", ""
@@ -67,8 +73,15 @@ func validAdmissionInput(in rowInput) bool {
 	if (in.Side != "positive" && in.Side != "negative") || !admissionRow(in.ID) || len(p.Accounts) != 2 || p.MaxLeaseSeconds != 5 || p.TimeConfidence != nil {
 		return false
 	}
+	if runnerRow(in.ID) && (!policy.Hash(in.ApprovedDigest) || !policy.Hash(in.RunnerDigest) || !policy.Hash(in.RunnerConfig) || p.ExecutableSHA256 != in.RunnerDigest) {
+		return false
+	}
 	a, anchor := p.Accounts[0], p.Accounts[1]
-	return a.Label == "synthetic-subject" && a.VendorID == "synthetic-vendor" && a.Endpoint == "https://example.invalid/inference" && a.ReleaseVersion == "0.163.0" && a.QualificationID == "synthetic-evidence" && !a.NetworkRequired && len(a.Profiles) > 0 && reflect.DeepEqual(a.AllowedUIDs, []uint32{in.Peer}) && a.Enabled == !(in.ID == "account-denied" && in.Side == "negative") && anchor.Label == "synthetic-anchor" && anchor.VendorID == "synthetic-anchor-vendor" && anchor.ReleaseVersion == "" && anchor.QualificationID == "" && anchor.Enabled && reflect.DeepEqual(anchor.AllowedUIDs, a.AllowedUIDs) && reflect.DeepEqual(anchor.Profiles, a.Profiles) && (in.ID != "lease-ended" && in.EndedBy == "" || in.ID == "lease-ended" && (in.EndedBy == "released" || in.EndedBy == "expired"))
+	vendor := "synthetic-vendor"
+	if runnerRow(in.ID) {
+		vendor = "vendor-account"
+	}
+	return a.Label == "synthetic-subject" && a.VendorID == vendor && a.Endpoint == "https://example.invalid/inference" && a.ReleaseVersion == "0.163.0" && a.QualificationID == "synthetic-evidence" && !a.NetworkRequired && len(a.Profiles) > 0 && reflect.DeepEqual(a.AllowedUIDs, []uint32{in.Peer}) && a.Enabled == !(in.ID == "account-denied" && in.Side == "negative") && anchor.Label == "synthetic-anchor" && anchor.VendorID == "synthetic-anchor-vendor" && anchor.ReleaseVersion == "" && anchor.QualificationID == "" && anchor.Enabled && reflect.DeepEqual(anchor.AllowedUIDs, a.AllowedUIDs) && reflect.DeepEqual(anchor.Profiles, a.Profiles) && (in.ID != "lease-ended" && in.EndedBy == "" || in.ID == "lease-ended" && (in.EndedBy == "released" || in.EndedBy == "expired"))
 }
 
 type admissionOwner struct {
@@ -105,6 +118,9 @@ func syntheticMaterial() (string, error) {
 // exists only in the parent, wire exchange and isolated lease metadata store;
 // neither material nor its digest is returned as diagnostic evidence.
 func startAdmissionRow(ctx context.Context, root string, in rowInput, pid *atomic.Int64, effects *admissionEffects) (string, func() bool, []*os.File, error) {
+	return startAdmissionFixture(ctx, root, in, pid, effects, nil)
+}
+func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *atomic.Int64, effects *admissionEffects, peers *peerFixture) (string, func() bool, []*os.File, error) {
 	deadline, bounded := ctx.Deadline()
 	if !bounded || time.Until(deadline) > 30*time.Second || ctx.Err() != nil || effects == nil || !validAdmissionInput(in) || in.Policy.Validate(in.Peer) != nil {
 		return "", nil, nil, qualification.ErrUnavailable
@@ -148,6 +164,9 @@ func startAdmissionRow(ctx context.Context, root string, in rowInput, pid *atomi
 		return "", nil, nil, e
 	}
 	srv, err := server.NewQualificationAdmission(m, p.ExecutableSHA256, in.Peer, pid)
+	if peers != nil {
+		srv, err = server.NewQualificationPeerAdmission(m, p.ExecutableSHA256, in.Peer, peers.foreign, peers.group, peers.foreignGID, peers.group, pid)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -155,13 +174,20 @@ func startAdmissionRow(ctx context.Context, root string, in rowInput, pid *atomi
 	if err = os.Mkdir(dir, 0700); err != nil {
 		return fail(err)
 	}
+	if peers != nil && os.Chmod(dir, 0750) != nil {
+		return fail(qualification.ErrUnavailable)
+	}
 	path := filepath.Join(dir, "s")
 	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		return fail(err)
 	}
 	l.SetUnlinkOnClose(false)
-	if err = os.Chmod(path, 0600); err != nil {
+	mode := os.FileMode(0600)
+	if peers != nil {
+		mode = 0660
+	}
+	if err = os.Chmod(path, mode); err != nil {
 		l.Close()
 		os.Remove(path)
 		return fail(err)
@@ -194,6 +220,15 @@ func startAdmissionRow(ctx context.Context, root string, in rowInput, pid *atomi
 		l.Close()
 		os.Remove(path)
 		return fail(err)
+	}
+	if peers != nil {
+		peers.negativeUnchanged = func() bool {
+			stored, e := records()
+			tree, te := admissionTree(filepath.Join(root, "store"))
+			o.mu.Lock()
+			defer o.mu.Unlock()
+			return e == nil && te == nil && len(stored) == 0 && o.snapshots == 0 && o.refreshes == 0 && reflect.DeepEqual(initialTree, tree)
+		}
 	}
 	var endedTree map[string]admissionFile
 	var phaseFiles []*os.File
@@ -286,6 +321,9 @@ func startAdmissionRow(ctx context.Context, root string, in rowInput, pid *atomi
 		o.view.AccessToken = ""
 		o.mu.Unlock()
 		good := e == nil && treeErr == nil && phaseOK && refresh == 0
+		if peers != nil {
+			good = good && peers.deniedVerified
+		}
 		if in.Side == "negative" && in.ID != "lease-ended" {
 			good = good && len(stored) == 0 && calls == 0 && reflect.DeepEqual(initialTree, currentTree)
 		} else {
@@ -293,7 +331,9 @@ func startAdmissionRow(ctx context.Context, root string, in rowInput, pid *atomi
 			for name, b := range stored {
 				var rec lease.Record
 				good = good && wire.Decode(b, &rec) == nil && rec.Account == o.label && name == o.label+"/"+store.LeaseName(rec.LeaseID) && rec.UID == in.Peer && rec.PolicyGeneration == p.Generation && rec.AuthorizedUntil.After(now.Add(-time.Second)) && !rec.AuthorizedUntil.After(now.Add(5*time.Second))
-				if in.ID != "lease-ended" {
+				if runnerRow(in.ID) {
+					good = good && rec.State == "released" && rec.Revision == 2 && calls == 2
+				} else if in.ID != "lease-ended" {
 					good = good && rec.State == "active" && rec.Revision == 1 && calls == 2
 				} else if in.Side == "negative" {
 					good = good && reflect.DeepEqual(stored, baseline) && reflect.DeepEqual(endedTree, currentTree) && calls == baselineCalls && calls == 2 && rec.AuthorizedUntil == granted.AuthorizedUntil

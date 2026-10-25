@@ -24,11 +24,14 @@ import (
 )
 
 type fixtureConfiguration struct {
-	Broker   string `json:"broker"`
-	Allowed  string `json:"allowed_peer"`
-	Foreign  string `json:"foreign_peer"`
-	Account  string `json:"account"`
-	SameUser bool   `json:"same_user_r2"`
+	Broker     string `json:"broker"`
+	Allowed    string `json:"allowed_peer"`
+	Foreign    string `json:"foreign_peer"`
+	Account    string `json:"account"`
+	SameUser   bool   `json:"same_user_r2"`
+	Runner     string `json:"runner_fixture,omitempty"`
+	Group      string `json:"socket_group,omitempty"`
+	PeerHelper string `json:"peer_helper,omitempty"`
 }
 
 func fixturePolicy(path string, p policy.Policy) (policy.Policy, error) {
@@ -53,8 +56,7 @@ func fixturePolicy(path string, p policy.Policy) (policy.Policy, error) {
 	if e != nil || allowed != uint32(os.Geteuid()) || allowed == broker && !f.SameUser {
 		return policy.Policy{}, qualification.ErrUnavailable
 	}
-	// This first transport slice never substitutes a UID for a missing foreign
-	// process. peer-denied remains pending; its separate genuine helper is later.
+	// A foreign role is configuration only; peer rows resolve a real process separately.
 	if f.Foreign == "" || f.Account == "" {
 		return policy.Policy{}, qualification.ErrUnavailable
 	}
@@ -140,9 +142,19 @@ func (d driver) runRows(ctx context.Context, configuration string, p policy.Poli
 	if e != nil {
 		return
 	}
+	var fixtures fixtureConfiguration
+	b, _ := store.ReadProtected(configuration, uint32(os.Geteuid()))
+	if wire.Decode(b, &fixtures) != nil {
+		return
+	}
+	d.runnerExecutable = fixtures.Runner
 	for n := range cases {
 		c := &cases[n]
 		if !rowImplemented(c.ID) {
+			continue
+		}
+		if c.ID == "peer-denied" {
+			d.runPeerRows(ctx, fixtures, q, root, c)
 			continue
 		}
 		c.Positive = d.runRow(ctx, q, root, c.ID, "positive")
@@ -217,9 +229,21 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	var closeRow func() bool
 	var phaseFiles []*os.File
 	var effects admissionEffects
+	var runnerFixture *runnerRowFixture
+	var runnerFile *os.File
 	if admissionRow(id) {
 		inputValue = admissionInput(inputValue)
-		socket, closeRow, phaseFiles, e = startAdmissionRow(ctx, scratch, inputValue, &pid, &effects)
+		serviceRoot := scratch
+		if runnerRow(id) {
+			runnerFile, runnerFixture, e = prepareRunnerRow(scratch, d.runnerExecutable, &inputValue)
+			if e != nil {
+				return
+			}
+			defer runnerFile.Close()
+			defer runnerFixture.close()
+			serviceRoot = filepath.Join(scratch, "service")
+		}
+		socket, closeRow, phaseFiles, e = startAdmissionRow(ctx, serviceRoot, inputValue, &pid, &effects)
 	} else {
 		socket, closeRow, e = startTransportRow(ctx, scratch, inputValue, &pid)
 	}
@@ -236,6 +260,9 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 		}
 	}()
 	inputValue.Socket = socket
+	if runnerFile != nil {
+		phaseFiles = append(phaseFiles, runnerFile)
+	}
 	fd, e := unix.Socket(unix.AF_INET, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if e != nil {
 		return
@@ -298,7 +325,24 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	go collect(errR, 16384, diagnostic)
 	command := qualification.CaseCommand(id, side)
 	start := time.Now()
-	report, runError := egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", Started: func(n int) { pid.Store(int64(n)) }, LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: env, Policy: egress.Policy{UnixPaths: []string{socket}, MaxEvents: 4096}, Stdout: outW, Stderr: errW, ExtraFiles: append([]*os.File{broker, inputR, candidate}, phaseFiles...)})
+	var report egress.Report
+	var runError error
+	if runnerFixture != nil {
+		// Trusted runner setup needs its own session. The synthetic app-server
+		// fixture confines its children after that setup and returns their reports.
+		report.Summary = map[string]egress.Counts{}
+		cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+		cmd.Env = env
+		cmd.Stdout = outW
+		cmd.Stderr = errW
+		cmd.ExtraFiles = append([]*os.File{inputR, broker, inputR, candidate}, phaseFiles...)
+		if runError = cmd.Start(); runError == nil {
+			pid.Store(int64(cmd.Process.Pid))
+			runError = cmd.Wait()
+		}
+	} else {
+		report, runError = egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", Started: func(n int) { pid.Store(int64(n)) }, LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: env, Policy: egress.Policy{UnixPaths: []string{socket}, MaxEvents: 4096}, Stdout: outW, Stderr: errW, ExtraFiles: append([]*os.File{broker, inputR, candidate}, phaseFiles...)})
+	}
 	elapsed := time.Since(start)
 	noEffects := closeRow()
 	closed = true
@@ -323,7 +367,12 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 		}
 	}
 	var observation rowObservation
-	observationValid := wire.Decode(out.b, &observation) == nil && validRowEnvelopes(observation, p.Generation)
+	observationValid := wire.Decode(out.b, &observation) == nil
+	if observationValid && runnerFixture != nil {
+		observationValid = runnerFixture.verify(observation)
+		report.Summary = runnerFixture.network
+	}
+	observationValid = observationValid && validRowEnvelopes(observation, p.Generation)
 	if !observationValid {
 		observation = rowObservation{Envelopes: []rowEnvelope{}}
 	}

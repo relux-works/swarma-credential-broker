@@ -101,6 +101,12 @@ func validRowEnvelope(f rowEnvelope, id, side string, generation uint64) bool {
 }
 
 func validRowEnvelopes(o rowObservation, generation uint64) bool {
+	if runnerRow(o.ID) {
+		return len(o.Envelopes) == 0 && validRunnerEffects(o)
+	}
+	if o.ID == "peer-denied" {
+		return validPeerEnvelopes(o, generation)
+	}
 	if admissionRow(o.ID) {
 		return validAdmissionEnvelopes(o, generation)
 	}

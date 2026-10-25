@@ -36,7 +36,7 @@ func rowConfiguration(t *testing.T, p policy.Policy, root string) string {
 	if e != nil {
 		t.Fatal(e)
 	}
-	b, _ := wire.Encode(fixtureConfiguration{u.Username, u.Username, "unavailable-fixture-role", p.Accounts[0].Label, true})
+	b, _ := wire.Encode(fixtureConfiguration{Broker: u.Username, Allowed: u.Username, Foreign: "unavailable-fixture-role", Account: p.Accounts[0].Label, SameUser: true})
 	path := filepath.Join(root, "roles.json")
 	if os.WriteFile(path, b, 0600) != nil {
 		t.Fatal("roles")
@@ -51,6 +51,8 @@ func TestRowsHarness(t *testing.T) {
 	worker := rowTool(t, "../../cmd/swarma-credential-broker")
 	path, c, root := setup(t)
 	configuration := rowConfiguration(t, c.Policy, filepath.Dir(path))
+	configureRunner(t, configuration, rowTool(t, "../runner/testdata/appserver"))
+	peersConfigured := configurePeers(t, configuration)
 	d := newFixtureDriver(path, "0.163.0")
 	d.rowExecutable = worker
 	var out bytes.Buffer
@@ -61,7 +63,10 @@ func TestRowsHarness(t *testing.T) {
 	if wire.Decode(bytes.TrimSpace(out.Bytes()), &r) != nil || r.Disposition != "pending" {
 		t.Fatal("report")
 	}
-	expected := map[string]string{"frame-oversized": "frame_too_large", "frame-zero-length": "closed", "frame-truncated-header": "closed", "frame-malformed-first": "closed", "profile-unsupported": "version_unsupported", "peer-identity-unavailable": "peer_identity_unavailable", "account-denied": "lease_not_authorised", "account-unknown": "lease_account_unknown", "release-unqualified": "lease_harness_unqualified", "lease-ended": "lease_not_active"}
+	expected := map[string]string{"frame-oversized": "frame_too_large", "frame-zero-length": "closed", "frame-truncated-header": "closed", "frame-malformed-first": "closed", "profile-unsupported": "version_unsupported", "peer-identity-unavailable": "peer_identity_unavailable", "account-denied": "lease_not_authorised", "account-unknown": "lease_account_unknown", "release-unqualified": "lease_harness_unqualified", "lease-ended": "lease_not_active", "home-auth-present": "credential_source_conflict", "source-conflict": "credential_source_conflict"}
+	if peersConfigured {
+		expected["peer-denied"] = "role_not_permitted"
+	}
 	n := 0
 	for _, row := range r.Cases {
 		want, implemented := expected[row.ID]
@@ -90,7 +95,7 @@ func TestRowsHarness(t *testing.T) {
 					t.Fatal("exact command/refusal/effects")
 				}
 			}
-			if admissionRow(row.ID) {
+			if admissionRow(row.ID) && !runnerRow(row.ID) {
 				// Rehashed admission evidence must still prove parent counters,
 				// the established fault and the exact five-second grant bound.
 				for _, defect := range []string{"counters-missing", "record-delta", "snapshot", "refresh", "state", "fault", "qualification", "start", "long-grant"} {
@@ -150,7 +155,11 @@ func TestRowsHarness(t *testing.T) {
 			}
 		})
 	}
-	if n != 10 {
+	wantCount := 12
+	if peersConfigured {
+		wantCount = 13
+	}
+	if n != wantCount {
 		t.Fatal("implemented registry drift", n)
 	}
 	homes, e := filepath.Glob(filepath.Join(os.TempDir(), "qualification-row-*"))
@@ -262,7 +271,7 @@ func TestRowsHarness(t *testing.T) {
 		}
 	}
 	u, _ := user.Current()
-	invalid, _ := wire.Encode(fixtureConfiguration{u.Username, u.Username, "unavailable-fixture-role", c.Policy.Accounts[0].Label, false})
+	invalid, _ := wire.Encode(fixtureConfiguration{Broker: u.Username, Allowed: u.Username, Foreign: "unavailable-fixture-role", Account: c.Policy.Accounts[0].Label, SameUser: false})
 	if os.WriteFile(configuration, invalid, 0600) != nil {
 		t.Fatal("role declaration plant")
 	}

@@ -96,6 +96,7 @@ func TestAdmissionPublicationFence(t *testing.T) {
 	worker := rowTool(t, "../../cmd/swarma-credential-broker")
 	path, c, root := setup(t)
 	config := rowConfiguration(t, c.Policy, filepath.Dir(path))
+	configureRunner(t, config, rowTool(t, "../runner/testdata/appserver"))
 	dir := qualification.Directory(path)
 	if os.Mkdir(dir, 0700) != nil {
 		t.Fatal("repository")

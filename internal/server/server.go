@@ -25,6 +25,7 @@ type Server struct {
 	peer              func(*net.UnixConn) (uint32, error)
 	qualification     bool
 	qualificationCall func(string) bool
+	qualificationDAC  func(string) bool
 	socketPath        string
 	socketInfo        os.FileInfo
 }
@@ -68,6 +69,9 @@ func (s *Server) Serve(ctx context.Context, l *net.UnixListener) error {
 	validSocket := socketPermissions(s.socketInfo) && checkSocketDirectory(filepath.Dir(s.socketPath)) == nil
 	if s.qualification {
 		validSocket = qualificationSocket(s.socketPath)
+	}
+	if s.qualificationDAC != nil {
+		validSocket = s.qualificationDAC(s.socketPath)
 	}
 	if !validSocket {
 		s.Close()

@@ -94,3 +94,52 @@ func qualificationSocket(path string) bool {
 	}
 	return true
 }
+
+// NewQualificationPeerAdmission keeps synthetic issuance PID-bound while letting
+// the configured foreign process reach the production policy denial before I/O.
+// Only this separate listener permits the exact group DAC; transport stays 0700/0600.
+func NewQualificationPeerAdmission(m *lease.Manager, digest string, uid, foreign, allowedGID, foreignGID, group uint32, pid *atomic.Int64) (*Server, error) {
+	if foreign == uid || foreign == uint32(os.Geteuid()) || m == nil || m.Policy().Peer(foreign) {
+		return nil, wire.Refuse("lease_owner_unavailable")
+	}
+	s, e := NewQualificationAdmission(m, digest, uid, pid)
+	if e != nil {
+		return nil, e
+	}
+	s.qualificationDAC = func(path string) bool { return QualificationPeerSocket(path, group) }
+	s.peer = func(c *net.UnixConn) (uint32, error) {
+		raw, e := c.SyscallConn()
+		if e != nil {
+			return 0, e
+		}
+		var cred *syscall.Ucred
+		var probe error
+		e = raw.Control(func(fd uintptr) {
+			cred, probe = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+		})
+		if e != nil || probe != nil || cred == nil || int64(cred.Pid) != pid.Load() || !(cred.Uid == uid && cred.Gid == allowedGID || cred.Uid == foreign && cred.Gid == foreignGID) {
+			return 0, errors.New("qualification peer unavailable")
+		}
+		return cred.Uid, nil
+	}
+	return s, nil
+}
+
+// QualificationPeerSocket checks both entries, including ownership and exact
+// group. A world permission or a missing/replaced entry never gains credit.
+func QualificationPeerSocket(path string, group uint32) bool {
+	for _, v := range []struct {
+		path string
+		mode os.FileMode
+	}{{filepath.Dir(path), os.ModeDir | 0750}, {path, os.ModeSocket | 0660}} {
+		st, e := os.Lstat(v.path)
+		if e != nil || st.Mode() != v.mode {
+			return false
+		}
+		meta, ok := st.Sys().(*syscall.Stat_t)
+		if !ok || meta.Uid != uint32(os.Geteuid()) || meta.Gid != group {
+			return false
+		}
+	}
+	return true
+}

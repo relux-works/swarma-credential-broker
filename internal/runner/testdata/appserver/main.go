@@ -4,9 +4,12 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/relux-works/swarma-credential-broker/internal/egress"
+	"github.com/relux-works/swarma-credential-broker/internal/qualification"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -18,6 +21,7 @@ import (
 )
 
 type scenario struct {
+	Boundary                                                                                                bool
 	FailAt, HangAt, ExitAt                                                                                  string
 	InitFail, LoginFail, Hang, Spawn, Echo, PreviousMismatch, Duplicate, WrongTurn, Escape, RetryAfterError bool
 	LargeOutput, HashEcho, StopReadAfterThread                                                              bool
@@ -51,6 +55,9 @@ func record(v any) {
 	f.Close()
 }
 func main() {
+	if handled, code := qualification.CandidateLauncherMain(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--child" {
 		signal.Ignore(syscall.SIGTERM)
 		if len(os.Args) > 2 && os.Args[2] == "spawn" {
@@ -71,6 +78,10 @@ func main() {
 	data, _ := os.ReadFile(filepath.Join(home, "scenario.json"))
 	if json.Unmarshal(data, &s) != nil {
 		os.Exit(1)
+	}
+	// Qualification confines only this synthetic child after trusted runner setup.
+	if s.Boundary && os.Args[0] != "/proc/self/fd/4" {
+		os.Exit(boundedFixture())
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		if os.WriteFile(filepath.Join(home, "version-probe"), []byte("observed\n"), 0600) != nil {
@@ -282,4 +293,31 @@ func safeResult(raw json.RawMessage) any {
 	delete(p, "chatgptAccountId")
 	delete(p, "chatgptPlanType")
 	return p
+}
+
+func boundedFixture() int {
+	self, e := os.Open("/proc/self/exe")
+	if e != nil {
+		return 125
+	}
+	defer self.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	report, runError := egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: "/proc/self/fd/4", Args: os.Args[1:], Env: os.Environ(), Policy: egress.Policy{MaxEvents: 4096}, Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, ExtraFiles: []*os.File{self}})
+	f, e := os.OpenFile(filepath.Join(home, "boundary.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if e != nil {
+		return 125
+	}
+	e = json.NewEncoder(f).Encode(struct {
+		Summary    map[string]egress.Counts
+		Incomplete bool
+	}{report.Summary, report.Incomplete})
+	ce := f.Close()
+	if e != nil || ce != nil {
+		return 125
+	}
+	if runError != nil {
+		return 1
+	}
+	return 0
 }
