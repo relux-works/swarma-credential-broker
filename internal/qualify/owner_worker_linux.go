@@ -29,11 +29,12 @@ import (
 const ownerLabel = "synthetic-owner"
 
 type ownerContext struct {
-	Root, HomeID, Candidate, Scenario string
-	Now                               time.Time
-	Epoch, Parent                     int
+	Root, HomeID, Candidate, Scenario, Image string
+	Now                                      time.Time
+	Epoch, Parent                            int
 }
 type ownerMessage struct {
+	ID    int
 	Op    string
 	Data  json.RawMessage
 	Error string
@@ -45,7 +46,7 @@ type ownerChannel struct {
 }
 
 func (c *ownerChannel) send(op string, value any, err error) error {
-	m := ownerMessage{Op: op}
+	m := ownerMessage{ID: c.writes + 1, Op: op}
 	if err != nil {
 		m.Error = err.Error()
 	}
@@ -82,6 +83,9 @@ func (c *ownerChannel) read() (m ownerMessage, e error) {
 	b := make([]byte, n)
 	if _, e = io.ReadFull(c.r, b); e == nil {
 		e = wire.Decode(b, &m)
+		if e == nil && m.ID != c.reads {
+			e = errors.New("owner protocol sequence")
+		}
 	}
 	return
 }
@@ -123,6 +127,15 @@ func ownerMain(args []string) int {
 	b, e := io.ReadAll(io.LimitReader(f, 4097))
 	var c ownerContext
 	if e != nil || len(b) > 4096 || qualificationHash(b) != args[1] || wire.Decode(b, &c) != nil || !filepath.IsAbs(c.Root) || filepath.Clean(c.Root) != c.Root || c.Parent != os.Getppid() || c.Epoch < 1 || c.Epoch > 2 || !ownerScenario(c.Scenario) || c.Now.IsZero() {
+		return 125
+	}
+	image := os.NewFile(4, "owner-image")
+	defer image.Close()
+	if _, e = image.Seek(0, io.SeekStart); e != nil {
+		return 125
+	}
+	measured, e := descriptorDigest(image)
+	if e != nil || measured != c.Image {
 		return 125
 	}
 	candidate := os.NewFile(6, "owner-approved-image")

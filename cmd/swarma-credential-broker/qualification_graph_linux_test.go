@@ -10,7 +10,8 @@ import (
 )
 
 // Claim: the actual production graph/source instrument rejects constructor
-// aliases imported by the daemon, including when qualification shares them.
+// aliases imported by the daemon, including the owner-origin factory and
+// dependencies shared with qualification.
 // The identical wrapper is accepted when only the qualification path imports
 // it. These small modules are compiled controls for the structural instrument;
 // they have no real manager, store, authority material or endpoint.
@@ -43,6 +44,9 @@ func TestQualificationContainmentImportedWrapper(t *testing.T) {
 						t.Fatal("qualification-only wrapper rejected", issues)
 					}
 					return
+				}
+				if !strings.Contains(strings.Join(issues, "\n"), "owner authority outside qualification in "+wrapper+"/bridge.go") {
+					t.Error("compiled owner-origin wrapper alias not rejected")
 				}
 				for _, constructor := range []string{"NewQualificationAdmission", "NewQualificationLeaseRow"} {
 					found := false
@@ -93,7 +97,7 @@ func TestQualificationContainmentSourceFailures(t *testing.T) {
 // Claim: qualification-only imports may store constructor aliases, but neither
 // init nor a variable initializer may call those aliases at daemon startup.
 func TestQualificationContainmentWrapperInitialization(t *testing.T) {
-	for _, initializer := range []string{"func init() { Single(); Multi() }", "var Started = func() bool { Single(); Multi(); return true }()"} {
+	for _, initializer := range []string{"func init() { Single(); Multi(); Origin() }", "var Started = func() bool { Single(); Multi(); Origin(); return true }()"} {
 		root, wrapper := containmentWrapperFixture(t, "testdata", false)
 		file := filepath.Join(root, wrapper, "bridge.go")
 		original, err := os.ReadFile(file)
@@ -119,7 +123,7 @@ func containmentWrapperFixture(t *testing.T, directory string, daemon bool) (str
 	mainImport, mainReference := "", ""
 	if daemon {
 		mainImport = bridgeImport
-		mainReference = "bridge.Single(); bridge.Multi()"
+		mainReference = "bridge.Single(); bridge.Multi(); bridge.Origin()"
 	}
 	files := map[string]string{
 		"go.mod": "module " + containmentModule + "\n\ngo 1.25\n",
@@ -140,17 +144,19 @@ func main() {
 }
 func run() { _ = server.New; ` + mainReference + ` }
 `,
-		"internal/runner/runner.go": "package runner\nconst DefaultPolicyPath = \"\"\n",
+		"internal/egress/origin_linux_amd64.go": "package egress\nfunc NewOwnerOrigin() {}\n",
+		"internal/runner/runner.go":             "package runner\nconst DefaultPolicyPath = \"\"\n",
 		"internal/server/qualification_linux.go": `package server
 func NewQualificationAdmission() {}
 func NewQualificationLeaseRow() {}
 func New() {}
 `,
 		wrapper + "/bridge.go": `package containmentbridge
-import service "` + containmentServer + `"
+import (service "` + containmentServer + `"; origin "` + containmentModule + `/internal/egress")
 // CONTROL: imported wrapper constructor aliases added
 var Single = service.NewQualificationAdmission
 var Multi = service.NewQualificationLeaseRow
+var Origin = origin.NewOwnerOrigin
 `,
 		"internal/qualify/command.go": `package qualify
 import (
@@ -159,7 +165,7 @@ import (
  ` + bridgeImport + `
 )
 func Command(context.Context, []string, string, []string, io.Writer) int {
- bridge.Single(); bridge.Multi()
+ bridge.Single(); bridge.Multi(); bridge.Origin()
  return 69
 }
 func CaseMain([]string) (bool, int) { return false, 0 }

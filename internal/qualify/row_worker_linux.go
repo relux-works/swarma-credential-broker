@@ -30,7 +30,7 @@ func rowImplemented(id string) bool {
 	case "frame-oversized", "frame-zero-length", "frame-truncated-header", "frame-malformed-first", "profile-unsupported", "peer-identity-unavailable":
 		return true
 	}
-	return admissionRow(id) || leaseProtocolRow(id) || id == "peer-denied"
+	return ownerRow(id) || admissionRow(id) || leaseProtocolRow(id) || id == "peer-denied"
 }
 
 type rowInput struct {
@@ -45,6 +45,7 @@ type rowInput struct {
 	Socket         string        `json:"socket"`
 }
 type rowObservation struct {
+	Owner         *ownerRowFacts    `json:"owner,omitempty"`
 	LeaseProtocol *leaseRowEffects  `json:"lease_protocol,omitempty"`
 	Runner        *runnerRowEffects `json:"runner,omitempty"`
 	Peer          *peerRowEffects   `json:"peer,omitempty"`
@@ -305,6 +306,8 @@ func transportExchangeFacts(path, id, side string, generation uint64) (string, [
 
 func rowRefusal(id string) string {
 	switch id {
+	case "store-missing", "absence-unreadable":
+		return "lease_owner_unavailable"
 	case "frame-oversized":
 		return "frame_too_large"
 	case "profile-unsupported":

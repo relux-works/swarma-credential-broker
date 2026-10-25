@@ -195,6 +195,8 @@ func containmentCheck(root string, graph containmentGraph) ([]string, error) {
 		return nil, err
 	}
 	var issues []string
+	ownerIssues := containmentOwnerAuthority(sources, graph, ordinary, qualification)
+	issues = append(issues, ownerIssues...)
 	report := func(message string, args ...any) { issues = append(issues, fmt.Sprintf(message, args...)) }
 	authority := map[string]bool{"NewQualification": true, "NewQualificationAdmission": true, "NewQualificationLeaseRow": true, "NewQualificationPeerAdmission": true, "newQualificationPeer": true}
 	containmentClosure(sources, "internal/server", authority)
@@ -456,4 +458,129 @@ func TestQualificationAuthorityCLIContainment(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Track the new synthetic authority by package through aliases/wrappers, even
+// in shared compiled dependencies. Ordinary egress operations remain ordinary.
+func containmentOwnerAuthority(sources []containmentSource, graph containmentGraph, ordinary, qualification map[string]bool) []string {
+	names := map[string]map[string]bool{
+		containmentModule + "/internal/egress": {"NewOwnerOrigin": true, "EnterOwnerRole": true},
+		containmentDriver:                      {"ownerCompose": true, "ownerSeed": true, "ownerPolicy": true, "ownerAdapter": true, "ownerModel": true, "ownerMain": true, "startOwner": true},
+	}
+	mainGates := map[string]bool{}
+	for _, text := range []string{`if handled, code := qualify.CaseMain(os.Args[1:]); handled { os.Exit(code) }`, `if len(os.Args)>1 && os.Args[1]=="qualify-codex" {os.Exit(qualify.Command(ctx,os.Args[2:],runner.DefaultPolicyPath,os.Environ(),os.Stdout))}`} {
+		f, _ := parser.ParseFile(token.NewFileSet(), "gate.go", "package main;func main(){"+text+"}", 0)
+		mainGates[containmentText(f.Decls[0].(*ast.FuncDecl).Body.List[0])] = true
+	}
+	aliases := func(s containmentSource) map[string]string {
+		out := map[string]string{}
+		for _, imp := range s.file.Imports {
+			p, _ := strconv.Unquote(imp.Path.Value)
+			name := filepath.Base(p)
+			if imp.Name != nil {
+				name = imp.Name.Name
+			}
+			out[name] = p
+		}
+		return out
+	}
+	references := func(s containmentSource, node ast.Node) bool {
+		if f, ok := node.(*ast.FuncDecl); ok {
+			node = f.Body
+		}
+		found := false
+		imports := aliases(s)
+		ast.Inspect(node, func(n ast.Node) bool {
+			if stmt, ok := n.(*ast.IfStmt); ok && s.path == "cmd/swarma-credential-broker/main.go" && mainGates[containmentText(stmt)] {
+				return false
+			}
+			switch n := n.(type) {
+			case *ast.Ident:
+				if names[s.pkg][n.Name] {
+					found = true
+				}
+			case *ast.SelectorExpr:
+				if a, ok := n.X.(*ast.Ident); ok && names[imports[a.Name]][n.Sel.Name] {
+					found = true
+				}
+			}
+			return true
+		})
+		return found
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, s := range sources {
+			if names[s.pkg] == nil {
+				names[s.pkg] = map[string]bool{}
+			}
+			for _, d := range s.file.Decls {
+				if references(s, d) {
+					for _, n := range containmentNames(d) {
+						if !names[s.pkg][n] {
+							names[s.pkg][n] = true
+							changed = true
+						}
+					}
+				}
+			}
+		}
+	}
+	var issues []string
+	for _, s := range sources {
+		inOrigin := s.pkg == containmentModule+"/internal/egress"
+		allowed := qualification[s.pkg] && !ordinary[s.pkg]
+		for _, d := range s.file.Decls {
+			if references(s, d) && !allowed && !inOrigin {
+				issues = append(issues, "owner authority outside qualification in "+s.path)
+			}
+			if inOrigin && references(s, d) && s.path != "internal/egress/origin_linux_amd64.go" && s.path != "internal/egress/unsupported.go" {
+				issues = append(issues, "owner authority wrapper outside origin implementation in "+s.path)
+			}
+			startup := false
+			if fn, ok := d.(*ast.FuncDecl); ok && fn.Name.Name == "init" {
+				startup = references(s, fn)
+			}
+			if gen, ok := d.(*ast.GenDecl); ok && gen.Tok == token.VAR {
+				for _, spec := range gen.Specs {
+					if v, ok := spec.(*ast.ValueSpec); ok {
+						for _, value := range v.Values {
+							switch value.(type) {
+							case *ast.Ident, *ast.SelectorExpr:
+							default:
+								startup = startup || references(s, value)
+							}
+						}
+					}
+				}
+			}
+			if (allowed || inOrigin) && startup {
+				issues = append(issues, "owner authority during package initialization in "+s.path)
+			}
+			if s.path == "internal/qualify/row_worker_linux.go" {
+				if f, ok := d.(*ast.FuncDecl); ok && f.Name.Name == "CaseMain" {
+					want := `if len(args) > 0 && args[0] == "qualification-owner" { return true, ownerMain(args) }`
+					parsed, _ := parser.ParseFile(token.NewFileSet(), "gate.go", "package qualify;func gate(){"+want+"}", 0)
+					if len(f.Body.List) == 0 || containmentText(f.Body.List[0]) != containmentText(parsed.Decls[0].(*ast.FuncDecl).Body.List[0]) {
+						issues = append(issues, "owner dispatcher gate changed")
+					}
+				}
+			}
+			if s.path == "internal/qualify/owner_worker_linux.go" {
+				if f, ok := d.(*ast.FuncDecl); ok && f.Name.Name == "ownerMain" {
+					body := f.Body.List
+					if len(body) < 2 || containmentText(body[len(body)-1]) != "return ownerCompose(c, ch)" || !strings.Contains(containmentText(body[len(body)-2]), `egress.EnterOwnerRole(args[1]) != nil`) {
+						issues = append(issues, "owner construction barrier changed")
+					} else {
+						for _, stmt := range body[:len(body)-2] {
+							if references(s, stmt) {
+								issues = append(issues, "owner authority before entry")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return issues
 }

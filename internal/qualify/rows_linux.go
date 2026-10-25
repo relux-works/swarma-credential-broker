@@ -139,7 +139,7 @@ func validateRow(root, digest string, generation uint64, c qualification.Case, p
 				want = rowRefusal(c.ID)
 			}
 			o := a.Observation
-			if x.ExitCode != 0 || !rowIsolated(a) || o.ID != c.ID || o.Side != side || o.Candidate != digest || !o.NoEffects || !validRowEnvelopes(o, generation) || !validAdmissionEffects(o) || (leaseProtocolRow(o.ID) && !validLeaseProtocolEffects(o)) || (!leaseProtocolRow(o.ID) && o.LeaseProtocol != nil) || o.Refusal != want || o.ProbeFault != (c.ID == "peer-identity-unavailable" && side == "negative") {
+			if x.ExitCode != 0 || !rowIsolated(a) || o.ID != c.ID || o.Side != side || o.Candidate != digest || !o.NoEffects || !validOwnerEffects(o) || !validRowEnvelopes(o, generation) || !validAdmissionEffects(o) || (leaseProtocolRow(o.ID) && !validLeaseProtocolEffects(o)) || (!leaseProtocolRow(o.ID) && o.LeaseProtocol != nil) || o.Refusal != want || o.ProbeFault != (c.ID == "peer-identity-unavailable" && side == "negative") {
 				return qualification.ErrUnavailable
 			}
 		} else if x.Verdict != "failed" {
@@ -214,6 +214,9 @@ func (d driver) runRows(ctx context.Context, configuration string, p policy.Poli
 }
 
 func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side string) (control qualification.Control) {
+	if ownerRow(id) {
+		return d.runOwnerRow(parent, p, root, id, side)
+	}
 	control = pendingRowControl()
 	execution := newRowExecution()
 	execution.Diagnostic = "fixture_unavailable"

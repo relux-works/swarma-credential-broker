@@ -33,7 +33,7 @@ func admissionRow(id string) bool {
 	return runnerRow(id)
 }
 func rowPositive(id string) string {
-	if leaseProtocolRow(id) {
+	if ownerRow(id) || leaseProtocolRow(id) {
 		return "lease"
 	}
 	if runnerRow(id) {

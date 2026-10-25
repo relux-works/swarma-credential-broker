@@ -24,6 +24,8 @@ func ownerRow(id string) bool { return id == "store-missing" || id == "absence-u
 
 type ownerBudget struct{ Requests, Renewals, Releases, Prerequisites int }
 type ownerEpochFact struct {
+	Command                   [3]string
+	Image                     string
 	Verified, Entered, Joined bool
 	Exit, Waits               int
 }
@@ -54,6 +56,8 @@ type ownerSession struct {
 	report    egress.Report
 	err       error
 	waits     int
+	command   [3]string
+	image     string
 	budget    ownerBudget
 }
 
@@ -82,6 +86,13 @@ func startOwner(ctx context.Context, c ownerContext, broker, candidate *os.File,
 		}
 		return nil, e
 	}
+	if _, e = broker.Seek(0, io.SeekStart); e != nil {
+		return fail(e)
+	}
+	c.Image, e = descriptorDigest(broker)
+	if e != nil {
+		return fail(e)
+	}
 	b, e := wire.Encode(c)
 	if e != nil || len(b) > 4096 {
 		return fail(errors.New("owner context budget"))
@@ -97,7 +108,8 @@ func startOwner(ctx context.Context, c ownerContext, broker, candidate *os.File,
 	}
 	candidate.Seek(0, io.SeekStart)
 	child, cancel := context.WithCancel(ctx)
-	s := &ownerSession{ch: &ownerChannel{r: outR, w: inW}, origin: o, model: model, done: make(chan struct{}), cancel: cancel, execution: newRowExecution()}
+	command := [3]string{"/proc/self/fd/4", "qualification-owner", digest}
+	s := &ownerSession{image: c.Image, command: command, ch: &ownerChannel{r: outR, w: inW}, origin: o, model: model, done: make(chan struct{}), cancel: cancel, execution: newRowExecution()}
 	model.c = c
 	deadline, _ := ctx.Deadline()
 	if outR.SetReadDeadline(deadline) != nil || inW.SetWriteDeadline(deadline) != nil {
@@ -110,7 +122,7 @@ func startOwner(ctx context.Context, c ownerContext, broker, candidate *os.File,
 		defer cr.Close()
 		defer inR.Close()
 		defer outW.Close()
-		s.report, s.err = egress.Run(child, egress.Config{Origin: o, Launcher: "/proc/self/fd/4", LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: "/proc/self/fd/4", Args: []string{"qualification-owner", digest}, Env: []string{"GOMAXPROCS=2", "LANG=C.UTF-8"}, Policy: egress.Policy{MaxEvents: 4096}, ExtraFiles: []*os.File{broker, cr, candidate, outW, inR}, Started: func(pid int) {
+		s.report, s.err = egress.Run(child, egress.Config{Origin: o, Launcher: "/proc/self/fd/4", LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: []string{"GOMAXPROCS=2", "LANG=C.UTF-8"}, Policy: egress.Policy{MaxEvents: 4096}, ExtraFiles: []*os.File{broker, cr, candidate, outW, inR}, Started: func(pid int) {
 			s.execution.Launched = true
 			s.pid.Store(int64(pid))
 			cr.Close()
@@ -279,7 +291,7 @@ func ownerScenarioRun(ctx context.Context, broker, candidate *os.File, digest, s
 	absorb := func(s *ownerSession) error {
 		e := s.close()
 		fact.Budgets = append(fact.Budgets, s.budget)
-		fact.Origins = append(fact.Origins, ownerEpochFact{s.execution.Handshake, s.execution.Started, s.execution.Joined, s.execution.CaseExit, s.waits})
+		fact.Origins = append(fact.Origins, ownerEpochFact{s.command, s.image, s.execution.Handshake, s.execution.Started, s.execution.Joined, s.execution.CaseExit, s.waits})
 		exec = s.execution
 		for k, v := range s.report.Summary {
 			n := network[k]

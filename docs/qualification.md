@@ -510,7 +510,7 @@ counts. Existing credited rows retain their original limits and artifact shape.
 The registry below has all 46 required IDs. “Next slice” means unexecuted,
 never a skipped pass. This implementation covers the harness, framing,
 peer-probe, genuine peer denial, account, release qualification, runner source
-and ended-lease fixture implementations. Ten transport/admission rows execute with attested origin and paired artifacts.
+and ended-lease fixture implementations. Thirteen transport/admission/lease rows and two fake owner-core rows execute with attested origin and paired artifacts.
 The peer row and two runner rows remain UNRUN even with usable fixtures.
 Other bodies remain pending; the time row
 requires the durable owner integration described above.
@@ -542,8 +542,8 @@ fixture result cannot satisfy the live part of a combined row.
 | replacement-contention | fake-only; P9, P9.1, B9.6 | Resolved attempt permits one successor | Replacement and rejecters retain one attempt and writer | Next slice |
 | rotation-crash | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Durable store and correlated success activate once | Crash after rotation before checkpoint closes admission, zero retry | Next slice |
 | cleanup-interrupted | fake-only; P9, P9.1, B9.6 | Complete correlated absence and reconciliation reopen | Crash before absence record keeps admission closed | Next slice |
-| absence-unreadable | fake-only; P9, P9.1, B9.6 | Complete invocation/subtree evidence establishes absence | Partial/denied/conflicting observations permit no writer/enrolment | Next slice |
-| store-missing | fake-only; P9, P9.1, B9.6 | Matching durable checkpoint reloads | Missing/unreadable home or intent never reconstructs empty store | Next slice |
+| absence-unreadable | fake-only owner-core; P9, P9.1, B9.6 | Complete correlated model input resolves the retained attempt | Eight partial/denied/conflicting inputs refuse admission; separate constructor recovery | Attested core pair; model premises only, no platform absence or enrolment credit |
+| store-missing | fake-only owner-core; P9, P9.1, B9.6 | Matching durable checkpoint reloads | Eleven home/native/intent/checkpoint/root faults refuse without reconstruction | Attested core pair; continuous bounded filesystem audit |
 | store-rollback | fake-only; P9, P9.1, B9.6 | Independent freshness and explicit reconciliation | Restored old store/fence never retries or clears by parsing | Next slice |
 | transient-ambiguous | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Proven non-rotation, absence and reload permit bounded retry | Ambiguous vendor error permits no retry | Next slice |
 | reenrol-unresolved | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Confirmed absence then fresh-home enrolment | Unknown prior writer prevents enrolment child | Next slice |
@@ -574,3 +574,127 @@ fixture result cannot satisfy the live part of a combined row.
 | headless-inference | live-required; P8.2 step 4 successful-inference sentence | Bounded approved real headless inference succeeds | Authentication failure gives no false success/fallback | Pending approved live slice |
 | effective-source | fake-now + live-later; P8.2 steps 2/4 | Ephemeral external source; later vendor scopes/source verified | Native/helper/provider source cannot override or persist | Next slice |
 | vendor-callback-timeout | fake-now + live-later; P8.2 steps 2/4 | Bounded callback answers before cutoff | Eight-second broker/ten-second vendor timeout has no late success | Next slice |
+
+
+## Synthetic durable owner pairs
+
+These two pairs run real `authowner.Engine`, protected `store`, and
+`lease.Manager.Call`/`Publish` in at most two sequential, independently attested
+owner processes. The parent generates a fresh initial checkpoint and synthetic
+native material once, then owns the manager/native-RPC model, frozen time
+premise, requests, observations and verdict. Every recovery constructor opens
+with initialization disabled. The approved candidate descriptor is measured
+and never executed. Ordinary daemon ownership remains stopped.
+
+This is **fake-only owner-core evidence**: no public socket, physical vendor
+subtree absence, real manager, contracted time or production activation credit.
+It does not complete platform P9.1/B9.6. The complete/empty model flags are inputs,
+not observations of physical absence. Zero vendor children follows from the
+closed traced topology; every attempted model Start is counted before its reply.
+
+The owner role uses exact measured-image argv `/proc/self/fd/4
+qualification-owner <context-digest>`, with a separate post-exec challenge domain
+and kernel sender credentials. `Control.Command` retains the registry's logical
+`qualification-case <id> <side>` selector; these rows aggregate the separately
+attested owner-role epochs, rather than executing an additional case worker.
+Each epoch records its actual full argv, owner-image digest and actual terminal status.
+The context binds scenario, epoch, parent and
+fixed descriptor roles. No composition/model authority is admitted before entry.
+Source containment fixes the private dispatcher and synthetic factory closure;
+positive durable effects also have to occur. Image entry or exit zero alone
+cannot earn credit. Runtime threads must belong to the actual owner thread group;
+additional processes, second exec and incomplete trace/join fail. Each epoch has
+one parent-owned consuming terminal wait.
+
+### Store fault matrix
+
+All live faults follow a valid request and release. Two fresh requests must each
+return exact `lease_owner_unavailable` with no payload, before reopening the same
+faulted state. Unsafe-mode cases exercise protected-mode rejection, not EACCES.
+
+| Fault | Parent mutation | O2 observation |
+| --- | --- | --- |
+| home-absent | Remove generated home | Owner startup refusal |
+| home-mode | Home mode 0750 | Owner startup refusal |
+| native-absent | Remove generated native file | Typed owner-unavailable |
+| native-mode | Native file mode 0644 | Typed owner-unavailable |
+| intent-absent-committed | Remove intent after real committed refresh | Typed owner-unavailable |
+| intent-mode-committed | Intent mode 0644 after committed refresh | Lease startup refusal |
+| intent-absent-pending | Remove intent after real incomplete-stop prefix | Typed owner-unavailable |
+| intent-mode-pending | Intent mode 0644 after pending prefix | Lease startup refusal |
+| checkpoint-absent | Remove checkpoint | Typed owner-unavailable |
+| checkpoint-mode | Checkpoint mode 0644 | Lease startup refusal |
+| metadata-absent | Remove metadata root | Store startup refusal |
+
+Startup refusal records its actual failed construction stage; it is never a
+served typed lease reply. The independent intact-store control publishes the
+same generation in both epochs. Individual outcome-record loss and metadata
+identity/account-directory variants are outside this eleven-case matrix.
+
+The parent arms inotify over existing generated objects and their enclosing
+root before faulting. It accounts for the exact parent mutation, retains missing
+objects as tombstones, drains through both joins and compares inventories.
+A removed open file's expected watch retirement can arrive at O1 close; only
+that exact retired watch's self-delete/ignored events are allowed. Any creation,
+write, unexpected watch loss, overflow or incomplete inventory fails evidence.
+Create-then-delete is detected even when the final tree is unchanged. This is a
+bounded cooperative fixture claim, not monitoring of arbitrary external paths.
+
+### Absence inputs and constructor recovery
+
+The real refresh persists its intent and successful native-RPC outcome before
+the parent replies to Stop. Complete correlated input permits absent/resolved
+records, generation 2 and replacement publication. The following single-input
+changes must retain the attempt unavailable and deliver no replacement:
+
+| Input | Exact model error or changed field |
+| --- | --- |
+| stop-denied | `synthetic_stop_denied` |
+| unit-missing | `synthetic_unit_missing` |
+| partial | `complete_read=false` |
+| invocation | `invocation_id` conflicts with before |
+| cgroup | `cgroup_path` empty |
+| pid-only | PID zero, but `subtree_empty=false`, `populated_zero=false` |
+| boot | `manager.boot_id` contradicts retained binding |
+| epoch | `manager.manager_epoch` contradicts retained binding |
+
+Repeated renewal, fresh request after release, and the fresh-home prerequisite
+probe refuse without another Start. The probe earns no enrolment credit.
+Scenario A keeps incomplete evidence at O2's first constructor and stays refused.
+Independent scenario B supplies complete input at O2's first constructor and
+resolves the same retained attempt. A blocked O2 is never reconstructed or
+recovered again. Boot/epoch contradictions remain negative. Timed-out reads are
+not covered by this matrix.
+
+### Enforced budgets (setup included)
+
+Counts are per scenario, in the order request / renewal / release / prerequisite.
+Every scenario has one account, at most two owner epochs and at most one Start.
+
+| Script | O1 calls | O2 calls | Total Starts |
+| --- | --- | --- | --- |
+| Intact store reload | 1 / 0 / 1 / 0 | 1 / 0 / 1 / 0 | 0 |
+| Store fault without retained attempt | 3 / 0 / 1 / 0 | 1 / 0 / 0 / 0, or all zero on startup refusal | 0 |
+| Store fault with committed/pending intent | 3 / 2 / 1 / 0 | 1 / 0 / 0 / 0, or all zero on startup refusal | 1 setup refresh |
+| Complete absence | 1 / 2 / 1 / 0 | 1 / 0 / 1 / 0 | 1 |
+| Incomplete O1, incomplete O2 | 2 / 2 / 1 / 1 | 1 / 0 / 0 / 0 | 1 |
+| Independent partial O1, complete O2 construction | 2 / 2 / 1 / 1 | 1 / 0 / 1 / 0 | 1 |
+
+Each epoch permits at most three requests, three renewals, two releases, eight
+lease calls, two prerequisite probes and 256 messages total. Frames and
+context are at most 4 KiB, metadata at most sixteen 16 KiB records, trace/network
+and filesystem events at most 4096 and 1024 respectively. Budget exhaustion,
+unknown observation and the 30-second scenario/row deadline are evidence
+failures. Initial refresh is counted separately from zero additional Starts.
+
+`TestOwnerStoreMissingPair`, `TestOwnerAbsenceUnreadablePair`, the reconstruction,
+PID-only resolution, hidden-Start, no-op dispatcher and filesystem audit controls
+run in default Linux/amd64 tests. Capability skips follow actual pidfd, ptrace
+or seccomp listener probe failures and earn no executed-row credit. No systemd,
+chrony, root, additional UID, real login or real endpoint is needed.
+
+Crash/surviving-writer and replacement-contention rows remain pending. So do
+`time-untrusted`, peer and runner. `reenrol-unresolved` and `duplicate-account`
+need the administrative fresh-home enrolment and publication mechanism (separate
+decision). `store-rollback` needs independent CAS witness and broker restore
+reconciliation. The frozen fake time premise supplies none of those authorities.
