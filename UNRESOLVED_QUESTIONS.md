@@ -78,3 +78,10 @@ Implementation integration questions:
   watermark, while consumers without one must decide hold and prior-decision
   continuity separately. Durable hold storage is outside this slice and must
   not be placed in the rollback domain. Broker backward tolerance is zero.
+
+- The `time-untrusted` qualification row needs a bounded durable synthetic-owner
+  enrollment/restart fixture using the real time provider, adapter and retained
+  watermark admission. The snapshot-only admission fixture has no owner
+  watermark and cannot prove the no-advance invariant. Its account, release and
+  ended-lease evidence supplies no time-row credit; see
+  [qualification](docs/qualification.md#fixture-row-dispatch-and-limits).

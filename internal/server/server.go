@@ -16,16 +16,17 @@ import (
 )
 
 type Server struct {
-	Manager       *lease.Manager
-	mu            sync.Mutex
-	connections   map[*net.UnixConn]bool
-	listener      *net.UnixListener
-	wg            sync.WaitGroup
-	closed        bool
-	peer          func(*net.UnixConn) (uint32, error)
-	qualification bool
-	socketPath    string
-	socketInfo    os.FileInfo
+	Manager           *lease.Manager
+	mu                sync.Mutex
+	connections       map[*net.UnixConn]bool
+	listener          *net.UnixListener
+	wg                sync.WaitGroup
+	closed            bool
+	peer              func(*net.UnixConn) (uint32, error)
+	qualification     bool
+	qualificationCall func(string) bool
+	socketPath        string
+	socketInfo        os.FileInfo
 }
 
 func New(m *lease.Manager) *Server {
@@ -271,6 +272,9 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 			continue
 		}
 		if s.Manager.Policy().Generation != p.Generation {
+			return
+		}
+		if s.qualificationCall != nil && !s.qualificationCall(r.Method) {
 			return
 		}
 		var params any

@@ -19,6 +19,37 @@ import (
 // its private socket. The caller supplies an isolated, issuance-closed manager.
 // The optional probe fault is explicitly model evidence, never foreign-UID proof.
 func NewQualification(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64, probeFault bool) (*Server, func() bool, error) {
+	return newQualificationPeer(m, digest, uid, pid, probeFault)
+}
+
+// NewQualificationAdmission is a separate synthetic-fixture authority. It
+// retains the transport identity/DAC checks and allows one request in total.
+// There is no command-line or environment selector for this constructor.
+func NewQualificationAdmission(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64) (*Server, error) {
+	if m == nil || m.Policy().MaxLeaseSeconds > 5 || len(m.Policy().Accounts) != 2 {
+		return nil, wire.Refuse("lease_owner_unavailable")
+	}
+	s, _, err := newQualificationPeer(m, digest, uid, pid, false)
+	if err != nil {
+		return nil, err
+	}
+	var requests, calls atomic.Int64
+	s.qualificationCall = func(method string) bool {
+		if calls.Add(1) > 8 {
+			return false
+		}
+		switch method {
+		case "lease.request":
+			return requests.Add(1) == 1
+		case "lease.renew", "lease.release":
+			return true
+		}
+		return false
+	}
+	return s, nil
+}
+
+func newQualificationPeer(m *lease.Manager, digest string, uid uint32, pid *atomic.Int64, probeFault bool) (*Server, func() bool, error) {
 	if pid == nil || m == nil || m.Policy().ExecutableSHA256 != digest || uid != uint32(os.Geteuid()) || !m.Policy().Peer(uid) {
 		return nil, nil, wire.Refuse("lease_owner_unavailable")
 	}

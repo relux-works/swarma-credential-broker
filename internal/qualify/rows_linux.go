@@ -108,12 +108,12 @@ func validateRow(root, digest string, generation uint64, c qualification.Case) e
 			return qualification.ErrUnavailable
 		}
 		if x.Verdict == "passed" {
-			want := "hello"
+			want := rowPositive(c.ID)
 			if side == "negative" {
 				want = rowRefusal(c.ID)
 			}
 			o := a.Observation
-			if x.ExitCode != 0 || !rowIsolated(a) || o.ID != c.ID || o.Side != side || o.Candidate != digest || !o.NoEffects || !validRowEnvelopes(o, generation) || o.Refusal != want || o.ProbeFault != (c.ID == "peer-identity-unavailable" && side == "negative") {
+			if x.ExitCode != 0 || !rowIsolated(a) || o.ID != c.ID || o.Side != side || o.Candidate != digest || !o.NoEffects || !validRowEnvelopes(o, generation) || !validAdmissionEffects(o) || o.Refusal != want || o.ProbeFault != (c.ID == "peer-identity-unavailable" && side == "negative") {
 				return qualification.ErrUnavailable
 			}
 		} else if x.Verdict != "failed" {
@@ -213,7 +213,19 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	}
 	var pid atomic.Int64
 	inputValue := rowInput{Policy: p, Peer: uint32(os.Geteuid()), ID: id, Side: side}
-	socket, closeRow, e := startTransportRow(ctx, scratch, inputValue, &pid)
+	var socket string
+	var closeRow func() bool
+	var phaseFiles []*os.File
+	var effects admissionEffects
+	if admissionRow(id) {
+		inputValue = admissionInput(inputValue)
+		socket, closeRow, phaseFiles, e = startAdmissionRow(ctx, scratch, inputValue, &pid, &effects)
+	} else {
+		socket, closeRow, e = startTransportRow(ctx, scratch, inputValue, &pid)
+	}
+	for _, f := range phaseFiles {
+		defer f.Close()
+	}
 	if e != nil {
 		return
 	}
@@ -286,7 +298,7 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	go collect(errR, 16384, diagnostic)
 	command := qualification.CaseCommand(id, side)
 	start := time.Now()
-	report, runError := egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", Started: func(n int) { pid.Store(int64(n)) }, LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: env, Policy: egress.Policy{UnixPaths: []string{socket}, MaxEvents: 4096}, Stdout: outW, Stderr: errW, ExtraFiles: []*os.File{broker, inputR, candidate}})
+	report, runError := egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", Started: func(n int) { pid.Store(int64(n)) }, LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: env, Policy: egress.Policy{UnixPaths: []string{socket}, MaxEvents: 4096}, Stdout: outW, Stderr: errW, ExtraFiles: append([]*os.File{broker, inputR, candidate}, phaseFiles...)})
 	elapsed := time.Since(start)
 	noEffects := closeRow()
 	closed = true
@@ -319,6 +331,9 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	// Only the parent can attest that the injected server probe actually fired.
 	if passed && id == "peer-identity-unavailable" && side == "negative" {
 		observation.ProbeFault = true
+	}
+	if admissionRow(id) {
+		observation.Admission = &effects
 	}
 	control = qualification.Control{Verdict: "failed", Executed: true, Command: command, ExitCode: exit, Artifacts: []string{}, DurationNS: int64(elapsed), BoundNS: int64(30 * time.Second)}
 	if passed {

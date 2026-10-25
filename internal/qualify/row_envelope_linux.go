@@ -28,6 +28,7 @@ type rowError struct {
 // Only validated, closed metadata is retained, never raw response frames.
 // One fact is recorded per exchange, including both malformed/hello variants.
 type rowEnvelope struct {
+	Lease        *rowLease `json:"lease,omitempty"`
 	Kind         string    `json:"kind"`
 	RequestID    *string   `json:"request_id"`
 	PayloadBytes int       `json:"payload_bytes"`
@@ -100,6 +101,9 @@ func validRowEnvelope(f rowEnvelope, id, side string, generation uint64) bool {
 }
 
 func validRowEnvelopes(o rowObservation, generation uint64) bool {
+	if admissionRow(o.ID) {
+		return validAdmissionEnvelopes(o, generation)
+	}
 	n := 1
 	if o.Side == "negative" && (o.ID == "profile-unsupported" || o.ID == "frame-malformed-first") {
 		n = 2

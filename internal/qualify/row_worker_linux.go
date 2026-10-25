@@ -29,24 +29,26 @@ func rowImplemented(id string) bool {
 	case "frame-oversized", "frame-zero-length", "frame-truncated-header", "frame-malformed-first", "profile-unsupported", "peer-identity-unavailable":
 		return true
 	}
-	return false
+	return admissionRow(id)
 }
 
 type rowInput struct {
-	Policy policy.Policy `json:"policy"`
-	Peer   uint32        `json:"peer"`
-	ID     string        `json:"id"`
-	Side   string        `json:"side"`
-	Socket string        `json:"socket"`
+	Policy  policy.Policy `json:"policy"`
+	Peer    uint32        `json:"peer"`
+	ID      string        `json:"id"`
+	Side    string        `json:"side"`
+	EndedBy string        `json:"ended_by"`
+	Socket  string        `json:"socket"`
 }
 type rowObservation struct {
-	ID         string        `json:"id"`
-	Side       string        `json:"side"`
-	Candidate  string        `json:"candidate"`
-	Refusal    string        `json:"refusal"`
-	NoEffects  bool          `json:"no_effects"`
-	ProbeFault bool          `json:"probe_fault"`
-	Envelopes  []rowEnvelope `json:"envelopes"`
+	Admission  *admissionEffects `json:"admission,omitempty"`
+	ID         string            `json:"id"`
+	Side       string            `json:"side"`
+	Candidate  string            `json:"candidate"`
+	Refusal    string            `json:"refusal"`
+	NoEffects  bool              `json:"no_effects"`
+	ProbeFault bool              `json:"probe_fault"`
+	Envelopes  []rowEnvelope     `json:"envelopes"`
 }
 
 func descriptorDigest(f *os.File) (string, error) {
@@ -79,7 +81,7 @@ func CaseMain(args []string) (bool, int) {
 	}
 	b, e := io.ReadAll(io.LimitReader(f, 4097))
 	var input rowInput
-	if e != nil || len(b) > 4096 || wire.Decode(b, &input) != nil || input.ID != args[1] || input.Side != args[2] || input.Peer != uint32(os.Geteuid()) || input.Policy.Validate(uint32(os.Geteuid())) != nil || len(input.Policy.Accounts) != 1 || !input.Policy.Peer(input.Peer) {
+	if e != nil || len(b) > 4096 || wire.Decode(b, &input) != nil || input.ID != args[1] || input.Side != args[2] || input.Peer != uint32(os.Geteuid()) || input.Policy.Validate(uint32(os.Geteuid())) != nil || (len(input.Policy.Accounts) != 1 && !admissionRow(input.ID) || admissionRow(input.ID) && !validAdmissionInput(input)) || !input.Policy.Peer(input.Peer) {
 		return true, 125
 	}
 	candidate := os.NewFile(6, "approved-candidate")
@@ -96,7 +98,11 @@ func CaseMain(args []string) (bool, int) {
 	if e != nil || len(entries) != 0 || os.Getenv("HOME") != os.Getenv("CODEX_HOME") {
 		return true, 125
 	}
-	observation.Refusal, observation.Envelopes, e = transportExchangeFacts(input.Socket, input.ID, input.Side, input.Policy.Generation)
+	if admissionRow(input.ID) {
+		observation.Refusal, observation.Envelopes, e = admissionExchange(input)
+	} else {
+		observation.Refusal, observation.Envelopes, e = transportExchangeFacts(input.Socket, input.ID, input.Side, input.Policy.Generation)
+	}
 	if e != nil {
 		return true, 1
 	}
@@ -297,6 +303,14 @@ func rowRefusal(id string) string {
 		return "version_unsupported"
 	case "peer-identity-unavailable":
 		return "peer_identity_unavailable"
+	case "account-denied":
+		return "lease_not_authorised"
+	case "account-unknown":
+		return "lease_account_unknown"
+	case "release-unqualified":
+		return "lease_harness_unqualified"
+	case "lease-ended":
+		return "lease_not_active"
 	}
 	return "closed"
 }

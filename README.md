@@ -59,8 +59,9 @@ The [registration](diagrams/agent-registration.puml), [launch](diagrams/lease-at
 
 See [qualification](docs/qualification.md) for the protected release-evidence
 record and the pending `qualify-codex` administrative command. Its isolated
-candidate observers measure version, schema and catalog; pending row bodies
-still prevent production qualification.
+candidate observers measure version, schema and catalog. Private synthetic
+admission controls now cover account, release qualification and ended leases;
+the remaining pending rows still prevent production qualification.
 
 ## Tools
 

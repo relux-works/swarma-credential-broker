@@ -250,25 +250,61 @@ JSON file with exactly `broker`, `allowed_peer`, `foreign_peer`, `account` and
 explicit enabled policy label. This transport slice resolves broker and allowed
 peer through the OS database and requires both to be the current broker user,
 with `same_user_r2: true`. No default account or UID is inferred. The foreign
-role is reserved but not resolved or executed here: `peer-denied` stays pending
-until its genuine foreign-UID helper is supplied. Missing configuration leaves
-all rows pending. This format is separate from the existing multi-UID test
+role is reserved but not resolved or executed here: `peer-denied` is in the next
+slice with a genuine foreign-UID helper. Missing configuration leaves all rows
+pending. This format is separate from the existing multi-UID test
 helper configuration, which also needs a helper executable and shared socket
 directory; it does not claim that helper's evidence.
 
 Each implemented control executes the retained broker descriptor as
 `/proc/self/fd/4 qualification-case <id> <positive|negative>`. FD5 is a bounded
 private input pipe; FD6 retains the measured approved Codex executable. These
-transport rows do not execute Codex. Every worker executes under `internal/egress`
+rows do not execute Codex. Every worker executes under `internal/egress`
 with an empty fresh HOME/CODEX_HOME, closed proxy port and only its private Unix
 socket allowlisted. The trusted parent creates the listener outside the client
 boundary; candidate listener creation remains forbidden. Use an owned short TMPDIR because Unix socket paths have a
 platform length limit. Each worker and its server share a 30-second parent
 context. Only the supervised client kernel PID and configured UID can negotiate; an
 ordinary same-UID process is refused before reading input. The manager is
-issuance-closed, restricted to one configured account and digest, and never
-calls an owner. Joined shutdown closes the socket; parent teardown removes the
-home and isolated store. No test authority can qualify ordinary leasing.
+issuance-closed for transport rows, restricted to one configured account and
+digest, and never calls an owner on those rows. Joined shutdown closes the
+socket; parent teardown removes the home and isolated store. No test authority can qualify ordinary leasing.
+
+Admission fixtures use a separate constructor with the same private socket and
+kernel PID/UID checks. The protected selected account authorizes a synthetic
+subject, endpoint and vendor identity; a separate nonissuable anchor keeps
+peer/profile admission available when the subject is disabled. Production
+policy, lease, publication revalidation and wire encoding remain in use. An
+in-memory qualified set contains only that exact fixture policy tuple, or is
+empty for `release-unqualified`; it never opens the production qualification
+repository. The list and both activation names remain byte-unchanged in the
+publication-fence test. No new flag, environment selector or custom build tag
+selects this authority.
+
+Each control can make at most one initial lease request, with `MaxActive=1`,
+`MaxPending=1`, a five-second lease ceiling and eight total lease methods.
+Unknown methods and additional requests close the fixture connection. Material
+is generated in parent memory; Snapshot only serves the synthetic subject.
+Refresh always refuses and is counted. Early account and qualification refusals
+require zero Snapshot calls and zero records. Valid grants require exactly one
+record and two Snapshot calls, including production publication revalidation.
+The ended-lease script first gets a real grant. Its negative releases the grant,
+then compares records and counters against that ended baseline; its positive
+renews from an already-newer snapshot without Refresh and releases twice.
+An independent unit variant advances the decision clock exactly to the grant's
+authorization limit and checks the unchanged active-record baseline. There is
+no hand-seeded ended lease. A private pipe acknowledges the parent's snapshot
+change only after the grant/release reply. Joined teardown checks the exact
+record state, authorization limit, counters and empty unchanged home, then
+removes the entire scratch store and home.
+
+`time-untrusted` remains unrun. The snapshot-only fixture has no retained owner
+watermark, so a provider Boolean or a fake checkpoint would not prove profile
+§9's no-watermark-advance invariant. The real owner's successful Snapshot loads
+protected synthetic native material and reconciles durable owner history;
+that requires a separate bounded durable-owner enrollment/restart fixture with
+the real time provider and adapter. The test-only confidence constructor is not
+linked into the release worker. No time-row pass credit is granted here.
 
 The report records actual argv, exit, monotonic duration and bound for both
 controls. Owned 0600 `row-<id>-<side>.json` files contain closed
@@ -276,6 +312,9 @@ controls. Owned 0600 `row-<id>-<side>.json` files contain closed
 candidate digest, bounded observation and aggregate egress counts. Their hashes
 are verified before crediting the report. Each exchange retains its validated
 closed envelope kind, request ID, payload byte count and hello or refusal fields.
+Admission results retain only lease ID and expiry/authorization timestamps,
+never material or a material hash. Parent-attested counters are checked again
+when validating row evidence.
 The validator rechecks these facts against the configured generation and the
 exact response shapes in profile §7: errors have no result, empty details, fixed
 sanitized text, the expected code and null or validated ID, and at most 512
@@ -289,7 +328,8 @@ pass; a refused network destination fails the control even with successful
 stdout and exit zero. Pending rows are never launched. Live rows and applied
 properties keep fixture reports at exit 69 and prevent publication.
 
-The six implemented rows below have real adjacent hello controls. Malformed
+The six transport rows below have real adjacent hello controls. The four
+admission rows have real bounded synthetic lease controls. Malformed
 first frames cover both invalid JSON with an apparent ID and a valid non-hello
 first request. Unsupported profile covers both an unknown profile and an
 unsupported version. The injected peer-probe fault is explicitly model-only;
@@ -300,8 +340,9 @@ observer checks remain the separate candidate measurement procedure.
 ## Required row classification
 
 The registry below has all 46 required IDs. “Next slice” means unexecuted,
-never a skipped pass. The size boundary stops this implementation after the
-harness, framing and peer-probe rows; other admission bodies also remain pending.
+never a skipped pass. This implementation covers the harness, framing,
+peer-probe, account, release qualification and ended-lease rows. Other bodies remain pending; the time row
+requires the durable owner integration described above.
 P9 means [profile §9](../spec/v0-codex-refresher.md#9-negative-cases-and-adjacent-positive-controls);
 P9.1 means its broker mapping; B9.6 means [broker §9.6](../spec/broker.md#96-qualification);
 P8.2 means [profile §8.2](../spec/v0-codex-refresher.md#82-mandatory-01630-qualification-procedure).
@@ -316,10 +357,10 @@ fixture result cannot satisfy the live part of a combined row.
 
 | Required ID | Class; reference | Positive control | Negative control | Current row body |
 |---|---|---|---|---|
-| peer-denied | fake-only; P9, P8.2 step 2 | Genuine configured allowed process negotiates and leases | Genuine foreign UID gets null-ID role_not_permitted before input, no effects | Pending genuine helper |
-| account-denied | fake-only; P9 | Exact allowed peer/account/profile leases | Known disallowed account gets lease_not_authorised, no writer | Next slice |
-| account-unknown | fake-only; P9 | Existing allowed label leases | Missing label gets lease_account_unknown, no creation/fallback | Next slice |
-| release-unqualified | fake-now + live-later; P9, P8.2 steps 2/4 | Exact approved fake tuple leases; later real tuple | Unqualified digest gets lease_harness_unqualified, no child | Next slice |
+| peer-denied | fake-only; P9, P8.2 step 2 | Genuine configured allowed process negotiates and leases | Genuine foreign UID gets null-ID role_not_permitted before input, no effects | Next slice; genuine helper |
+| account-denied | fake-only; P9 | Exact allowed peer/account/profile leases | Known disallowed account gets lease_not_authorised, no writer | Implemented; disabled subject, zero Snapshot; P7:582–598, P9:801 |
+| account-unknown | fake-only; P9 | Existing allowed label leases | Missing label gets lease_account_unknown, no creation/fallback | Implemented; missing label, zero Snapshot; P7:582–598, P9:802 |
+| release-unqualified | fake-now + live-later; P9, P8.2 steps 2/4 | Exact approved fake tuple leases; later real tuple | Unqualified digest gets lease_harness_unqualified, no child | Implemented fake tuple; no production publication; P8.2:749–788, P9:803, B9.6:575–587 |
 | source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | Next slice |
 | home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | Next slice |
 | renew-unknown-digest | fake-only; P9 | Superseded delivered token returns current payload without refresh | Unknown digest gets renew_not_current, generation unchanged | Next slice |
@@ -337,8 +378,8 @@ fixture result cannot satisfy the live part of a combined row.
 | reenrol-unresolved | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Confirmed absence then fresh-home enrolment | Unknown prior writer prevents enrolment child | Next slice |
 | duplicate-account | fake-now + live-later; P9, P8.2 steps 2/4 | Distinct vendor ID activates independently | Repeated vendor ID gets account_duplicate, no second mapping | Next slice |
 | owner-mismatch | fake-only; P9 | Same UID/context renews/releases | Other UID gets lease_not_owner, lease unchanged | Next slice |
-| lease-ended | fake-only; P9 | Before-limit renewal and idempotent release | Released/expired renewal gets lease_not_active, no extension/writer | Next slice |
-| time-untrusted | fake-only; P9 | Trusted current evidence permits bounded lease | Missing freshness after restart gets lease_owner_unavailable, no advance | Next slice |
+| lease-ended | fake-only; P9 | Before-limit renewal and idempotent release | Released/expired renewal gets lease_not_active, no extension/writer | Implemented release pair + independent expiry unit; P7:624–630, P9:821 |
+| time-untrusted | fake-only; P9 | Trusted current evidence permits bounded lease | Missing freshness after restart gets lease_owner_unavailable, no advance | Unrun; needs real retained-watermark integration; P9:822 |
 | init-without-capability | fake-only; P9, P8.2 step 2 | Experimental initialize then external login | Missing capability gets external_token_init_failed, stop/release | Next slice |
 | resume-conflict | fake-now + live-later; P9, P8.2 step 4 optional resume | Fresh lease/login for qualified same-account resume | Drift/native file refuses before inference, no old lease reuse | Next slice; live resume optional |
 | frame-oversized | fake-only; P9 | Canonical hello echoes validated ID | Header 65537 gets null-ID frame_too_large then EOF; no records/owner calls | Implemented; no Codex launch |

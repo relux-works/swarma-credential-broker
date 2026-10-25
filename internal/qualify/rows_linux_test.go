@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/relux-works/swarma-credential-broker/internal/policy"
 	"github.com/relux-works/swarma-credential-broker/internal/qualification"
@@ -43,7 +44,7 @@ func rowConfiguration(t *testing.T, p policy.Policy, root string) string {
 	return path
 }
 
-// Claim: all six transport rows run their exact positive and negative descriptor
+// Claim: the transport and admission rows run their exact positive and negative descriptor
 // commands; unresolved rows gain no execution, and no worker home survives.
 // The synthetic approved descriptor is measured, never executed as Codex.
 func TestRowsHarness(t *testing.T) {
@@ -60,7 +61,7 @@ func TestRowsHarness(t *testing.T) {
 	if wire.Decode(bytes.TrimSpace(out.Bytes()), &r) != nil || r.Disposition != "pending" {
 		t.Fatal("report")
 	}
-	expected := map[string]string{"frame-oversized": "frame_too_large", "frame-zero-length": "closed", "frame-truncated-header": "closed", "frame-malformed-first": "closed", "profile-unsupported": "version_unsupported", "peer-identity-unavailable": "peer_identity_unavailable"}
+	expected := map[string]string{"frame-oversized": "frame_too_large", "frame-zero-length": "closed", "frame-truncated-header": "closed", "frame-malformed-first": "closed", "profile-unsupported": "version_unsupported", "peer-identity-unavailable": "peer_identity_unavailable", "account-denied": "lease_not_authorised", "account-unknown": "lease_account_unknown", "release-unqualified": "lease_harness_unqualified", "lease-ended": "lease_not_active"}
 	n := 0
 	for _, row := range r.Cases {
 		want, implemented := expected[row.ID]
@@ -81,7 +82,7 @@ func TestRowsHarness(t *testing.T) {
 				if e != nil || wire.Decode(b, &a) != nil {
 					t.Fatal("artifact")
 				}
-				refusal := "hello"
+				refusal := rowPositive(row.ID)
 				if side == "negative" {
 					refusal = want
 				}
@@ -89,9 +90,67 @@ func TestRowsHarness(t *testing.T) {
 					t.Fatal("exact command/refusal/effects")
 				}
 			}
+			if admissionRow(row.ID) {
+				// Rehashed admission evidence must still prove parent counters,
+				// the established fault and the exact five-second grant bound.
+				for _, defect := range []string{"counters-missing", "record-delta", "snapshot", "refresh", "state", "fault", "qualification", "start", "long-grant"} {
+					t.Run(defect, func(t *testing.T) {
+						bad := row
+						side := "negative"
+						if defect == "long-grant" {
+							side = "positive"
+						}
+						path := rowFile(root, row.ID, side)
+						original, e := os.ReadFile(path)
+						if e != nil {
+							t.Fatal(e)
+						}
+						defer os.WriteFile(path, original, 0600)
+						var a rowArtifact
+						if wire.Decode(original, &a) != nil {
+							t.Fatal("baseline")
+						}
+						f := a.Observation.Admission
+						switch defect {
+						case "counters-missing":
+							a.Observation.Admission = nil
+						case "record-delta":
+							f.Records++
+						case "snapshot":
+							f.Snapshots++
+						case "refresh":
+							f.Refreshes++
+						case "state":
+							f.StateVerified = false
+						case "fault":
+							f.FaultEstablished = false
+						case "qualification":
+							f.QualificationRefused = !f.QualificationRefused
+						case "start":
+							f.StartedAt = "invalid"
+						case "long-grant":
+							grant := &a.Observation.Envelopes[1]
+							until, _ := time.Parse(time.RFC3339, grant.Lease.Until)
+							grant.Lease.Until = until.Add(time.Second).Format(time.RFC3339)
+						}
+						b, _ := wire.Encode(a)
+						if os.WriteFile(path, b, 0600) != nil {
+							t.Fatal("plant")
+						}
+						if side == "negative" {
+							bad.Negative.Artifacts = []string{qualification.Hash(b)}
+						} else {
+							bad.Positive.Artifacts = []string{qualification.Hash(b)}
+						}
+						if validateRow(root, c.Policy.ExecutableSHA256, c.Policy.Generation, bad) == nil {
+							t.Fatal("admission evidence defect credited", defect)
+						}
+					})
+				}
+			}
 		})
 	}
-	if n != 6 {
+	if n != 10 {
 		t.Fatal("implemented registry drift", n)
 	}
 	homes, e := filepath.Glob(filepath.Join(os.TempDir(), "qualification-row-*"))
