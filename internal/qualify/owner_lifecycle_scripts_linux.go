@@ -67,6 +67,8 @@ func lifecycleRun(ctx context.Context, broker, candidate *os.File, digest, scena
 	}
 	work, cancel := context.WithDeadline(ctx, deadline.Add(-5*time.Second))
 	defer cancel()
+	ownerDiagnosticScenario(work, scenario)
+	defer func() { ownerDiagnosticFailure(work, err) }()
 	fact.Scenario = scenario
 	fact.Crashes = []egress.TerminationFacts{}
 	network = map[string]egress.Counts{}
@@ -96,7 +98,9 @@ func lifecycleRun(ctx context.Context, broker, candidate *os.File, digest, scena
 	defer func() {
 		if current != nil {
 			current.cancel()
+			endWait := ownerDiagnosticWait(work, "owner cleanup join")
 			<-current.done
+			endWait(nil)
 			current.ch.r.Close()
 			current.ch.w.Close()
 			current.origin.Close()

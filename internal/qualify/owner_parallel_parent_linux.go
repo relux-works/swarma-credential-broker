@@ -140,7 +140,9 @@ func (h *parallelHarness) observe(s *parallelSession, f parallelFrame) error {
 	}
 	return h.children()
 }
-func (h *parallelHarness) serve(s *parallelSession, f parallelFrame) error {
+func (h *parallelHarness) serve(s *parallelSession, f parallelFrame) (err error) {
+	endWait := ownerDiagnosticWait(h.ctx, "callback/"+ownerDiagnosticOp(f.Op)+"/"+ownerDiagnosticMember(s.member))
+	defer func() { endWait(err) }()
 	if f.Op == "call-event" {
 		return s.mux.replyTo(f, nil, nil)
 	}
@@ -161,7 +163,9 @@ func (h *parallelHarness) serve(s *parallelSession, f parallelFrame) error {
 }
 func (h *parallelHarness) take(s *parallelSession, match func(parallelFrame) bool) (parallelFrame, error) {
 	for {
+		endWait := ownerDiagnosticWait(h.ctx, "mux.nextFrame/"+ownerDiagnosticMember(s.member))
 		f, e := s.mux.nextFrame()
+		endWait(e)
 		if e != nil {
 			return f, e
 		}
@@ -286,9 +290,12 @@ func (h *parallelHarness) finish(s *parallelSession, crashed bool) error {
 		if _, e := s.mux.command("close", nil); e != nil {
 			return e
 		}
+		endWait := ownerDiagnosticWait(h.ctx, "normal join/"+ownerDiagnosticMember(s.member))
 		select {
 		case <-s.base.done:
+			endWait(s.base.err)
 		case <-h.ctx.Done():
+			endWait(h.ctx.Err())
 			s.base.cancel()
 			<-s.base.done
 			return h.ctx.Err()

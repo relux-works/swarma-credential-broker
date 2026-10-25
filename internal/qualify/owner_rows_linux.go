@@ -50,20 +50,21 @@ type ownerRowFacts struct {
 	Scenarios []ownerScenarioFact
 }
 type ownerSession struct {
-	ch          *ownerChannel
-	origin      *egress.CaseOrigin
-	model       ownerService
-	termination *egress.TerminationController
-	done        chan struct{}
-	cancel      context.CancelFunc
-	pid         atomic.Int64
-	execution   rowExecution
-	report      egress.Report
-	err         error
-	waits       int
-	command     [3]string
-	image       string
-	budget      ownerBudget
+	ch                *ownerChannel
+	origin            *egress.CaseOrigin
+	model             ownerService
+	termination       *egress.TerminationController
+	done              chan struct{}
+	cancel            context.CancelFunc
+	pid               atomic.Int64
+	execution         rowExecution
+	report            egress.Report
+	err               error
+	waits             int
+	command           [3]string
+	image             string
+	budget            ownerBudget
+	diagnosticContext context.Context
 }
 
 func startOwner(ctx context.Context, c ownerContext, broker, candidate *os.File, model ownerService) (*ownerSession, error) {
@@ -127,7 +128,7 @@ func startOwnedRole(ctx context.Context, c ownerContext, broker, candidate *os.F
 	candidate.Seek(0, io.SeekStart)
 	child, cancel := context.WithCancel(ctx)
 	command := [3]string{"/proc/self/fd/4", role, digest}
-	s := &ownerSession{image: c.Image, command: command, ch: &ownerChannel{r: outR, w: inW}, origin: o, model: model, done: make(chan struct{}), cancel: cancel, execution: newRowExecution()}
+	s := &ownerSession{diagnosticContext: ctx, image: c.Image, command: command, ch: &ownerChannel{r: outR, w: inW}, origin: o, model: model, done: make(chan struct{}), cancel: cancel, execution: newRowExecution()}
 	s.termination = termination
 	if model != nil {
 		model.setContext(c)
@@ -167,7 +168,9 @@ func startOwnedRole(ctx context.Context, c ownerContext, broker, candidate *os.F
 }
 func (s *ownerSession) receive(op string) (ownerMessage, error) {
 	for {
+		endWait := ownerDiagnosticWait(s.diagnosticContext, "owner.receive/"+ownerDiagnosticOp(op))
 		m, e := s.ch.read()
+		endWait(e)
 		if e != nil {
 			return m, fmt.Errorf("owner %s effects missing: %w", op, e)
 		}
@@ -180,7 +183,10 @@ func (s *ownerSession) receive(op string) (ownerMessage, error) {
 		if s.model == nil {
 			return m, errors.New("unexpected writer method")
 		}
-		if e = s.model.serve(s.ch, m); e != nil {
+		endCallback := ownerDiagnosticWait(s.diagnosticContext, "callback/"+ownerDiagnosticOp(m.Op))
+		e = s.model.serve(s.ch, m)
+		endCallback(e)
+		if e != nil {
 			return m, e
 		}
 	}

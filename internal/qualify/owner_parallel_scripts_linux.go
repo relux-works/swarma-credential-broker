@@ -25,6 +25,8 @@ func parallelRun(ctx context.Context, broker, candidate *os.File, digest, scenar
 	}
 	work, cancel := context.WithDeadline(ctx, deadline.Add(-5*time.Second))
 	defer cancel()
+	ownerDiagnosticScenario(work, scenario)
+	defer func() { ownerDiagnosticFailure(work, err) }()
 	root, e := os.MkdirTemp("", "qualification-parallel-")
 	if e != nil {
 		err = e
@@ -54,7 +56,9 @@ func parallelRun(ctx context.Context, broker, candidate *os.File, digest, scenar
 		for _, s := range h.sessions {
 			if !s.closed {
 				s.base.cancel()
+				endWait := ownerDiagnosticWait(work, "parallel cleanup join")
 				<-s.base.done
+				endWait(nil)
 				s.mux.close()
 				s.base.origin.Close()
 				for _, f := range s.images {
@@ -286,6 +290,7 @@ func (h *parallelHarness) contend(c ownerContext, broker, candidate *os.File) (*
 	if !candidates[0].base.origin.Live(int(candidates[0].base.pid.Load())) || !candidates[1].base.origin.Live(int(candidates[1].base.pid.Load())) {
 		return nil, errors.New("contenders not simultaneously live")
 	}
+	ownerDiagnosticPhase(h.ctx, "both constructors held")
 	h.fact.Parallel.Together = true
 	win := 0
 	if strings.HasSuffix(c.Scenario, "-b") {
@@ -305,6 +310,7 @@ func (h *parallelHarness) contend(c ownerContext, broker, candidate *os.File) (*
 	}
 	h.fact.Parallel.Candidates[win].Ready = true
 	h.fact.Parallel.Candidates[win].LockHeld = true
+	ownerDiagnosticPhase(h.ctx, "winner ready and store lock held")
 	h.fact.Parallel.Winner = winner.member
 	if e = loser.mux.replyTo(gates[lose], nil, nil); e != nil {
 		return nil, e
@@ -315,6 +321,7 @@ func (h *parallelHarness) contend(c ownerContext, broker, candidate *os.File) (*
 		return nil, errors.New("loser store startup failure missing")
 	}
 	h.fact.Parallel.Candidates[lose].Startup = stage
+	ownerDiagnosticPhase(h.ctx, "loser store refusal received")
 	h.fact.Parallel.Candidates[lose].Error = startup.Error
 	if e = h.finish(loser, false); e != nil {
 		return nil, e
@@ -341,6 +348,7 @@ func (h *parallelHarness) overlap(s *parallelSession, grants []wire.LeaseResult,
 	if e != nil {
 		return e
 	}
+	ownerDiagnosticPhase(h.ctx, "first dequeue held")
 	overlap := &parallelOverlap{First: grants[0].LeaseID, Second: grants[1].LeaseID, Dequeue: h.sequence, Hold: "dequeue"}
 	if want == "" {
 		if e = s.mux.replyTo(gate, nil, nil); e != nil {
@@ -355,6 +363,7 @@ func (h *parallelHarness) overlap(s *parallelSession, grants []wire.LeaseResult,
 		if e != nil {
 			return e
 		}
+		ownerDiagnosticPhase(h.ctx, "native account/read held")
 		overlap.Hold = "native"
 	}
 	second, e := h.command(s, "lease.renew", wire.Renew{LeaseID: grants[1].LeaseID, RejectedSHA256: lease.Digest(rejected)})
@@ -365,6 +374,7 @@ func (h *parallelHarness) overlap(s *parallelSession, grants []wire.LeaseResult,
 	if e != nil {
 		return e
 	}
+	ownerDiagnosticPhase(h.ctx, "second arrival held")
 	overlap.Arrival = h.sequence
 	if e = s.mux.replyTo(arrival, nil, nil); e != nil {
 		return e
@@ -384,6 +394,7 @@ func (h *parallelHarness) overlap(s *parallelSession, grants []wire.LeaseResult,
 	if e != nil {
 		return e
 	}
+	ownerDiagnosticPhase(h.ctx, "response callback held")
 	held, other := first, second
 	if isEvent(response, "response", grants[1].LeaseID) {
 		held, other = second, first

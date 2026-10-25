@@ -144,7 +144,7 @@ func TestOwnerParallelRows(t *testing.T) {
 	for _, id := range []string{"daemon-death", "replacement-contention"} {
 		q := qualification.Case{ID: id}
 		for _, side := range []string{"positive", "negative"} {
-			x := d.runRow(context.Background(), c.Policy, root, id, side)
+			x := d.runRow(withOwnerDiagnostics(context.Background(), func(s string) { t.Log(s) }), c.Policy, root, id, side)
 			if !x.Executed || x.Verdict != "passed" || x.DurationNS <= 0 || x.DurationNS > x.BoundNS || x.BoundNS != int64(30*time.Second) {
 				t.Fatal("parallel row bound", id, side, x)
 			}

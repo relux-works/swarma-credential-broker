@@ -170,22 +170,32 @@ func (d driver) runLifecycleRow(parent context.Context, p policy.Policy, root, i
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	start := time.Now()
+	if s := ownerDiagnostics(ctx); s != nil {
+		s.begin(id, side)
+		s.scenario, s.phase, s.failed = "setup", "row-start", ""
+		s.start = start
+		s.deadline, _ = ctx.Deadline()
+		s.deadline = s.deadline.Add(-5 * time.Second)
+	}
 	image := "/proc/self/exe"
 	if d.rowExecutable != "" {
 		image = d.rowExecutable
 	}
 	broker, e := qualification.OpenExecutable(image)
 	if e != nil {
+		ownerDiagnosticFailure(ctx, e)
 		return
 	}
 	defer broker.Close()
 	candidate, e := qualification.OpenExecutable(p.Executable)
 	if e != nil {
+		ownerDiagnosticFailure(ctx, e)
 		return
 	}
 	defer candidate.Close()
 	digest, e := descriptorDigest(candidate)
 	if e != nil || digest != p.ExecutableSHA256 {
+		ownerDiagnosticFailure(ctx, errors.Join(e, errors.New("candidate identity mismatch")))
 		return
 	}
 	effects := lifecycleEffects{Scope: "fake-only singleton owner-core/1"}
@@ -202,12 +212,14 @@ func (d driver) runLifecycleRow(parent context.Context, p policy.Policy, root, i
 			network[k] = old
 		}
 		if e != nil {
+			ownerDiagnosticFailure(ctx, e)
 			passed = false
 			break
 		}
 	}
 	control = executionControl(id, side, execution, time.Since(start))
 	if !control.Executed {
+		ownerDiagnosticFailure(ctx, errors.New("lifecycle execution unavailable"))
 		return
 	}
 	refusal := rowPositive(id)
@@ -218,6 +230,7 @@ func (d driver) runLifecycleRow(parent context.Context, p policy.Policy, root, i
 	if passed && validLifecycleEffects(observation) && ctx.Err() == nil {
 		control.Verdict = "passed"
 	} else {
+		ownerDiagnosticFailure(ctx, errors.New("lifecycle observation invalid"))
 		execution.Diagnostic = "observation_invalid"
 	}
 	artifact := rowArtifact{Kind: "qualification-row-control/1", Candidate: digest, ID: id, Side: side, Control: control, Observation: observation, Network: network, Execution: &execution}

@@ -737,7 +737,9 @@ control needs no new Stop.
 
 Each row side retains its unchanged absolute 30s bound, including all independent
 variants and joined cleanup. Work stops at the row deadline minus 5s to reserve
-cleanup. A timeout, overflow, extra attempted Start or incomplete observation
+cleanup. An earlier lifecycle row deadline failure remains unexplained; test-only
+diagnostics retain its scenario, last phase, pending wait and bounded error chain on recurrence.
+A timeout, overflow, extra attempted Start or incomplete observation
 fails evidence. New private caps are Q/R/L=3/5/2, eight lease calls, three clock
 steps and 512 combined 4KiB frames per owner; two sequential owner epochs; three
 writer launches and one live singleton per scenario; 64 non-Confidence model calls;

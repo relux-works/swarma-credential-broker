@@ -230,7 +230,10 @@ func (w *lifecycleWriter) challenge() error {
 	if !s.origin.Live(int(s.pid.Load())) {
 		return errors.New("writer not live")
 	}
-	if e := s.ch.send("challenge", text, nil); e != nil {
+	endChallenge := ownerDiagnosticWait(s.diagnosticContext, "writer challenge send")
+	e := s.ch.send("challenge", text, nil)
+	endChallenge(e)
+	if e != nil {
 		return e
 	}
 	m, e := s.receive("challenge")
@@ -256,10 +259,15 @@ func (w *lifecycleWriter) persist() error {
 }
 func (w *lifecycleWriter) stop(ctx context.Context, binding string) error {
 	s := w.session
-	if e := s.termination.Kill(ctx, qualificationHash([]byte("writer-stop\x00"+w.fact.Attempt+binding))); e != nil {
+	endKill := ownerDiagnosticWait(ctx, "writer stop certificate")
+	e := s.termination.Kill(ctx, qualificationHash([]byte("writer-stop\x00"+w.fact.Attempt+binding)))
+	endKill(e)
+	if e != nil {
 		return e
 	}
+	endJoin := ownerDiagnosticWait(ctx, "writer stop join")
 	<-s.done
+	endJoin(nil)
 	w.fact.Stop = s.termination.Facts()
 	w.fact.Origin.Joined = s.execution.Joined
 	w.fact.Origin.Exit = s.execution.CaseExit
@@ -275,7 +283,9 @@ func (w *lifecycleWriter) cleanup() {
 	case <-s.done:
 	default:
 		s.cancel()
+		endJoin := ownerDiagnosticWait(s.diagnosticContext, "writer cleanup join")
 		<-s.done
+		endJoin(nil)
 	}
 	s.ch.r.Close()
 	s.ch.w.Close()

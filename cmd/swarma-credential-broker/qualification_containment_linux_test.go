@@ -199,6 +199,7 @@ func containmentCheck(root string, graph containmentGraph) ([]string, error) {
 	ownerIssues := containmentOwnerAuthority(sources, graph, ordinary, qualification)
 	issues = append(issues, ownerIssues...)
 	issues = append(issues, containmentTimeFixtures(sources)...)
+	issues = append(issues, containmentOwnerDiagnostics(sources)...)
 	report := func(message string, args ...any) { issues = append(issues, fmt.Sprintf(message, args...)) }
 	authority := map[string]bool{"NewQualification": true, "NewQualificationAdmission": true, "NewQualificationLeaseRow": true, "NewQualificationPeerAdmission": true, "newQualificationPeer": true}
 	containmentClosure(sources, "internal/server", authority)
@@ -677,6 +678,56 @@ func containmentTimeFixtures(sources []containmentSource) []string {
 						issues = append(issues, "time activation assigned in "+source.path)
 					}
 				}
+			}
+			return true
+		})
+	}
+	return issues
+}
+
+// The compiled graph may read a test-installed sink, but cannot construct one
+// or expose its context key. Complete reader matching also rejects a hidden
+// default/fallback installer. This is not an unsafe/reflection proof.
+func containmentOwnerDiagnostics(sources []containmentSource) []string {
+	var issues []string
+	const reader = `func ownerDiagnostics(ctx context.Context) *ownerDiagnosticSink {
+ if ctx == nil { return nil }
+ sink, _ := ctx.Value(ownerDiagnosticSinkKey{}).(*ownerDiagnosticSink)
+ return sink
+ }`
+	for _, source := range sources {
+		allowed := map[*ast.Ident]bool{}
+		canonical := source.path == "internal/qualify/owner_diagnostic_linux.go"
+		ast.Inspect(source.file, func(n ast.Node) bool {
+			if spec, ok := n.(*ast.TypeSpec); ok && canonical {
+				if _, ok := spec.Type.(*ast.StructType); ok && (spec.Name.Name == "ownerDiagnosticSink" || spec.Name.Name == "ownerDiagnosticSinkKey") {
+					allowed[spec.Name] = true
+				}
+			}
+			if fn, ok := n.(*ast.FuncDecl); ok && canonical {
+				if fn.Name.Name == "ownerDiagnostics" && strings.Join(strings.Fields(containmentText(fn)), " ") == strings.Join(strings.Fields(reader), " ") {
+					ast.Inspect(fn, func(n ast.Node) bool {
+						if id, ok := n.(*ast.Ident); ok {
+							allowed[id] = true
+						}
+						return true
+					})
+				}
+				if fn.Recv != nil {
+					for _, field := range fn.Recv.List {
+						if pointer, ok := field.Type.(*ast.StarExpr); ok {
+							if id, ok := pointer.X.(*ast.Ident); ok && id.Name == "ownerDiagnosticSink" {
+								allowed[id] = true
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
+		ast.Inspect(source.file, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && ((id.Name == "ownerDiagnosticSink" || id.Name == "ownerDiagnosticSinkKey") && !allowed[id] || id.Name == "withOwnerDiagnostics") {
+				issues = append(issues, "test-only owner diagnostic installation in "+source.path)
 			}
 			return true
 		})

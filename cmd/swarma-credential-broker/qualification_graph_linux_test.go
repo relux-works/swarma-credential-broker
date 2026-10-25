@@ -414,3 +414,103 @@ func TestQualificationContainmentParallelFactories(t *testing.T) {
 		}
 	}
 }
+
+// Claim: the diagnostic activation guard admits only the complete nil-default
+// reader and method receiver, while rejecting sink/key materialization, aliases,
+// and a reader that silently installs a sink. These are structural controls;
+// the real graph test additionally checks all compiled first-party sources.
+func TestQualificationDiagnosticSinkContainment(t *testing.T) {
+	const normal = `package qualify
+ import "context"
+ type ownerDiagnosticSinkKey struct{}
+ type ownerDiagnosticSink struct{emit func(string)}
+ func ownerDiagnostics(ctx context.Context) *ownerDiagnosticSink {
+ if ctx == nil { return nil }
+ sink, _ := ctx.Value(ownerDiagnosticSinkKey{}).(*ownerDiagnosticSink)
+ return sink
+ }
+ func (s *ownerDiagnosticSink) note() {}
+ `
+	for name, plant := range map[string]string{
+		"normal":          normal,
+		"literal":         normal + `var sink = &ownerDiagnosticSink{}`,
+		"new":             normal + `var sink = new(ownerDiagnosticSink)`,
+		"alias":           normal + `type sinkAlias = ownerDiagnosticSink`,
+		"key":             normal + `var key = ownerDiagnosticSinkKey{}`,
+		"installer":       normal + `func withOwnerDiagnostics(){}`,
+		"reader-fallback": strings.Replace(normal, "return sink", "if sink == nil { sink = &ownerDiagnosticSink{} }; return sink", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", plant, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			issues := containmentOwnerDiagnostics([]containmentSource{{path: "internal/qualify/owner_diagnostic_linux.go", file: file}})
+			if name == "normal" {
+				if len(issues) != 0 {
+					t.Fatal("reader control refused", issues)
+				}
+			} else if len(issues) == 0 || !strings.Contains(strings.Join(issues, "\n"), "test-only owner diagnostic installation") {
+				t.Fatal("installation plant accepted or wrong refusal", issues)
+			}
+		})
+	}
+}
+
+// Claim: a compiled installer reference reachable from the qualification CLI
+// fails the real graph guard, while the same entry without activation passes.
+func TestQualificationDiagnosticCLIInstallation(t *testing.T) {
+	for _, install := range []bool{false, true} {
+		t.Run(fmt.Sprintf("install=%t", install), func(t *testing.T) {
+			root, _ := containmentWrapperFixture(t, "testdata", false)
+			source := `package qualify
+ import "context"
+ type ownerDiagnosticSinkKey struct{}
+ type ownerDiagnosticSink struct{emit func(string)}
+ func ownerDiagnostics(ctx context.Context) *ownerDiagnosticSink {
+ if ctx == nil { return nil }
+ sink, _ := ctx.Value(ownerDiagnosticSinkKey{}).(*ownerDiagnosticSink)
+ return sink
+ }
+ `
+			if install {
+				source += `func withOwnerDiagnostics(ctx context.Context) context.Context {
+     return context.WithValue(ctx, ownerDiagnosticSinkKey{}, &ownerDiagnosticSink{})
+    }
+    func cliDiagnosticEntry(){ _ = withOwnerDiagnostics(context.Background()) }
+    `
+			} else {
+				source += `func cliDiagnosticEntry(){}`
+			}
+			if err := os.WriteFile(filepath.Join(root, "internal/qualify/owner_diagnostic_linux.go"), []byte(source), 0600); err != nil {
+				t.Fatal(err)
+			}
+			entry := filepath.Join(root, "internal/qualify/command.go")
+			original, err := os.ReadFile(entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(entry, []byte(strings.Replace(string(original), "bridge.Single();", "cliDiagnosticEntry(); bridge.Single();", 1)), 0600); err != nil {
+				t.Fatal(err)
+			}
+			graph, err := containmentProductionGraph(t, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			build := containmentGo(t, root, "build", "-p=1", "-tags=", "-o", filepath.Join(t.TempDir(), "fixture"), "./cmd/swarma-credential-broker")
+			if out, err := build.CombinedOutput(); err != nil {
+				t.Fatalf("CLI control does not compile: %v %s", err, out)
+			}
+			issues, err := containmentCheck(root, graph)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !install && len(issues) != 0 {
+				t.Fatal("inert CLI control rejected", issues)
+			}
+			if install && !strings.Contains(strings.Join(issues, "\n"), "test-only owner diagnostic installation") {
+				t.Fatal("CLI installer reference accepted or wrong refusal", issues)
+			}
+		})
+	}
+}

@@ -104,6 +104,7 @@ func (m *lifecycleModel) hold(req ownerMessage, phase string) error {
 	}
 	m.held = &req
 	m.gate = &lifecycleGate{Phase: phase, Prefix: prefix, State: "checked", Call: req.ID}
+	ownerDiagnosticPhase(m.ctx, "crash gate held")
 	return errOwnerHeld
 }
 func (m *lifecycleModel) crash(s *ownerSession) error {
@@ -120,11 +121,16 @@ func (m *lifecycleModel) crash(s *ownerSession) error {
 	g.State = "sealed"
 	data, _ := wire.Encode(g)
 	digest := qualificationHash(data)
-	if e = s.termination.Kill(m.ctx, digest); e != nil {
+	endKill := ownerDiagnosticWait(m.ctx, "owner kill certificate")
+	e = s.termination.Kill(m.ctx, digest)
+	endKill(e)
+	if e != nil {
 		return e
 	}
 	g.State = "kill-sent"
+	endJoin := ownerDiagnosticWait(m.ctx, "owner crash join")
 	<-s.done
+	endJoin(nil)
 	f := s.termination.Facts()
 	if !f.Valid() || f.Context != g.Context || f.Gate != digest || s.err == nil || !s.report.Incomplete || s.waits != 1 {
 		return errors.New("owner crash certificate missing")

@@ -39,7 +39,8 @@ func lifecycleTest(t *testing.T, scenarios ...string) []lifecycleFact {
 	var facts []lifecycleFact
 	for _, scenario := range scenarios {
 		start := time.Now()
-		f, x, _, e := lifecycleRun(ctx, broker, candidate, digest, scenario)
+		diagnostic := withOwnerDiagnostics(ctx, func(s string) { t.Log(s) })
+		f, x, _, e := lifecycleRun(diagnostic, broker, candidate, digest, scenario)
 		if e != nil || !x.credit(false) || x.CaseExit != 0 || !validLifecycleFact(f) {
 			if f.Parallel != nil {
 				t.Logf("parallel effects: %+v", f.Parallel)
@@ -170,7 +171,7 @@ func TestOwnerLifecycleRows(t *testing.T) {
 	for _, id := range []string{"transient-ambiguous", "rotation-crash", "cleanup-interrupted"} {
 		q := qualification.Case{ID: id}
 		for _, side := range []string{"positive", "negative"} {
-			x := d.runRow(context.Background(), c.Policy, root, id, side)
+			x := d.runRow(withOwnerDiagnostics(context.Background(), func(s string) { t.Log(s) }), c.Policy, root, id, side)
 			if !x.Executed || x.Verdict != "passed" || x.DurationNS <= 0 || x.DurationNS > x.BoundNS || x.BoundNS != int64(30*time.Second) {
 				t.Fatal("lifecycle row collector", id, side, x)
 			}
