@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
@@ -10,6 +11,78 @@ import (
 	"strings"
 	"testing"
 )
+
+// Claim: the compiled writer entry refuses a stubbed entry error before
+// composition; the instrument rejects disabled checks and ignored entry errors.
+// These closed stubs test the instrument, not the runtime role exchange.
+func TestReviewWriterEntryCondition(t *testing.T) {
+	containmentEntryVariants(t, "writer", "owner_lifecycle_linux.go", "c, ch, native")
+}
+
+// Claim: the owner entry has the same complete conditional/refusal obligation
+// as the writer, independently exercised with compiled neighboring controls.
+func TestQualificationContainmentOwnerEntryCondition(t *testing.T) {
+	containmentEntryVariants(t, "owner", "owner_worker_linux.go", "c, ch")
+}
+
+func containmentEntryVariants(t *testing.T, role, file, arguments string) {
+	t.Helper()
+	entry := "Enter" + strings.ToUpper(role[:1]) + role[1:] + "Role"
+	for _, mode := range []string{"normal", "disabled", "ignored-error", "wrong-refusal"} {
+		t.Run(mode, func(t *testing.T) {
+			root, _ := containmentWrapperFixture(t, "testdata", false)
+			origin := "package egress;import \"errors\";func NewOwnerOrigin(){};func " + entry + "(string)error{return errors.New(\"entry refused\")}"
+			condition, refusal, want := "egress."+entry+"(args[1]) != nil", "return 125", 125
+			switch mode {
+			case "disabled":
+				condition, want = "false && "+condition, 7
+			case "ignored-error":
+				refusal, want = "_ = 125", 7
+			case "wrong-refusal":
+				refusal, want = "return 0", 0
+			}
+			source := fmt.Sprintf(`package qualify
+import "%s/internal/egress"
+func %sMain(args []string)int {
+ %s := %s
+ if %s {%s}
+ return %sCompose(%s)
+}
+func %sCompose(%s int)int{return 7}
+`, containmentModule, role, arguments, strings.Repeat("0, ", strings.Count(arguments, ","))+"0", condition, refusal, role, arguments, role, arguments)
+			probe := fmt.Sprintf(`package qualify;import "testing";func TestEntry(t *testing.T){if got:=%sMain([]string{"%s","digest"});got!=%d{t.Fatal(got)}}`, role, role, want)
+			for path, text := range map[string]string{
+				"internal/egress/origin_linux_amd64.go": origin,
+				"internal/qualify/" + file:              source,
+				"internal/qualify/entry_test.go":        probe,
+			} {
+				if e := os.WriteFile(filepath.Join(root, path), []byte(text), 0600); e != nil {
+					t.Fatal(e)
+				}
+			}
+			cmd := containmentGo(t, root, "test", "-p=1", "./internal/qualify", "-run", "^TestEntry$", "-count=1")
+			if out, e := cmd.CombinedOutput(); e != nil {
+				t.Fatalf("compiled entry control unavailable: %v %s", e, out)
+			}
+			t.Logf("compiled %s entry result confirmed: %d", role, want)
+			graph, e := containmentProductionGraph(t, root)
+			if e != nil {
+				t.Fatal(e)
+			}
+			issues, e := containmentCheck(root, graph)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if mode == "normal" {
+				if len(issues) != 0 {
+					t.Fatal("valid entry control refused", issues)
+				}
+			} else if len(issues) != 1 || issues[0] != role+" construction barrier changed" {
+				t.Fatal("unsafe "+role+" entry accepted or wrong refusal", issues)
+			}
+		})
+	}
+}
 
 // Claim: the actual production graph/source instrument rejects constructor
 // aliases imported by the daemon, including the owner-origin factory and

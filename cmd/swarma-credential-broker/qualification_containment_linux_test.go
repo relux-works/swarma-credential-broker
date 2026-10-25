@@ -474,6 +474,13 @@ func containmentOwnerAuthority(sources []containmentSource, graph containmentGra
 		f, _ := parser.ParseFile(token.NewFileSet(), "gate.go", "package main;func main(){"+text+"}", 0)
 		mainGates[containmentText(f.Decls[0].(*ast.FuncDecl).Body.List[0])] = true
 	}
+	// Compare the whole entry statement, including its condition and refusal.
+	// Finding the call text alone also admits disabled checks and ignored errors.
+	entryGates := map[string]string{}
+	for role, call := range map[string]string{"writer": "EnterWriterRole", "owner": "EnterOwnerRole"} {
+		f, _ := parser.ParseFile(token.NewFileSet(), "gate.go", "package qualify;func gate(){if egress."+call+"(args[1]) != nil {return 125}}", 0)
+		entryGates[role] = containmentText(f.Decls[0].(*ast.FuncDecl).Body.List[0])
+	}
 	aliases := func(s containmentSource) map[string]string {
 		out := map[string]string{}
 		for _, imp := range s.file.Imports {
@@ -576,7 +583,7 @@ func containmentOwnerAuthority(sources []containmentSource, graph containmentGra
 			if s.path == "internal/qualify/owner_lifecycle_linux.go" {
 				if f, ok := d.(*ast.FuncDecl); ok && f.Name.Name == "writerMain" {
 					body := f.Body.List
-					if len(body) < 2 || containmentText(body[len(body)-1]) != "return writerCompose(c, ch, native)" || !strings.Contains(containmentText(body[len(body)-2]), `egress.EnterWriterRole(args[1]) != nil`) {
+					if len(body) < 2 || containmentText(body[len(body)-1]) != "return writerCompose(c, ch, native)" || containmentText(body[len(body)-2]) != entryGates["writer"] {
 						issues = append(issues, "writer construction barrier changed")
 					} else {
 						for _, stmt := range body[:len(body)-2] {
@@ -590,7 +597,7 @@ func containmentOwnerAuthority(sources []containmentSource, graph containmentGra
 			if s.path == "internal/qualify/owner_worker_linux.go" {
 				if f, ok := d.(*ast.FuncDecl); ok && f.Name.Name == "ownerMain" {
 					body := f.Body.List
-					if len(body) < 2 || containmentText(body[len(body)-1]) != "return ownerCompose(c, ch)" || !strings.Contains(containmentText(body[len(body)-2]), `egress.EnterOwnerRole(args[1]) != nil`) {
+					if len(body) < 2 || containmentText(body[len(body)-1]) != "return ownerCompose(c, ch)" || containmentText(body[len(body)-2]) != entryGates["owner"] {
 						issues = append(issues, "owner construction barrier changed")
 					} else {
 						for _, stmt := range body[:len(body)-2] {
