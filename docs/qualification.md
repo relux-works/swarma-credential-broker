@@ -387,8 +387,10 @@ that requires a separate bounded durable-owner enrollment/restart fixture with
 the real time provider and adapter. The test-only confidence constructor is not
 linked into the release worker. No time-row pass credit is granted here.
 
-The legacy artifact schema represents argv, exit, monotonic duration and bound
-for a credited control. The current origin gate permits no such artifact. Owned 0600 `row-<id>-<side>.json` files contain closed
+For the ten attested transport and admission rows, the artifact schema records
+argv, exit, monotonic duration and bound for each credited control in a pair.
+Peer and runner remain UNRUN pending their documented owner decisions in
+[Execution evidence origin](#execution-evidence-origin). Owned 0600 `row-<id>-<side>.json` files contain closed
 `qualification-row-control/1` diagnostic evidence with the exact control,
 candidate digest, bounded observation and aggregate egress counts. Their hashes
 are verified before crediting the report. Each exchange retains its validated
