@@ -296,14 +296,15 @@ func runPeerClient(ctx context.Context, f fixtureConfiguration, peers *peerFixtu
 			e = qualification.ErrUnavailable
 			result.Execution.Diagnostic = "case_evidence_invalid"
 		} else if e == nil {
-			result = reply
-			result.Execution.Launched, result.Execution.Handshake = true, true
+			result.Observation, result.Network, result.Incomplete = reply.Observation, reply.Network, reply.Incomplete
+			result.Execution.Diagnostic = reply.Execution.Diagnostic
 		} else {
 			result.Execution.Diagnostic = "case_evidence_unavailable"
 		}
 	}
 	wait := cmd.Wait()
 	result.Execution.waited(cmd.ProcessState)
+	result.Execution.unavailableOrigin()
 	if e == nil {
 		e = wait
 	}

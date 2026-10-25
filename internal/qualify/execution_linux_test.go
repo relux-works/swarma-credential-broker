@@ -5,9 +5,11 @@ package qualify
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/relux-works/swarma-credential-broker/internal/qualification"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
@@ -61,48 +63,47 @@ func TestPeerStartupReportDiagnostics(t *testing.T) {
 	}
 }
 
-// Claim: actual canonical exchanges ending with status 17 retain that status
-// for peer, transport, admission and runner, despite invalid observation bytes.
-// The normal real pair and TestRowsHarness supply the adjacent zero-status control.
+// Claim: genuine canonical zero/nonzero fixtures retain only parent-observed
+// launcher status, with no canonical credit. For peer, the outer launcher exits
+// zero for either inner status: its case status is intentionally unknown.
 func TestCaseCompletionStatus(t *testing.T) {
-	worker := rowTool(t, "./testdata/caseexit")
 	fake := rowTool(t, "../runner/testdata/appserver")
-	for _, id := range []string{"peer-denied", "frame-oversized", "account-unknown", "home-auth-present"} {
-		t.Run(id, func(t *testing.T) {
-			_, c, root := setup(t)
-			var records []rowExecutionRecord
-			d := driver{rowExecutable: worker, runnerExecutable: fake, executions: &records}
-			var row qualification.Case
-			if id == "peer-denied" {
-				f := configuredPeerRow(t)
-				f.PeerHelper = worker
-				row.ID = id
-				d.runPeerRows(context.Background(), f, c.Policy, root, &row)
-			} else {
-				row = qualification.Case{ID: id, Positive: d.runRow(context.Background(), c.Policy, root, id, "positive"), Negative: d.runRow(context.Background(), c.Policy, root, id, "negative")}
-			}
-			if validateRow(root, c.Policy.ExecutableSHA256, c.Policy.Generation, row) != nil {
-				t.Fatal("completed failure evidence rejected", row)
-			}
-			for _, control := range []qualification.Control{row.Positive, row.Negative} {
-				if !control.Executed || control.ExitCode != 17 || control.Verdict != "failed" {
-					t.Fatal("completed case status replaced", control)
-				}
-			}
-			if len(records) != 2 {
-				t.Fatal("completion records missing")
-			}
-			for _, record := range records {
-				e := record.Execution
-				wantHelper := 17
+	for _, status := range []int{0, 17} {
+		worker := rowTool(t, "../../cmd/swarma-credential-broker")
+		if status != 0 {
+			worker = rowTool(t, "./testdata/caseexit")
+		}
+		for _, id := range []string{"peer-denied", "frame-oversized", "account-unknown", "home-auth-present"} {
+			t.Run(fmt.Sprintf("%s/%d", id, status), func(t *testing.T) {
+				_, c, root := setup(t)
+				var records []rowExecutionRecord
+				d := driver{rowExecutable: worker, runnerExecutable: fake, executions: &records}
 				if id == "peer-denied" {
-					wantHelper = 0 // outer helper completed; bounded case exited 17
+					f := configuredPeerRow(t)
+					if status != 0 {
+						f.PeerHelper = worker
+					}
+					row := qualification.Case{ID: id}
+					d.runPeerRows(context.Background(), f, c.Policy, root, &row)
+					assertOriginPending(t, root, id, row.Negative)
+					assertOriginPending(t, root, id, row.Positive)
+				} else {
+					control := d.runRow(context.Background(), c.Policy, root, id, "positive")
+					assertOriginPending(t, root, id, control)
 				}
-				if !e.credit(id == "peer-denied") || e.WorkerExit != 17 || e.HelperExit != wantHelper || e.CaseExit != 17 || e.Diagnostic != "observation_invalid" {
-					t.Fatal("completion status lost", e)
+				if len(records) == 0 {
+					t.Fatal("missing launcher diagnostics")
 				}
-			}
-		})
+				e := records[0].Execution
+				want := status
+				if id == "peer-denied" {
+					want = 0
+				}
+				if !e.Joined || e.HelperExit != want || e.Started || e.Completed || e.WorkerExit != -1 || e.CaseExit != -1 {
+					t.Fatal("launcher status promoted to case", e)
+				}
+			})
+		}
 	}
 }
 
@@ -193,41 +194,18 @@ func TestRowStartupEvidence(t *testing.T) {
 	}
 }
 
-// Claim: execution proof and recorded exit are mandatory even for failed rows;
-// a self-consistent artifact hash cannot replace missing start/completion proof.
+// Claim: even self-consistent claimed lifecycle metadata cannot establish
+// execution or authorize artifacts without a supported origin witness.
 func TestExecutionArtifactIntegrity(t *testing.T) {
-	_, c, root := setup(t)
-	d := driver{rowExecutable: rowTool(t, "../../cmd/swarma-credential-broker")}
-	id := "frame-oversized"
-	row := qualification.Case{ID: id, Positive: d.runRow(context.Background(), c.Policy, root, id, "positive"), Negative: d.runRow(context.Background(), c.Policy, root, id, "negative")}
-	b, _ := os.ReadFile(rowFile(root, id, "negative"))
-	for _, defect := range []string{"missing", "start", "completion", "status"} {
-		t.Run(defect, func(t *testing.T) {
-			var a rowArtifact
-			if wire.Decode(b, &a) != nil {
-				t.Fatal("original artifact")
-			}
-			a.Control.Verdict = "failed"
-			switch defect {
-			case "missing":
-				a.Execution = nil
-			case "start":
-				a.Execution.Started = false
-			case "completion":
-				a.Execution.Completed = false
-			case "status":
-				a.Execution.CaseExit++
-			}
-			tampered, _ := wire.Encode(a)
-			if os.WriteFile(rowFile(root, id, "negative"), tampered, 0600) != nil {
-				t.Fatal("artifact plant")
-			}
-			copy := row
-			copy.Negative.Verdict = "failed"
-			copy.Negative.Artifacts = []string{qualification.Hash(tampered)}
-			if validateRow(root, c.Policy.ExecutableSHA256, c.Policy.Generation, copy) == nil {
-				t.Fatal("unproved execution credited", defect)
-			}
-		})
+	// Even internally consistent claimed lifecycle fields have no origin witness.
+	for _, status := range []int{0, 17} {
+		e := rowExecution{Launched: true, Handshake: true, Started: true, Completed: true, Joined: true, HelperExit: status, WorkerExit: status, CaseExit: status}
+		if e.credit(false) || e.credit(true) {
+			t.Fatal("unproved execution credited", e)
+		}
+		c := executionControl("frame-oversized", "positive", e, time.Second)
+		if c.Executed || c.ExitCode != -1 || len(c.Artifacts) != 0 {
+			t.Fatal("claimed status gained credit", c)
+		}
 	}
 }

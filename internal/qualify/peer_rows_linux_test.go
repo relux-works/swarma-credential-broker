@@ -39,34 +39,18 @@ func configuredPeerRow(t *testing.T) fixtureConfiguration {
 	return f
 }
 
-// Claim: a real configured foreign process sends nothing and receives the
-// exact null-ID denial plus EOF, with zero baseline effects; the allowed real
-// process leases on the same group-only socket. No UID substitution is used.
+// Claim: a real configured helper still leaves peer qualification UNRUN;
+// the parent joins its launcher and suppresses the neighbouring control.
 func TestPeerRowFixture(t *testing.T) {
 	f := configuredPeerRow(t)
 	_, c, root := setup(t)
-	cases := qualification.Pending(qualification.Identity{}).Cases
-	var row qualification.Case
-	for _, v := range cases {
-		if v.ID == "peer-denied" {
-			row = v
-		}
-	}
-	d := driver{}
-	d.runPeerRows(context.Background(), f, c.Policy, root, &row)
-	if row.Positive.Verdict != "passed" || row.Negative.Verdict != "passed" || validateRow(root, c.Policy.ExecutableSHA256, c.Policy.Generation, row) != nil {
-		t.Fatalf("peer denial/effects: %+v", row)
-	}
-	for _, side := range []string{"positive", "negative"} {
-		b, e := os.ReadFile(rowFile(root, row.ID, side))
-		var a rowArtifact
-		if e != nil || wire.Decode(b, &a) != nil {
-			t.Fatal("peer evidence")
-		}
-		a.Observation.Peer.IdentityVerified = false
-		if validPeerEnvelopes(a.Observation, c.Policy.Generation) {
-			t.Fatal("unverified peer credited")
-		}
+	row := qualification.Case{ID: "peer-denied"}
+	var records []rowExecutionRecord
+	(driver{executions: &records}).runPeerRows(context.Background(), f, c.Policy, root, &row)
+	assertOriginPending(t, root, row.ID, row.Positive)
+	assertOriginPending(t, root, row.ID, row.Negative)
+	if len(records) != 2 || !records[0].Execution.Launched || records[0].Execution.HelperExit != 0 || records[0].Execution.Started || records[1].Execution.Launched {
+		t.Fatal("peer origin/neighbor", records)
 	}
 }
 

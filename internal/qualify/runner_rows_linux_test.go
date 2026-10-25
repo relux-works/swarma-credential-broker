@@ -27,9 +27,8 @@ func configureRunner(t *testing.T, path, executable string) {
 	}
 }
 
-// Claim: actual Command preflight rejects both established sources before any
-// authority/broker/owner/child work; clean neighbors complete synthetic login
-// through the existing app-server fixture under the real egress boundary.
+// Claim: real runner fixture invocations cannot gain qualification credit
+// without independently established Command preflight origin.
 func TestRunnerRowFixtures(t *testing.T) {
 	worker := rowTool(t, "../../cmd/swarma-credential-broker")
 	fake := rowTool(t, "../runner/testdata/appserver")
@@ -37,35 +36,12 @@ func TestRunnerRowFixtures(t *testing.T) {
 		for _, side := range []string{"positive", "negative"} {
 			t.Run(id+"/"+side, func(t *testing.T) {
 				_, c, root := setup(t)
-				d := driver{rowExecutable: worker, runnerExecutable: fake}
+				var records []rowExecutionRecord
+				d := driver{rowExecutable: worker, runnerExecutable: fake, executions: &records}
 				control := d.runRow(context.Background(), c.Policy, root, id, side)
-				b, e := os.ReadFile(rowFile(root, id, side))
-				var a rowArtifact
-				if e != nil || wire.Decode(b, &a) != nil || control.Verdict != "passed" || !validRunnerEffects(a.Observation) || !validAdmissionEffects(a.Observation) {
-					t.Fatalf("runner source verdict/effects: %+v %v", control, e)
-				}
-				if len(a.Observation.Envelopes) != 0 {
-					t.Fatal("local refusal invented wire frame")
-				}
-				original := a.Observation.Runner
-				for _, defect := range []string{"missing", "status", "login", "resolve", "state"} {
-					copy := *original
-					a.Observation.Runner = &copy
-					switch defect {
-					case "missing":
-						a.Observation.Runner = nil
-					case "status":
-						copy.Status++
-					case "login":
-						copy.Login++
-					case "resolve":
-						copy.Resolves++
-					case "state":
-						copy.StateVerified = false
-					}
-					if validRunnerEffects(a.Observation) {
-						t.Fatal("runner evidence defect credited", defect)
-					}
+				assertOriginPending(t, root, id, control)
+				if len(records) != 1 || !records[0].Execution.Joined || records[0].Execution.HelperExit != 0 || records[0].Execution.Diagnostic != "case_origin_unavailable" {
+					t.Fatal("runner origin", records)
 				}
 			})
 		}

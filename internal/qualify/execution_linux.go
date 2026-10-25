@@ -45,6 +45,17 @@ func newRowExecution() rowExecution {
 	return rowExecution{HelperExit: -1, WorkerExit: -1, CaseExit: -1}
 }
 
+// A receipt/report is not an independently observed canonical invocation.
+// Keep only the parent's launcher diagnostics until an origin witness exists.
+func (e *rowExecution) unavailableOrigin() {
+	e.Handshake = false // a helper handshake is not measured-case identity
+	e.Started, e.Completed = false, false
+	e.WorkerExit, e.CaseExit = -1, -1
+	if e.Launched && (e.Diagnostic == "" || e.Diagnostic == "observation_invalid" || e.Diagnostic == "case_status_unavailable") {
+		e.Diagnostic = "case_origin_unavailable"
+	}
+}
+
 func (d driver) recordExecution(id, side string, e rowExecution) {
 	if d.executions != nil {
 		*d.executions = append(*d.executions, rowExecutionRecord{id, side, e})
@@ -52,7 +63,9 @@ func (d driver) recordExecution(id, side string, e rowExecution) {
 }
 
 func (e rowExecution) credit(peer bool) bool {
-	return e.Launched && (!peer || e.Handshake) && e.Started && e.Completed && e.Joined && e.CaseExit >= 0 && e.CaseExit <= 255 && e.CaseExit == e.WorkerExit
+	// No current path implements the origin witness in qualification.md.
+	// Self-consistent lifecycle fields cannot reopen qualification.
+	return false
 }
 
 func pendingRowControl() qualification.Control {
@@ -92,7 +105,7 @@ func launchDiagnostic(err error) rowDiagnostic {
 }
 
 // FD9 is separate from the context, candidate and lease phase descriptors.
-// Only entry into the canonical case writes this byte; launcher Start cannot.
+// This legacy receipt is diagnostic input only: the launcher also inherits it.
 func signalCaseStart() error {
 	f := os.NewFile(9, "case-start")
 	if f == nil {

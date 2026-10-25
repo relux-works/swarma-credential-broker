@@ -299,3 +299,8 @@ vendor egress, so no native-vendor test entry point is shipped.
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+The qualification row harness currently leaves all four execution paths UNRUN
+because canonical execution origin is not independently established. Launcher
+diagnostics grant no control artifacts or qualification credit; see
+[Execution evidence origin](docs/qualification.md#execution-evidence-origin).

@@ -165,7 +165,14 @@ func (d driver) runRows(ctx context.Context, configuration string, p policy.Poli
 			continue
 		}
 		c.Positive = d.runRow(ctx, q, root, c.ID, "positive")
-		c.Negative = d.runRow(ctx, q, root, c.ID, "negative")
+		if c.Positive.Executed {
+			c.Negative = d.runRow(ctx, q, root, c.ID, "negative")
+		} else {
+			c.Negative = pendingRowControl()
+			e := newRowExecution()
+			e.Diagnostic = "case_pair_unavailable"
+			d.recordExecution(c.ID, "negative", e)
+		}
 		if validateRow(root, p.ExecutableSHA256, p.Generation, *c) != nil {
 			// Unverifiable evidence is never credited, including a missing
 			// positive control. Retain no fabricated execution or artifact.
@@ -369,12 +376,12 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	outW.Close()
 	errW.Close()
 	out, diag := <-output, <-diagnostic
-	execution.Started = readCaseStart(startR, startW)
-	execution.WorkerExit = execution.HelperExit
-	execution.Completed = execution.Started && execution.WorkerExit >= 0
+	// Drain the legacy receipt, but do not promote an inherited-channel byte
+	// or a launcher wait into independently established canonical entry.
+	receipt := readCaseStart(startR, startW)
 	if !execution.Launched {
 		execution.Diagnostic = launchDiagnostic(runError)
-	} else if !execution.Started {
+	} else if !receipt {
 		execution.Diagnostic = "case_not_started"
 	} else if !execution.Completed {
 		execution.Diagnostic = "case_status_unavailable"
@@ -382,6 +389,7 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 		execution.Diagnostic = ""
 		execution.CaseExit = execution.WorkerExit
 	}
+	execution.unavailableOrigin()
 	control = executionControl(id, side, execution, elapsed)
 	if !control.Executed {
 		return
