@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/hosttest"
 	"io"
 	"net"
 	"os"
@@ -39,6 +40,9 @@ var peerPending bool
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "peer-probe" {
 		os.Exit(peerProbe(os.Args[2:]))
+	}
+	if hosttest.Unprivileged() {
+		os.Exit(m.Run())
 	}
 	b, err := store.ReadProtected(os.Getenv("BROKER_TEST_PEER_CONFIG"), uint32(os.Geteuid()))
 	if err != nil || wire.Decode(b, &peers) != nil || !filepath.IsAbs(peers.Directory) || !filepath.IsAbs(peers.Helper) {
@@ -157,6 +161,10 @@ func peerRun(t *testing.T, name string, uid uint32, path, method string, params 
 
 // Claim: configured OS processes reach actual kernel peer denial, allowed leasing and cross-UID ownership refusal; unavailable identities/permissions are PENDING with exit 69.
 func TestConfiguredPeers(t *testing.T) {
+	hosttest.Require(t, "protected peer configuration, distinct identities and noninteractive helper permissions")
+	if peers.Helper == "" || peers.Directory == "" {
+		t.Fatal("protected peer fixture unavailable outside the shared host gate")
+	}
 	e := testutil.NewPolicy(t, lease.Options{}, func(p *policy.Policy) { p.Accounts[0].AllowedUIDs = []uint32{allowedUID} })
 	path := filepath.Join(peers.Directory, "probe-"+lease.RandomID())
 	l, err := Listen(path)
@@ -227,6 +235,10 @@ func TestConfiguredPeers(t *testing.T) {
 // contract from Serve's independent startup checks; unavailable execution is
 // PENDING, while a started helper unable to connect fails the assertion.
 func TestConfiguredPeerConnect(t *testing.T) {
+	hosttest.Require(t, "protected peer configuration, distinct identities and noninteractive helper permissions")
+	if peers.Helper == "" || peers.Directory == "" {
+		t.Fatal("protected peer fixture unavailable outside the shared host gate")
+	}
 	path := filepath.Join(peers.Directory, "connect-"+lease.RandomID())
 	l, err := Listen(path)
 	if err != nil {

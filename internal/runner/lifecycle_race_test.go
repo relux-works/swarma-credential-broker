@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/hosttest"
 	"io"
 	"os"
 	"os/exec"
@@ -196,6 +197,10 @@ func unverifiedTrace(t *testing.T, cause error) {
 	t.Helper()
 	if os.Getenv("RUNNER_QUALIFICATION") == "1" {
 		t.Fatalf("UNVERIFIED: %s: %v", t.Name(), cause)
+	}
+	hosttest.Require(t, fmt.Sprintf("UNVERIFIED: %s: %v", t.Name(), cause))
+	if hosttest.Unprivileged() {
+		t.Fatal("unavailable tracer reached outside the shared host gate")
 	}
 	t.Skipf("UNVERIFIED: %s: %v", t.Name(), cause)
 }

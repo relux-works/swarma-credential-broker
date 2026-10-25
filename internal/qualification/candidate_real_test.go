@@ -5,6 +5,7 @@ package qualification
 import (
 	"context"
 	"encoding/json"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/hosttest"
 	"net"
 	"os"
 	"os/exec"
@@ -20,6 +21,7 @@ import (
 // under egress. strace independently rejects external/undecodable connects.
 // This supplies identity evidence only; pending rows still prevent publication.
 func TestRealCandidateObservers(t *testing.T) {
+	hosttest.Require(t, "explicit protected real candidate and private evidence directory")
 	root := os.Getenv("CANDIDATE_EVIDENCE_DIR")
 	candidate := os.Getenv("CANDIDATE_EXECUTABLE")
 	if !filepath.IsAbs(root) || !filepath.IsAbs(candidate) {

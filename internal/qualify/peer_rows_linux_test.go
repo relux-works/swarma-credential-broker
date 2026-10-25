@@ -4,6 +4,7 @@ package qualify
 
 import (
 	"context"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/hosttest"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -19,8 +20,12 @@ import (
 
 func configuredPeerRow(t *testing.T) fixtureConfiguration {
 	t.Helper()
+	hosttest.Require(t, "protected peer configuration, provisioned identities and noninteractive helper permissions")
 	path := os.Getenv("BROKER_TEST_PEER_CONFIG")
 	if path == "" {
+		if hosttest.Unprivileged() {
+			t.Fatal("protected peer configuration unavailable outside the shared host gate")
+		}
 		t.Skip("UNRUN: protected peer configuration not supplied")
 	}
 	b, e := store.ReadProtected(path, uint32(os.Geteuid()))
@@ -95,7 +100,7 @@ func TestPeerRowSocketMode(t *testing.T) {
 
 func configurePeers(t *testing.T, path string) bool {
 	t.Helper()
-	if os.Getenv("BROKER_TEST_PEER_CONFIG") == "" {
+	if hosttest.Unprivileged() || os.Getenv("BROKER_TEST_PEER_CONFIG") == "" {
 		return false
 	}
 	f := configuredPeerRow(t)

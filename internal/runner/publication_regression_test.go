@@ -95,10 +95,7 @@ func tracePublicationTiming(t *testing.T, timing string) {
 	requiredEvidenceRow(t)
 	tracer, err := exec.LookPath("strace")
 	if err != nil {
-		if os.Getenv("RUNNER_QUALIFICATION") == "1" {
-			t.Fatalf("UNVERIFIED: %s requires strace: %v", t.Name(), err)
-		}
-		t.Skipf("UNVERIFIED: %s requires strace: %v", t.Name(), err)
+		unverifiedTrace(t, fmt.Errorf("strace unavailable: %w", err))
 	}
 	self, err := os.Executable()
 	must(t, err)

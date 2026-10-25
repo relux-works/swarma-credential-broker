@@ -5,6 +5,7 @@ package egress
 import (
 	"context"
 	"encoding/json"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/hosttest"
 	"golang.org/x/sys/unix"
 	"os"
 	"os/exec"
@@ -18,6 +19,7 @@ import (
 // fresh home, closed proxies and the live boundary. strace follows independently.
 // This is neither release qualification nor a claim about other candidate commands.
 func TestRealCandidateVersion(t *testing.T) {
+	hosttest.Require(t, "explicit protected real candidate and private evidence directory")
 	candidate := os.Getenv("EGRESS_SMOKE_CANDIDATE")
 	evidence := os.Getenv("EGRESS_SMOKE_EVIDENCE")
 	if !filepath.IsAbs(candidate) || !filepath.IsAbs(evidence) {

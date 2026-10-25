@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/hosttest"
 	"net"
 	"net/http"
 	"os"
@@ -25,6 +26,7 @@ import (
 // successful qualification. Boundary records and independent connect tracing
 // must show zero external grants and only loopback connect attempts.
 func TestLocalCandidateHTTPProbe(t *testing.T) {
+	hosttest.Require(t, "explicit protected real candidate and private evidence directory")
 	root := os.Getenv("EGRESS_SMOKE_EVIDENCE")
 	candidate := os.Getenv("EGRESS_SMOKE_CANDIDATE")
 	if !filepath.IsAbs(root) || !filepath.IsAbs(candidate) {

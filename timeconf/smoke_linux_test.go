@@ -4,6 +4,7 @@ package timeconf
 
 import (
 	"context"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/hosttest"
 	"testing"
 	"time"
 )
@@ -12,6 +13,10 @@ import (
 // evidence only and supplies no activation, source-selection or account gate.
 // Every printed field is a fixed verdict or parsed numeric/enum aggregate.
 func TestHostTimeConfidenceSmoke(t *testing.T) {
+	hosttest.Require(t, "configured host time collector and source policy")
+	if hosttest.Unprivileged() {
+		t.Fatal("host time diagnostic reached outside the shared host gate")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	p := testPolicy()

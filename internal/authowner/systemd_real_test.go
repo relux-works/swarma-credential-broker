@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/hosttest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,7 @@ func noUnit(err error) bool {
 // A permission/transport failure never counts as successful unit disappearance.
 func realManager(t *testing.T) (*Systemd, string, func(string)) {
 	t.Helper()
+	hosttest.Require(t, "prepared systemd user manager and service sandbox configuration")
 	prefix := "scb-test-" + id() + "-"
 	daemon := prefix + "daemon.service"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

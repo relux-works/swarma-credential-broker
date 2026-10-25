@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/hosttest"
 	"io"
 	"os"
 	"os/exec"
@@ -39,6 +40,9 @@ var pending bool
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "client-peer" {
 		os.Exit(helper(os.Args[2:]))
+	}
+	if hosttest.Unprivileged() {
+		os.Exit(m.Run())
 	}
 	b, e := store.ReadProtected(os.Getenv("BROKER_TEST_PEER_CONFIG"), uint32(os.Geteuid()))
 	if e != nil || wire.Decode(b, &peers) != nil || !filepath.IsAbs(peers.Directory) || !filepath.IsAbs(peers.Helper) {
@@ -173,6 +177,10 @@ func peerResult(t *testing.T, e error) {
 // kernel UID and negotiates its own kernel principal. Clients send no bytes to
 // a foreign-user server when its pin mismatches; the exact-pin control succeeds.
 func TestConfiguredClientPins(t *testing.T) {
+	hosttest.Require(t, "protected peer configuration, distinct identities and noninteractive helper permissions")
+	if peers.Helper == "" || peers.Directory == "" {
+		t.Fatal("protected peer fixture unavailable outside the shared host gate")
+	}
 	env := testutil.NewPolicy(t, lease.Options{}, func(p *policy.Policy) { p.Accounts[0].AllowedUIDs = []uint32{allowed} })
 	path := filepath.Join(peers.Directory, "client-"+lease.RandomID())
 	l, e := server.Listen(path)
