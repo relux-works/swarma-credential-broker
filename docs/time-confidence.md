@@ -216,8 +216,9 @@ retain that independent authority or require authenticated resynchronization
 before reopening. A backward step spanning process replacement within one boot
 is an activation integration gate. The normative [consumer contract](time-contract.md)
 requires a shared durable consumed-time high-water and hold plus a bounded
-pre-pin API; those guarantees are not supplied by this implementation. See the
-[platform policy](time-policy.md).
+pre-pin API; those guarantees are not supplied by `Sample` or `StartSample`. The
+[separate settlement API](qualified-time-api.md) exercises them in fixtures and
+keeps production consumption inactive. See the [platform policy](time-policy.md).
 Diagnostics contain fixed incident codes, never command output, boot IDs or
 source addresses.
 

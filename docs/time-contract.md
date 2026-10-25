@@ -1,7 +1,9 @@
 # Qualified time for consumers
 
 This is the normative integration contract for time-dependent consumer decisions.
-The durable store and bounded consumption API below are **not implemented**.
+The [provider API and settlement store](qualified-time-api.md) are implemented
+with a test-only witness/path. **Production consumption remains inactive**
+pending the independent witness backend and native call/fence qualification.
 Today's `Sample` and `StartSample` alone do not satisfy this contract. The
 [shared policy](time-policy.md) still bounds all confidence; qualification cannot
 relax its limits or establish correctness of an incorrect authenticated server.
@@ -485,19 +487,19 @@ covers the qualified delivery/pin delay. A pass is a
 Existing code supplies strict protected policy and executable checks, bounded
 collector commands, selected-source confidence, `Now`, δ, `AuthorityUntil`, boot
 identity, and a serialized in-instance step hold. `StartSample` collects anew.
-Qualification must still bind actual deployed provenance; there is no complete
-consumer receipt, durable high-water/hold store, rollback witness or end-to-end
-bounded pre-pin consumption API. Existing serialization and incident callbacks
-do not establish the new leaf/deadline guarantee.
+Qualification must still bind actual deployed provenance. The new
+[provider slice](qualified-time-api.md) supplies the closed receipt codec, durable
+high-water/hold settlement and bounded fixture consumption path; production
+uses a witness that always refuses and has no activation path. Existing
+serialization and incident callbacks do not establish the new leaf/deadline
+guarantee.
 
-Implement the versioned receipt and identity validation, checkpoint/witness
-transaction with restart/boot recovery, and callback-free bounded consumption
-path, then turn every paired vector into isolated tests. Add crash/fault controls
-at every fsync/CAS boundary and a control that catches a consumer callback under
-the leaf. Test that a previous pass never suppresses a collector call, while a
-refusal cannot delay emergency stop. Qualify cleanup/deadline behavior against
-blocked child and storage operations; no mocked success can qualify unavailable
-platform guarantees. Estimate: 700–1100 Go lines plus 900–1400 test lines,
-roughly four to six developer days after the storage authority is agreed;
-backend provisioning and consumer integrations are separate. Consumer review
-must accept this contract before that code slice begins.
+Provider fixture tests cover canonical receipts, operation identity recipes,
+restart/boot retention, fsync/CAS crash prefixes, blocked collection/storage,
+strict floors and exclusive authority. Complete the independent production
+witness and installed path qualification, including whole-subtree cleanup/fence
+and remaining-delay bounds, before enabling consumption. Consumer-owned adapters
+must exercise their release/window predicates, lock and emergency-stop patterns,
+original budgets and authenticity mappings separately; fixture success cannot
+qualify unavailable platform guarantees. Backend provisioning and consumer
+integrations remain separate and require their own review.

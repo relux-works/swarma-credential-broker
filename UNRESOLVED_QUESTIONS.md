@@ -82,8 +82,9 @@ Implementation integration questions:
   same boot remains an activation integration gate. The
   [qualified-time contract](docs/time-contract.md) requires durable consumed-time
   and hold continuity across restart and reboot; the owner's watermark alone
-  is insufficient. Before implementation, select the independent local rollback
-  witness backend and enforce storage/restore exclusions for both checkpoint and
+  is insufficient. The [provider fixture API](docs/qualified-time-api.md) ships
+  with production consumption inactive. Before production activation, select the
+  independent local rollback witness backend and enforce storage/restore exclusions for both checkpoint and
   witness. No missing or restored history may be reset. A proposed off-node
   witness protocol is only a conditional candidate, not the selected backend.
   It would require a separate time-continuity stream (not the consumer journal
@@ -101,8 +102,8 @@ Implementation integration questions:
   budgets, including the 250, 1000 and 2000 ms paths; clock bootstrap dependencies
   must also be resolved. The time-provider and platform owners must resolve that
   latency/authority decision before activation; no
-  remote-to-local adapter is assumed. The bounded pre-pin API and consumer review
-  are also pending. Broker backward tolerance is zero.
+  remote-to-local adapter is assumed. Native pre-pin qualification and consumer
+  review are also pending. Broker backward tolerance is zero.
 
 - The `time-untrusted` qualification row needs a bounded durable synthetic-owner
   enrollment/restart fixture using the real time provider, adapter and retained
