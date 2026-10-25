@@ -12,6 +12,8 @@ type CaseOrigin struct {
 	image, parent, child      *os.File
 	ready                     func() error
 	ownerContext              string
+	writer                    bool
+	termination               *TerminationController
 	pid                       atomic.Int64
 	verified, entered         atomic.Bool
 	joined, invalid, terminal atomic.Bool

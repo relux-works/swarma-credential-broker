@@ -39,8 +39,12 @@ func main() {
 				os.Exit(125)
 			}
 			argv := []string{os.Args[0], "/proc/self/fd/4", "case", mode, status}
-			if strings.HasPrefix(mode, "owner-") {
-				argv = []string{os.Args[0], "/proc/self/fd/4", "qualification-owner", os.Getenv("OWNER_DIGEST")}
+			if strings.HasPrefix(mode, "owner-") || strings.HasPrefix(mode, "planned-") {
+				role := "qualification-owner"
+				if strings.HasPrefix(mode, "planned-writer") {
+					role = "qualification-writer"
+				}
+				argv = []string{os.Args[0], "/proc/self/fd/4", role, os.Getenv("OWNER_DIGEST")}
 			}
 			if mode == "unexpected-exec" {
 				argv[1] = "/proc/self/fd/7"
@@ -59,7 +63,7 @@ func main() {
 		}()
 		select {}
 	}
-	if os.Args[1] == "qualification-owner" {
+	if os.Args[1] == "qualification-owner" || os.Args[1] == "qualification-writer" {
 		mode = os.Getenv("OWNER_MODE")
 		digest := os.Getenv("OWNER_DIGEST")
 		if mode == "owner-noop" {
@@ -69,13 +73,25 @@ func main() {
 			digest = strings.Repeat("0", 64)
 		}
 		var err error
-		if mode == "owner-case" {
+		if strings.HasSuffix(mode, "-wrong-domain") {
+			err = egress.EnterOwnerRole(digest)
+		} else if os.Args[1] == "qualification-writer" {
+			err = egress.EnterWriterRole(digest)
+		} else if mode == "owner-case" {
 			err = egress.EnterCase()
 		} else {
 			err = egress.EnterOwnerRole(digest)
 		}
 		if err != nil {
 			os.Exit(125)
+		}
+		if strings.HasPrefix(mode, "planned-") {
+			if _, err := unix.Write(6, []byte("entered")); err != nil {
+				os.Exit(125)
+			}
+			var b [1]byte
+			_, _ = unix.Read(8, b[:])
+			os.Exit(0)
 		}
 		if mode == "owner-exec" {
 			_ = unix.Exec("/proc/self/fd/7", []string{"/proc/self/fd/7"}, []string{})

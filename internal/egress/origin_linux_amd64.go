@@ -56,6 +56,33 @@ func NewOwnerOrigin(image *os.File, digest string) (*CaseOrigin, error) {
 	}
 	return o, err
 }
+
+// NewCrashOwnerOrigin adds only a separate planned-termination controller;
+// normal owner entry, egress policy and error semantics remain unchanged.
+func NewCrashOwnerOrigin(image *os.File, digest string) (*CaseOrigin, *TerminationController, error) {
+	o, e := NewOwnerOrigin(image, digest)
+	if e != nil {
+		return nil, nil, e
+	}
+	return plannedOrigin(o)
+}
+
+// NewWriterOrigin binds the closed synthetic writer to its own role domain.
+func NewWriterOrigin(image *os.File, digest string) (*CaseOrigin, *TerminationController, error) {
+	o, e := NewOwnerOrigin(image, digest)
+	if e != nil {
+		return nil, nil, e
+	}
+	o.writer = true
+	return plannedOrigin(o)
+}
+
+func writerResponse(challenge []byte, digest string) []byte {
+	h := sha256.New()
+	h.Write([]byte("qualification-writer/1\x00" + digest + "\x00"))
+	h.Write(challenge)
+	return h.Sum(nil)
+}
 func ownerResponse(challenge []byte, digest string) []byte {
 	h := sha256.New()
 	h.Write([]byte("qualification-owner/1\x00" + digest + "\x00"))
@@ -65,19 +92,26 @@ func ownerResponse(challenge []byte, digest string) []byte {
 
 // EnterOwnerRole accepts only the fixed supervisor endpoint, and answers in a
 // separate domain from generic case entry. Construction follows this barrier.
-func EnterOwnerRole(digest string) error { return enterOrigin(digest) }
+func EnterOwnerRole(digest string) error { return enterRole(digest, false) }
+
+func EnterWriterRole(digest string) error { return enterRole(digest, true) }
 
 // EnterCase accepts no caller-selected descriptor, path or authority. The final
 // acknowledgement prevents an exchange racing the parent's live-origin gate.
-func EnterCase() error { return enterOrigin("") }
-func enterOrigin(digest string) error {
+func EnterCase() error                { return enterOrigin("") }
+func enterOrigin(digest string) error { return enterRole(digest, false) }
+func enterRole(digest string, writer bool) error {
 	unix.CloseOnExec(9)
 	b := make([]byte, 32)
 	if n, e := unix.Read(9, b); e != nil || n != len(b) {
 		return ErrUnavailable
 	}
 	if digest != "" {
-		b = ownerResponse(b, digest)
+		if writer {
+			b = writerResponse(b, digest)
+		} else {
+			b = ownerResponse(b, digest)
+		}
 	}
 	if n, e := unix.Write(9, b); e != nil || n != len(b) {
 		return ErrUnavailable
@@ -305,7 +339,11 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	if err = validate(c); err != nil {
 		return
 	}
-	if o.ownerContext != "" && (c.Executable != "/proc/self/fd/4" || strings.Join(c.Args, "\x00") != "qualification-owner\x00"+o.ownerContext) {
+	role := "qualification-owner"
+	if o.writer {
+		role = "qualification-writer"
+	}
+	if o.ownerContext != "" && (c.Executable != "/proc/self/fd/4" || strings.Join(c.Args, "\x00") != role+"\x00"+o.ownerContext) {
 		return report, ErrUnavailable
 	}
 	if len(c.ExtraFiles) != 5 || o.parent == nil || o.child == nil || o.image == nil || o.invalid.Load() || !o.used.CompareAndSwap(false, true) {
@@ -419,6 +457,15 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 		if c.Waited != nil {
 			c.Waited(cmd.ProcessState)
 		}
+		if o.termination != nil {
+			signal := 0
+			if cmd.ProcessState != nil {
+				if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+					signal = int(status.Signal())
+				}
+			}
+			o.termination.joined(cmd.ProcessState, waitErr, err, terminal && len(w.tasks) == 0, signal)
+		}
 		err = errors.Join(err, waitErr)
 	}()
 	listener := -1
@@ -435,6 +482,20 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	for !terminal {
 		if err = ctx.Err(); err != nil {
 			return
+		}
+		if o.termination != nil {
+			select {
+			case gate := <-o.termination.request:
+				if !o.Live(w.pid) {
+					return report, ErrUnavailable
+				}
+				e := unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
+				o.termination.sent(gate, e == nil)
+				if e != nil {
+					return report, e
+				}
+			default:
+			}
 		}
 		if listener < 0 {
 			b, control := make([]byte, 1), make([]byte, unix.CmsgSpace(4))
@@ -527,6 +588,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 			}
 			if o.ownerContext != "" {
 				expected = ownerResponse(challenge, o.ownerContext)
+				if o.writer {
+					expected = writerResponse(challenge, o.ownerContext)
+				}
 			}
 			if _, err = unix.Write(int(o.parent.Fd()), challenge); err != nil {
 				return

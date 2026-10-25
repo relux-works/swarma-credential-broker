@@ -16,3 +16,10 @@ func EnterCase() error                                          { return ErrUnav
 
 func NewOwnerOrigin(*os.File, string) (*CaseOrigin, error) { return nil, ErrUnavailable }
 func EnterOwnerRole(string) error                          { return ErrUnavailable }
+func NewCrashOwnerOrigin(*os.File, string) (*CaseOrigin, *TerminationController, error) {
+	return nil, nil, ErrUnavailable
+}
+func NewWriterOrigin(*os.File, string) (*CaseOrigin, *TerminationController, error) {
+	return nil, nil, ErrUnavailable
+}
+func EnterWriterRole(string) error { return ErrUnavailable }

@@ -466,7 +466,7 @@ func TestQualificationAuthorityCLIContainment(t *testing.T) {
 // in shared compiled dependencies. Ordinary egress operations remain ordinary.
 func containmentOwnerAuthority(sources []containmentSource, graph containmentGraph, ordinary, qualification map[string]bool) []string {
 	names := map[string]map[string]bool{
-		containmentModule + "/internal/egress": {"NewOwnerOrigin": true, "EnterOwnerRole": true},
+		containmentModule + "/internal/egress": {"NewOwnerOrigin": true, "EnterOwnerRole": true, "NewCrashOwnerOrigin": true, "NewWriterOrigin": true, "EnterWriterRole": true},
 		containmentDriver:                      {"ownerCompose": true, "ownerSeed": true, "ownerPolicy": true, "ownerAdapter": true, "ownerModel": true, "ownerMain": true, "startOwner": true},
 	}
 	mainGates := map[string]bool{}
