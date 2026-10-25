@@ -311,6 +311,19 @@ closed null-ID terminal and EOF; the parent checks the unchanged store and zero
 Snapshot/Refresh calls before the allowed client negotiates and leases on that
 same listener. Only role-verification booleans leave the private handshake.
 
+Row evidence separates helper launch, verified identity handshake, canonical
+case entry, completion and joined process status. A dedicated descriptor carries
+the case-entry acknowledgement; launching a bootstrap alone cannot establish it.
+`row_executions` in the diagnostic report retains these phases, actual helper
+and worker statuses, and closed typed failure codes without helper output or
+identity values. Missing/unusable launchers and failures before case entry leave
+the peer pair pending/unrun (`executed: false`, `exit_code: -1`), with no failed
+verdict or control artifact. Transport, admission and runner workers follow the
+same rule. After a case starts and completes, its actual status is recorded even
+if its observation cannot be decoded. A nonzero status remains an executed
+failure; observation errors never invent status 1. Passing and failing artifacts
+must bind consistent start/completion/status evidence.
+
 Runner source rows execute the real runner Command and SocketClient. The
 protected fake app-server descriptor is measured separately; its exact digest
 binds both the synthetic broker policy and runner policy. The approved candidate

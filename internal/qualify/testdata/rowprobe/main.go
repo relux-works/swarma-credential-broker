@@ -18,6 +18,11 @@ func main() {
 	if len(os.Args) != 4 {
 		os.Exit(125)
 	}
+	started := os.NewFile(9, "case-start")
+	if _, e := started.Write([]byte{'c'}); e != nil {
+		os.Exit(125)
+	}
+	started.Close()
 	var input struct {
 		Policy struct {
 			Digest     string `json:"executable_sha256"`

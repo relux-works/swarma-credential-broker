@@ -124,7 +124,13 @@ func Run(ctx context.Context, c Config) (report Report, err error) {
 	// Setpgid gives this run a private child process group; never use a name/pattern kill.
 	defer func() { _ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL) }()
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	go func() {
+		e := cmd.Wait()
+		if c.Waited != nil {
+			c.Waited(cmd.ProcessState)
+		}
+		done <- e
+	}()
 	if c.Started != nil {
 		c.Started(cmd.Process.Pid)
 	}

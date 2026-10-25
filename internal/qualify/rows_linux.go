@@ -88,6 +88,7 @@ type rowArtifact struct {
 	Network         map[string]egress.Counts `json:"network"`
 	IsolationFailed bool                     `json:"isolation_failed"`
 	Incomplete      bool                     `json:"incomplete"`
+	Execution       *rowExecution            `json:"execution,omitempty"`
 }
 
 func rowFile(root, id, side string) string { return filepath.Join(root, "row-"+id+"-"+side+".json") }
@@ -109,7 +110,13 @@ func validateRow(root, digest string, generation uint64, c qualification.Case) e
 		if !reflect.DeepEqual(a.Control, x) {
 			return qualification.ErrUnavailable
 		}
+		if a.Execution == nil || !a.Execution.credit(c.ID == "peer-denied") || a.Execution.CaseExit != x.ExitCode {
+			return qualification.ErrUnavailable
+		}
 		if x.Verdict == "passed" {
+			if a.Execution.Diagnostic != "" || a.Execution.HelperExit != 0 {
+				return qualification.ErrUnavailable
+			}
 			want := rowPositive(c.ID)
 			if side == "negative" {
 				want = rowRefusal(c.ID)
@@ -174,7 +181,10 @@ func (d driver) runRows(ctx context.Context, configuration string, p policy.Poli
 }
 
 func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side string) (control qualification.Control) {
-	control = qualification.Control{Verdict: "pending", ExitCode: -1, Command: []string{}, Artifacts: []string{}, BoundNS: int64(30 * time.Second)}
+	control = pendingRowControl()
+	execution := newRowExecution()
+	execution.Diagnostic = "fixture_unavailable"
+	defer func() { d.recordExecution(id, side, execution) }()
 	if !rowImplemented(id) || side != "positive" && side != "negative" {
 		return
 	}
@@ -188,6 +198,7 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 		broker, e = qualification.OpenExecutable(d.rowExecutable)
 	}
 	if e != nil {
+		execution.Diagnostic = launchDiagnostic(e)
 		return
 	}
 	defer broker.Close()
@@ -305,7 +316,13 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	}
 	defer errR.Close()
 	defer errW.Close()
-	stop := context.AfterFunc(ctx, func() { outR.Close(); errR.Close() })
+	startR, startW, e := os.Pipe()
+	if e != nil {
+		return
+	}
+	defer startR.Close()
+	defer startW.Close()
+	stop := context.AfterFunc(ctx, func() { outR.Close(); errR.Close(); startR.Close() })
 	defer stop()
 	type capture struct {
 		b []byte
@@ -327,6 +344,7 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	start := time.Now()
 	var report egress.Report
 	var runError error
+	files := withCaseStart(append([]*os.File{broker, inputR, candidate}, phaseFiles...), inputR, startW)
 	if runnerFixture != nil {
 		// Trusted runner setup needs its own session. The synthetic app-server
 		// fixture confines its children after that setup and returns their reports.
@@ -335,13 +353,15 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 		cmd.Env = env
 		cmd.Stdout = outW
 		cmd.Stderr = errW
-		cmd.ExtraFiles = append([]*os.File{inputR, broker, inputR, candidate}, phaseFiles...)
+		cmd.ExtraFiles = append([]*os.File{inputR}, files...)
 		if runError = cmd.Start(); runError == nil {
+			execution.Launched = true
 			pid.Store(int64(cmd.Process.Pid))
 			runError = cmd.Wait()
+			execution.waited(cmd.ProcessState)
 		}
 	} else {
-		report, runError = egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", Started: func(n int) { pid.Store(int64(n)) }, LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: env, Policy: egress.Policy{UnixPaths: []string{socket}, MaxEvents: 4096}, Stdout: outW, Stderr: errW, ExtraFiles: append([]*os.File{broker, inputR, candidate}, phaseFiles...)})
+		report, runError = egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", Waited: execution.waited, Started: func(n int) { execution.Launched = true; pid.Store(int64(n)) }, LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: env, Policy: egress.Policy{UnixPaths: []string{socket}, MaxEvents: 4096}, Stdout: outW, Stderr: errW, ExtraFiles: files})
 	}
 	elapsed := time.Since(start)
 	noEffects := closeRow()
@@ -349,15 +369,21 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	outW.Close()
 	errW.Close()
 	out, diag := <-output, <-diagnostic
-	exit := 0
-	var exitError *exec.ExitError
-	if runError != nil {
-		if !errors.As(runError, &exitError) || exitError.ExitCode() < 0 {
-			return
-		}
-		exit = exitError.ExitCode()
+	execution.Started = readCaseStart(startR, startW)
+	execution.WorkerExit = execution.HelperExit
+	execution.Completed = execution.Started && execution.WorkerExit >= 0
+	if !execution.Launched {
+		execution.Diagnostic = launchDiagnostic(runError)
+	} else if !execution.Started {
+		execution.Diagnostic = "case_not_started"
+	} else if !execution.Completed {
+		execution.Diagnostic = "case_status_unavailable"
+	} else {
+		execution.Diagnostic = ""
+		execution.CaseExit = execution.WorkerExit
 	}
-	if elapsed <= 0 || elapsed > 30*time.Second {
+	control = executionControl(id, side, execution, elapsed)
+	if !control.Executed {
 		return
 	}
 	isolation := false
@@ -374,7 +400,10 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	}
 	observationValid = observationValid && validRowEnvelopes(observation, p.Generation)
 	if !observationValid {
+		execution.Diagnostic = "observation_invalid"
 		observation = rowObservation{Envelopes: []rowEnvelope{}}
+	} else if out.e != nil || diag.e != nil {
+		execution.Diagnostic = "observation_unavailable"
 	}
 	passed := noEffects && runError == nil && out.e == nil && diag.e == nil && rowIsolated(rowArtifact{Network: report.Summary, Incomplete: report.Incomplete, IsolationFailed: isolation}) && observationValid
 	// Only the parent can attest that the injected server probe actually fired.
@@ -384,11 +413,10 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	if admissionRow(id) {
 		observation.Admission = &effects
 	}
-	control = qualification.Control{Verdict: "failed", Executed: true, Command: command, ExitCode: exit, Artifacts: []string{}, DurationNS: int64(elapsed), BoundNS: int64(30 * time.Second)}
 	if passed {
 		control.Verdict = "passed"
 	}
-	a := rowArtifact{"qualification-row-control/1", p.ExecutableSHA256, id, side, control, observation, report.Summary, isolation, report.Incomplete}
+	a := rowArtifact{"qualification-row-control/1", p.ExecutableSHA256, id, side, control, observation, report.Summary, isolation, report.Incomplete, &execution}
 	b, e := wire.Encode(a)
 	if e != nil {
 		return

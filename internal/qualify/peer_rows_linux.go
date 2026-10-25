@@ -68,6 +68,7 @@ type peerIdentity struct {
 	PID      int
 }
 type peerReply struct {
+	Execution   rowExecution
 	Observation rowObservation
 	Network     map[string]egress.Counts
 	Incomplete  bool
@@ -79,6 +80,9 @@ type peerReply struct {
 func PeerHelperMain() int {
 	if len(os.Args) > 1 {
 		if os.Args[0] != "/proc/self/fd/4" || len(os.Args) != 4 || os.Args[1] != "qualification-case" || os.Args[2] != "peer-denied" {
+			return 125
+		}
+		if signalCaseStart() != nil {
 			return 125
 		}
 		var in rowInput
@@ -158,9 +162,15 @@ func PeerHelperMain() int {
 	}
 	defer outR.Close()
 	defer outW.Close()
+	startR, startW, e := os.Pipe()
+	if e != nil {
+		return 125
+	}
+	defer startR.Close()
+	defer startW.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	stopped := context.AfterFunc(ctx, func() { outR.Close(); os.Stdin.Close() })
+	stopped := context.AfterFunc(ctx, func() { outR.Close(); startR.Close(); os.Stdin.Close() })
 	defer stopped()
 	type output struct {
 		b []byte
@@ -169,7 +179,9 @@ func PeerHelperMain() int {
 	result := make(chan output, 1)
 	go func() { b, e := io.ReadAll(io.LimitReader(outR, 8193)); result <- output{b, e} }()
 	command := qualification.CaseCommand("peer-denied", in.Side)
-	report, runErr := egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: []string{"PATH=/usr/bin:/bin"}, Policy: egress.Policy{UnixPaths: []string{in.Socket}, MaxEvents: 4096}, Stdout: outW, Stderr: os.Stderr, ExtraFiles: []*os.File{self, inputR}, Started: func(pid int) {
+	execution := newRowExecution()
+	report, _ := egress.Run(ctx, egress.Config{Launcher: "/proc/self/fd/4", LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: []string{"PATH=/usr/bin:/bin"}, Policy: egress.Policy{UnixPaths: []string{in.Socket}, MaxEvents: 4096}, Stdout: outW, Stderr: os.Stderr, ExtraFiles: withCaseStart([]*os.File{self, inputR}, inputR, startW), Waited: execution.waited, Started: func(pid int) {
+		execution.Launched = true
 		if json.NewEncoder(os.Stdout).Encode(peerIdentity{uint32(os.Geteuid()), uint32(os.Getegid()), pid}) != nil {
 			cancel()
 			return
@@ -180,12 +192,22 @@ func PeerHelperMain() int {
 		}
 	}})
 	outW.Close()
+	execution.Started = readCaseStart(startR, startW)
+	execution.WorkerExit = execution.HelperExit
+	execution.Completed = execution.Started && execution.WorkerExit >= 0
+	if execution.Completed {
+		execution.CaseExit = execution.WorkerExit
+	}
 	captured := <-result
 	var o rowObservation
-	if runErr != nil || captured.e != nil || len(captured.b) > 8192 || wire.Decode(captured.b, &o) != nil {
-		return 1
+	if !execution.Started {
+		execution.Diagnostic = "case_not_started"
+	} else if !execution.Completed {
+		execution.Diagnostic = "case_status_unavailable"
+	} else if captured.e != nil || len(captured.b) > 8192 || wire.Decode(captured.b, &o) != nil {
+		execution.Diagnostic = "observation_invalid"
 	}
-	if json.NewEncoder(os.Stdout).Encode(peerReply{o, report.Summary, report.Incomplete}) != nil {
+	if json.NewEncoder(os.Stdout).Encode(peerReply{execution, o, report.Summary, report.Incomplete}) != nil {
 		return 1
 	}
 	return 0
@@ -223,6 +245,7 @@ func resolvePeerFixture(f fixtureConfiguration) (*peerFixture, error) {
 	return &peerFixture{foreign: uint32(uid), foreignGID: uint32(gid), group: uint32(shared)}, nil
 }
 func runPeerClient(ctx context.Context, f fixtureConfiguration, peers *peerFixture, in rowInput, pid *atomic.Int64) (peerReply, error) {
+	result := peerReply{Execution: newRowExecution()}
 	args := []string{"-n", "-u", f.Foreign, "--", f.PeerHelper}
 	uid, gid := peers.foreign, peers.foreignGID
 	if in.Side == "positive" {
@@ -234,37 +257,58 @@ func runPeerClient(ctx context.Context, f fixtureConfiguration, peers *peerFixtu
 	cmd.Stderr = io.Discard
 	stdin, e := cmd.StdinPipe()
 	if e != nil {
-		return peerReply{}, e
+		result.Execution.Diagnostic = "helper_pipe_unavailable"
+		return result, e
 	}
+	defer stdin.Close()
 	stdout, e := cmd.StdoutPipe()
 	if e != nil {
-		return peerReply{}, e
+		result.Execution.Diagnostic = "helper_pipe_unavailable"
+		return result, e
 	}
 	if e = cmd.Start(); e != nil {
-		return peerReply{}, e
+		result.Execution.Diagnostic = launchDiagnostic(e)
+		return result, e
 	}
+	result.Execution.Launched = true
 	decoder := json.NewDecoder(io.LimitReader(stdout, 16384))
-	var result peerReply
 	encoder := json.NewEncoder(stdin)
 	e = encoder.Encode(in)
 	var identity peerIdentity
 	if e == nil {
 		e = decoder.Decode(&identity)
 	}
+	result.Execution.Diagnostic = "peer_handshake_unavailable"
 	if e == nil && (identity.UID != uid || identity.GID != gid || identity.PID <= 0) {
 		e = qualification.ErrUnavailable
+		result.Execution.Diagnostic = "peer_identity_mismatch"
 	}
 	if e == nil {
 		pid.Store(int64(identity.PID))
 		e = encoder.Encode("ready")
+		result.Execution.Handshake = e == nil
 	}
 	stdin.Close()
 	if e == nil {
-		e = decoder.Decode(&result)
+		var reply peerReply
+		e = decoder.Decode(&reply)
+		if e == nil && !workerDiagnostic(reply.Execution.Diagnostic) {
+			e = qualification.ErrUnavailable
+			result.Execution.Diagnostic = "case_evidence_invalid"
+		} else if e == nil {
+			result = reply
+			result.Execution.Launched, result.Execution.Handshake = true, true
+		} else {
+			result.Execution.Diagnostic = "case_evidence_unavailable"
+		}
 	}
 	wait := cmd.Wait()
+	result.Execution.waited(cmd.ProcessState)
 	if e == nil {
 		e = wait
+	}
+	if e == nil && (!result.Execution.credit(true) || result.Execution.Diagnostic != "") {
+		e = qualification.ErrUnavailable
 	}
 	return result, e
 }
@@ -272,6 +316,17 @@ func runPeerClient(ctx context.Context, f fixtureConfiguration, peers *peerFixtu
 // Both controls share this one real listener. Missing identities/group/helper
 // leave the registry pending, without inventing a UID or execution evidence.
 func (d driver) runPeerRows(parent context.Context, f fixtureConfiguration, p policy.Policy, root string, c *qualification.Case) {
+	executions := map[string]rowExecution{}
+	for _, side := range []string{"negative", "positive"} {
+		e := newRowExecution()
+		e.Diagnostic = "peer_fixture_unavailable"
+		executions[side] = e
+	}
+	defer func() {
+		for _, side := range []string{"negative", "positive"} {
+			d.recordExecution(c.ID, side, executions[side])
+		}
+	}()
 	peers, e := resolvePeerFixture(f)
 	if e != nil {
 		return
@@ -334,6 +389,16 @@ func (d driver) runPeerRows(parent context.Context, f fixtureConfiguration, p po
 		request.ID, request.Side, request.Socket = "peer-denied", side, socket
 		started := time.Now()
 		reply, err := runPeerClient(ctx, f, peers, request, &pid)
+		executions[side] = reply.Execution
+		controls[side] = executionControl(c.ID, side, reply.Execution, time.Since(started))
+		if !controls[side].Executed {
+			if side == "negative" {
+				next := executions["positive"]
+				next.Diagnostic = "peer_pair_unavailable"
+				executions["positive"] = next
+			}
+			break
+		}
 		unchanged := peers.negativeUnchanged()
 		if side == "negative" {
 			peers.deniedVerified = err == nil && unchanged
@@ -343,18 +408,18 @@ func (d driver) runPeerRows(parent context.Context, f fixtureConfiguration, p po
 			reply.Observation.Peer.Records = 1
 			reply.Observation.Peer.Snapshots = 2
 		}
-		verdict := "failed"
-		exit := 1
-		if err == nil {
-			exit = 0
+		control := controls[side]
+		if err == nil && control.ExitCode == 0 && validPeerEnvelopes(reply.Observation, p.Generation) && rowIsolated(rowArtifact{Network: reply.Network, Incomplete: reply.Incomplete}) {
+			control.Verdict = "passed"
 		}
-		if err == nil && validPeerEnvelopes(reply.Observation, p.Generation) && rowIsolated(rowArtifact{Network: reply.Network, Incomplete: reply.Incomplete}) {
-			verdict = "passed"
-		}
-		controls[side] = qualification.Control{Verdict: verdict, Executed: true, Command: qualification.CaseCommand(c.ID, side), ExitCode: exit, Artifacts: []string{}, DurationNS: int64(time.Since(started)), BoundNS: int64(30 * time.Second)}
+		controls[side] = control
 		replies[side] = reply
 	}
 	verified := closeRow()
+	if !controls["negative"].Executed || !controls["positive"].Executed {
+		c.Positive, c.Negative = pendingRowControl(), pendingRowControl()
+		return
+	}
 	for _, side := range []string{"negative", "positive"} {
 		reply := replies[side]
 		control := controls[side]
@@ -366,7 +431,8 @@ func (d driver) runPeerRows(parent context.Context, f fixtureConfiguration, p po
 			reply.Observation.Peer.Snapshots = effects.Snapshots
 			reply.Observation.Peer.Refreshes = effects.Refreshes
 		}
-		artifact := rowArtifact{"qualification-row-control/1", p.ExecutableSHA256, c.ID, side, control, reply.Observation, reply.Network, false, reply.Incomplete}
+		execution := executions[side]
+		artifact := rowArtifact{"qualification-row-control/1", p.ExecutableSHA256, c.ID, side, control, reply.Observation, reply.Network, false, reply.Incomplete, &execution}
 		b, e := wire.Encode(artifact)
 		if e != nil || os.WriteFile(rowFile(root, c.ID, side), b, 0600) != nil {
 			continue

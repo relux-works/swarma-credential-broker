@@ -59,6 +59,7 @@ func parse(args []string) (options, error) {
 }
 
 type driver struct {
+	executions       *[]rowExecutionRecord
 	path             string
 	environment      []string
 	observer         func(policy.Config) qualification.IdentityObserver
@@ -73,6 +74,7 @@ func Command(ctx context.Context, args []string, configPath string, environment 
 }
 
 type report struct {
+	Executions  []rowExecutionRecord            `json:"row_executions,omitempty"`
 	CompletedAt string                          `json:"completed_at"`
 	Kind        string                          `json:"kind"`
 	Identity    qualification.Identity          `json:"identity"`
@@ -177,11 +179,14 @@ func (d driver) run(parent context.Context, args []string, out io.Writer) int {
 		}
 		// Unimplemented bodies remain pending. -1 denotes no execution.
 		pending := qualification.Pending(identity)
+		var executions []rowExecutionRecord
+		d.executions = &executions
 		if identity.Executable.SHA256 == c.Policy.ExecutableSHA256 && identity.Version == "0.163.0" {
 			d.runRows(ctx, o.fixtureConfig, c.Policy, o.evidence, pending.Cases)
 		}
 		sort.Strings(missing)
 		r := report{Kind: "qualification-run/1", Identity: identity, Unavailable: missing, Cases: pending.Cases, Disposition: "pending", CompletedAt: pending.CompletedAt}
+		r.Executions = executions
 		next, e := policy.Load(d.path, c.Policy.BrokerUID)
 		if e != nil {
 			return qualification.ErrUnavailable

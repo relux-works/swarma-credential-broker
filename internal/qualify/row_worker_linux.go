@@ -75,6 +75,9 @@ func CaseMain(args []string) (bool, int) {
 	if os.Args[0] != "/proc/self/fd/4" || len(args) != 3 || !rowImplemented(args[1]) || args[2] != "positive" && args[2] != "negative" {
 		return true, 125
 	}
+	if signalCaseStart() != nil {
+		return true, 125
+	}
 	f := os.NewFile(5, "row-context")
 	if f == nil {
 		return true, 125
