@@ -26,6 +26,7 @@ const goodAuth = "192.0.2.1,NTS,1,15,256,60,0,0,8,100\n"
 // clock command runs in normal tests; its behavior comes from a fresh fixture.
 func TestMain(m *testing.M) {
 	CollectorEntry()
+	qualifiedForkFixture()
 	if len(os.Args) > 1 && os.Args[1] == "-c" {
 		executable, err := os.Executable()
 		if err != nil {
