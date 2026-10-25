@@ -467,7 +467,7 @@ func TestQualificationAuthorityCLIContainment(t *testing.T) {
 func containmentOwnerAuthority(sources []containmentSource, graph containmentGraph, ordinary, qualification map[string]bool) []string {
 	names := map[string]map[string]bool{
 		containmentModule + "/internal/egress": {"NewOwnerOrigin": true, "EnterOwnerRole": true, "NewCrashOwnerOrigin": true, "NewWriterOrigin": true, "EnterWriterRole": true},
-		containmentDriver:                      {"ownerCompose": true, "ownerSeed": true, "ownerPolicy": true, "ownerAdapter": true, "ownerModel": true, "ownerMain": true, "startOwner": true},
+		containmentDriver:                      {"ownerCompose": true, "ownerSeed": true, "ownerPolicy": true, "ownerAdapter": true, "ownerModel": true, "ownerMain": true, "startOwner": true, "startOwnedRole": true, "writerMain": true, "writerCompose": true, "writerPersist": true, "startWriter": true, "writerPeak": true, "lifecycleClassifier": true, "lifecycleClock": true, "lifecycleModel": true, "lifecycleAudit": true, "lifecycleRun": true},
 	}
 	mainGates := map[string]bool{}
 	for _, text := range []string{`if handled, code := qualify.CaseMain(os.Args[1:]); handled { os.Exit(code) }`, `if len(os.Args)>1 && os.Args[1]=="qualify-codex" {os.Exit(qualify.Command(ctx,os.Args[2:],runner.DefaultPolicyPath,os.Environ(),os.Stdout))}`} {
@@ -565,6 +565,25 @@ func containmentOwnerAuthority(sources []containmentSource, graph containmentGra
 					parsed, _ := parser.ParseFile(token.NewFileSet(), "gate.go", "package qualify;func gate(){"+want+"}", 0)
 					if len(f.Body.List) == 0 || containmentText(f.Body.List[0]) != containmentText(parsed.Decls[0].(*ast.FuncDecl).Body.List[0]) {
 						issues = append(issues, "owner dispatcher gate changed")
+					}
+					writer := `if len(args)>0 && args[0]=="qualification-writer" {return true,writerMain(args)}`
+					p, _ := parser.ParseFile(token.NewFileSet(), "gate.go", "package qualify;func gate(){"+writer+"}", 0)
+					if len(f.Body.List) < 2 || containmentText(f.Body.List[1]) != containmentText(p.Decls[0].(*ast.FuncDecl).Body.List[0]) {
+						issues = append(issues, "writer dispatcher gate changed")
+					}
+				}
+			}
+			if s.path == "internal/qualify/owner_lifecycle_linux.go" {
+				if f, ok := d.(*ast.FuncDecl); ok && f.Name.Name == "writerMain" {
+					body := f.Body.List
+					if len(body) < 2 || containmentText(body[len(body)-1]) != "return writerCompose(c, ch, native)" || !strings.Contains(containmentText(body[len(body)-2]), `egress.EnterWriterRole(args[1]) != nil`) {
+						issues = append(issues, "writer construction barrier changed")
+					} else {
+						for _, stmt := range body[:len(body)-2] {
+							if references(s, stmt) {
+								issues = append(issues, "writer authority before entry")
+							}
+						}
 					}
 				}
 			}

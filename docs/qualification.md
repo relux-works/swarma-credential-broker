@@ -510,7 +510,7 @@ counts. Existing credited rows retain their original limits and artifact shape.
 The registry below has all 46 required IDs. “Next slice” means unexecuted,
 never a skipped pass. This implementation covers the harness, framing,
 peer-probe, genuine peer denial, account, release qualification, runner source
-and ended-lease fixture implementations. Thirteen transport/admission/lease rows and two fake owner-core rows execute with attested origin and paired artifacts.
+and ended-lease fixture implementations. Thirteen transport/admission/lease rows and five fake owner-core rows execute with attested origin and paired artifacts.
 The peer row and two runner rows remain UNRUN even with usable fixtures.
 Other bodies remain pending; the time row
 requires the durable owner integration described above.
@@ -540,12 +540,12 @@ fixture result cannot satisfy the live part of a combined row.
 | queue-full | fake-only; P9 | Free slot admits same-attempt waiter | Sixty-four queued operations refuse excess, no extra writer | Attested synthetic pair; parent holds and verifies the full queue |
 | daemon-death | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Complete stop and committed outcome permit successor | Surviving child prevents second writer until subtree absence proven | Next slice |
 | replacement-contention | fake-only; P9, P9.1, B9.6 | Resolved attempt permits one successor | Replacement and rejecters retain one attempt and writer | Next slice |
-| rotation-crash | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Durable store and correlated success activate once | Crash after rotation before checkpoint closes admission, zero retry | Next slice |
-| cleanup-interrupted | fake-only; P9, P9.1, B9.6 | Complete correlated absence and reconciliation reopen | Crash before absence record keeps admission closed | Next slice |
+| rotation-crash | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Durable store and correlated success activate once | Missing durable RPC proof refuses after complete singleton Stop, zero retry | Attested fake owner-core pair; actual owner SIGKILL, independent synthetic writer; live vendor half pending |
+| cleanup-interrupted | fake-only; P9, P9.1, B9.6 | Complete correlated absence and reconciliation reopen | Crash before absence record plus partial constructor input keeps admission closed | Attested fake owner-core pair; complete independent constructor reconciles the same attempt |
 | absence-unreadable | fake-only owner-core; P9, P9.1, B9.6 | Complete correlated model input resolves the retained attempt | Eight partial/denied/conflicting inputs refuse admission; separate constructor recovery | Attested core pair; model premises only, no platform absence or enrolment credit |
 | store-missing | fake-only owner-core; P9, P9.1, B9.6 | Matching durable checkpoint reloads | Eleven home/native/intent/checkpoint/root faults refuse without reconstruction | Attested core pair; continuous bounded filesystem audit |
 | store-rollback | fake-only; P9, P9.1, B9.6 | Independent freshness and explicit reconciliation | Restored old store/fence never retries or clears by parsing | Next slice |
-| transient-ambiguous | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Proven non-rotation, absence and reload permit bounded retry | Ambiguous vendor error permits no retry | Next slice |
+| transient-ambiguous | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Proven non-rotation, absence and reload permit bounded retry | Ambiguous synthetic error permits no retry, with old or changed native bytes | Attested fake owner-core pair; Safe 1s/2s backoff and restart control; live vendor classification pending |
 | reenrol-unresolved | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Confirmed absence then fresh-home enrolment | Unknown prior writer prevents enrolment child | Next slice |
 | duplicate-account | fake-now + live-later; P9, P8.2 steps 2/4 | Distinct vendor ID activates independently | Repeated vendor ID gets account_duplicate, no second mapping | Next slice |
 | owner-mismatch | fake-only; P9 | Same UID/context renews/releases | Other UID gets lease_not_owner, lease unchanged | Pending: foreign-UID admission and independently observed peer origin require an owner decision |
@@ -693,8 +693,65 @@ run in default Linux/amd64 tests. Capability skips follow actual pidfd, ptrace
 or seccomp listener probe failures and earn no executed-row credit. No systemd,
 chrony, root, additional UID, real login or real endpoint is needed.
 
-Crash/surviving-writer and replacement-contention rows remain pending. So do
+The `daemon-death` and `replacement-contention` rows remain pending. So do
 `time-untrusted`, peer and runner. `reenrol-unresolved` and `duplicate-account`
 need the administrative fresh-home enrolment and publication mechanism (separate
 decision). `store-rollback` needs independent CAS witness and broker restore
 reconciliation. The frozen fake time premise supplies none of those authorities.
+## Synthetic writer lifecycle pairs
+
+`transient-ambiguous`, `rotation-crash` and `cleanup-interrupted` add a parent-owned
+singleton synthetic writer, independently attested under `qualification-writer`.
+Its measured image is the trusted broker fixture, distinct from the measured,
+never-executed approved candidate. It receives only generated replacement bytes,
+can persist them through write/fsync/rename/directory-fsync and answer fresh
+challenges, and cannot fork or exec another image. Actual PID/start identity,
+post-owner-join challenge, terminal SIGKILL, complete trace and sole wait support
+only **no second synthetic writer** and **complete singleton absence**. Manager,
+endpoint rotation and confidence remain explicit parent models. Real vendor
+subtrees/cgroups, vendor durability, public transport and platform P9.1/B9.6
+qualification remain pending.
+
+The parent holds synchronous Confidence calls at canonical running prefixes with
+old/new native bytes and no stopping proof, or holds Stop after Committed stopping
+proof and the writer's joined termination but before absence. It rechecks the
+prefix, seals a nonce/context digest and requests SIGKILL through that session's
+supervisor-owned pidfd. A separate planned-termination certificate records that
+authorization, verified role entry, actual signal 9, exit -1, nonzero wait error,
+trace closure and one joined wait. Ordinary origin facts, error and credit rules
+still reject the signaled run. Cleanup cannot create a missing certificate. Every
+crash epoch remains mandatory even though O2 later closes normally; aggregate
+artifacts also require the private parent's exact-byte completion binding.
+
+Ambiguous code 1002 remains Unknown after complete Stop, restart and a +61s fake
+step, for either old or changed native bytes. Safe code 1001 proves nonrotation
+only in this qualified synthetic composition. Its unchanged-token renewal returns
+`renew_failed`; resolution sets persisted 1s then 2s backoff, and a due successor
+publishes A1 with owner `TokenGeneration=2` and lease `OfferedGeneration=2`.
+A superseded A0 rejection returns A1 without a new Start. Outcome generation is
+policy generation. The full backoff schedule retains its existing pure owner
+tests; these integrated scripts exercise only 1s and 2s. A durable Committed
+stopping prefix with A1 can recover at O2's first complete constructor; partial
+input cannot append confirmed absence or resolve. A separate terminal reload
+control needs no new Stop.
+
+Each row side retains its unchanged absolute 30s bound, including all independent
+variants and joined cleanup. Work stops at the row deadline minus 5s to reserve
+cleanup. A timeout, overflow, extra attempted Start or incomplete observation
+fails evidence. New private caps are Q/R/L=3/5/2, eight lease calls, three clock
+steps and 512 combined 4KiB frames per owner; two sequential owner epochs; three
+writer launches and one live singleton per scenario; 64 non-Confidence model calls;
+32 records of at most 16KiB, 64 filesystem objects, 2048 filesystem events and
+4096 trace/network events per process. Existing pairs retain their limits.
+Directory observers admit fixed owner-record paths during owner activity and
+native replacements only during the explicit writer permit, pin stable identities
+and reject revision rollback, unknown paths, watch loss and overflow. This is a
+cooperative measured-code observation, not hostile same-UID byte monitoring.
+
+Pure classifier, pending-state, clock, certificate and observer checks run in
+default CI. Integrated pairs require only generated fixtures and actual minimal
+seccomp/pidfd/ptrace capability; missing capability follows `hosttest.Require`,
+never an assertion-based skip. Process-overlap and no-op-persist controls test
+actual launches and file effects. Daemon death, competing replacements, store
+rollback, reenrolment, duplicate publication, contracted time, peer/runner origin
+and real manager/vendor qualification remain deferred.

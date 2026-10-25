@@ -250,3 +250,46 @@ func TestQualificationTimeFixtureCompiledPlant(t *testing.T) {
 		t.Fatal("closed witness control rejected", issues, e)
 	}
 }
+
+// Claim: each new origin/role family independently propagates through a compiled
+// alias; daemon sharing and eager initialization are refused, qualification-only
+// alias storage is valid. Older constructor families cannot mask this control.
+func TestQualificationContainmentTerminationFactories(t *testing.T) {
+	for _, factory := range []string{"NewCrashOwnerOrigin", "NewWriterOrigin", "EnterWriterRole"} {
+		for _, mode := range []string{"qualified", "daemon", "init"} {
+			t.Run(factory+"/"+mode, func(t *testing.T) {
+				root, wrapper := containmentWrapperFixture(t, "testdata", mode == "daemon")
+				path := filepath.Join(root, "internal/egress/origin_linux_amd64.go")
+				if os.WriteFile(path, []byte("package egress;func "+factory+"(){}"), 0600) != nil {
+					t.Fatal("origin control")
+				}
+				text := `package containmentbridge;import origin "` + containmentModule + `/internal/egress";func Single(){};func Multi(){};var Origin=origin.` + factory
+				if mode == "init" {
+					text += ";func init(){Origin()}"
+				}
+				if os.WriteFile(filepath.Join(root, wrapper, "bridge.go"), []byte(text), 0600) != nil {
+					t.Fatal("alias control")
+				}
+				graph, e := containmentProductionGraph(t, root)
+				if e != nil {
+					t.Fatal(e)
+				}
+				issues, e := containmentCheck(root, graph)
+				if e != nil {
+					t.Fatal(e)
+				}
+				expected := "owner authority outside qualification"
+				if mode == "init" {
+					expected = "owner authority during package initialization"
+				}
+				if mode == "qualified" {
+					if len(issues) != 0 {
+						t.Fatal("qualified alias refused", issues)
+					}
+				} else if !strings.Contains(strings.Join(issues, "\n"), expected) {
+					t.Fatal("new origin authority escaped", factory, mode, issues)
+				}
+			})
+		}
+	}
+}

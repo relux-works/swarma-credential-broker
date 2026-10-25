@@ -79,13 +79,16 @@ func ownerSeed(root, digest, scenario string) (c ownerContext, tokens [2]string,
 	return
 }
 func ownerRecords(root string) (cp authowner.Checkpoint, intents []authowner.Intent, evidence []authowner.Evidence, err error) {
+	return ownerRecordsBound(root, 16)
+}
+func ownerRecordsBound(root string, limit int) (cp authowner.Checkpoint, intents []authowner.Intent, evidence []authowner.Evidence, err error) {
 	dir := ownerAccountPath(root)
 	entries, e := os.ReadDir(dir)
 	if e != nil {
 		err = e
 		return
 	}
-	if len(entries) > 16 {
+	if len(entries) > limit {
 		err = errors.New("owner record budget")
 		return
 	}
@@ -131,6 +134,7 @@ type ownerModel struct {
 	attempt               string
 }
 
+func (m *ownerModel) setContext(c ownerContext) { m.c = c }
 func (m *ownerModel) identity() authowner.Identity {
 	v := authowner.Identity{Boot: "synthetic-boot", UID: uint32(os.Geteuid()), Epoch: "synthetic-epoch"}
 	if m.c.Epoch == 2 {

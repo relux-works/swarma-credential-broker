@@ -23,6 +23,10 @@ import (
 func ownerRow(id string) bool { return id == "store-missing" || id == "absence-unreadable" }
 
 type ownerBudget struct{ Requests, Renewals, Releases, Prerequisites int }
+type ownerService interface {
+	setContext(ownerContext)
+	serve(*ownerChannel, ownerMessage) error
+}
 type ownerEpochFact struct {
 	Command                   [3]string
 	Image                     string
@@ -46,22 +50,26 @@ type ownerRowFacts struct {
 	Scenarios []ownerScenarioFact
 }
 type ownerSession struct {
-	ch        *ownerChannel
-	origin    *egress.CaseOrigin
-	model     *ownerModel
-	done      chan struct{}
-	cancel    context.CancelFunc
-	pid       atomic.Int64
-	execution rowExecution
-	report    egress.Report
-	err       error
-	waits     int
-	command   [3]string
-	image     string
-	budget    ownerBudget
+	ch          *ownerChannel
+	origin      *egress.CaseOrigin
+	model       ownerService
+	termination *egress.TerminationController
+	done        chan struct{}
+	cancel      context.CancelFunc
+	pid         atomic.Int64
+	execution   rowExecution
+	report      egress.Report
+	err         error
+	waits       int
+	command     [3]string
+	image       string
+	budget      ownerBudget
 }
 
-func startOwner(ctx context.Context, c ownerContext, broker, candidate *os.File, model *ownerModel) (*ownerSession, error) {
+func startOwner(ctx context.Context, c ownerContext, broker, candidate *os.File, model ownerService) (*ownerSession, error) {
+	return startOwnedRole(ctx, c, broker, candidate, model, false)
+}
+func startOwnedRole(ctx context.Context, c ownerContext, broker, candidate *os.File, model ownerService, writer bool) (*ownerSession, error) {
 	cr, cw, e := os.Pipe()
 	if e != nil {
 		return nil, e
@@ -102,15 +110,31 @@ func startOwner(ctx context.Context, c ownerContext, broker, candidate *os.File,
 	}
 	cw.Close()
 	digest := qualificationHash(b)
-	o, e := egress.NewOwnerOrigin(broker, digest)
+	var o *egress.CaseOrigin
+	var termination *egress.TerminationController
+	role := "qualification-owner"
+	if writer {
+		role = "qualification-writer"
+		o, termination, e = egress.NewWriterOrigin(broker, digest)
+	} else if lifecycleScenario(c.Scenario) {
+		o, termination, e = egress.NewCrashOwnerOrigin(broker, digest)
+	} else {
+		o, e = egress.NewOwnerOrigin(broker, digest)
+	}
 	if e != nil {
 		return fail(e)
 	}
 	candidate.Seek(0, io.SeekStart)
 	child, cancel := context.WithCancel(ctx)
-	command := [3]string{"/proc/self/fd/4", "qualification-owner", digest}
+	command := [3]string{"/proc/self/fd/4", role, digest}
 	s := &ownerSession{image: c.Image, command: command, ch: &ownerChannel{r: outR, w: inW}, origin: o, model: model, done: make(chan struct{}), cancel: cancel, execution: newRowExecution()}
-	model.c = c
+	s.termination = termination
+	if model != nil {
+		model.setContext(c)
+	}
+	if termination != nil {
+		s.ch.limit = 512
+	}
 	deadline, _ := ctx.Deadline()
 	if outR.SetReadDeadline(deadline) != nil || inW.SetWriteDeadline(deadline) != nil {
 		cancel()
@@ -153,6 +177,9 @@ func (s *ownerSession) receive(op string) (ownerMessage, error) {
 		if !s.origin.Live(int(s.pid.Load())) {
 			return m, errors.New("model authority before owner entry")
 		}
+		if s.model == nil {
+			return m, errors.New("unexpected writer method")
+		}
 		if e = s.model.serve(s.ch, m); e != nil {
 			return m, e
 		}
@@ -171,7 +198,11 @@ func (s *ownerSession) call(op string, v any, want string) (wire.LeaseResult, er
 		s.budget.Prerequisites++
 	}
 	b := s.budget
-	if b.Requests > 3 || b.Renewals > 3 || b.Releases > 2 || b.Prerequisites > 2 || b.Requests+b.Renewals+b.Releases > 8 {
+	renewals := 3
+	if s.termination != nil {
+		renewals = 5
+	}
+	if b.Requests > 3 || b.Renewals > renewals || b.Releases > 2 || b.Prerequisites > 2 || b.Requests+b.Renewals+b.Releases > 8 {
 		return result, errors.New("owner scenario budget exhausted")
 	}
 	if e := s.ch.send(op, v, nil); e != nil {

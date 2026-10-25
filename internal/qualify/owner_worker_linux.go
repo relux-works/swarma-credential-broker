@@ -43,8 +43,15 @@ type ownerChannel struct {
 	r, w          *os.File
 	mu            sync.Mutex
 	reads, writes int
+	limit         int
 }
 
+func (c *ownerChannel) bound() int {
+	if c.limit == 512 {
+		return 512
+	}
+	return 256
+}
 func (c *ownerChannel) send(op string, value any, err error) error {
 	m := ownerMessage{ID: c.writes + 1, Op: op}
 	if err != nil {
@@ -58,7 +65,7 @@ func (c *ownerChannel) send(op string, value any, err error) error {
 		m.Data = b
 	}
 	b, e := wire.Encode(m)
-	if e != nil || len(b) > 4096 || c.reads+c.writes >= 256 {
+	if e != nil || len(b) > 4096 || c.reads+c.writes >= c.bound() {
 		return errors.New("owner evidence budget")
 	}
 	c.writes++
@@ -76,7 +83,7 @@ func (c *ownerChannel) read() (m ownerMessage, e error) {
 		return
 	}
 	n := binary.BigEndian.Uint32(h[:])
-	if n == 0 || n > 4096 || c.reads+c.writes >= 256 {
+	if n == 0 || n > 4096 || c.reads+c.writes >= c.bound() {
 		return m, errors.New("owner evidence budget")
 	}
 	c.reads++
@@ -190,16 +197,26 @@ func ownerCompose(c ownerContext, ch *ownerChannel) int {
 		return fail()
 	}
 	adapter := &ownerAdapter{ch: ch}
-	cfg := authowner.Config{Installation: "synthetic-install", DaemonInstance: lease.RandomID(), DaemonUnit: "synthetic-owner.service", WriterPrefix: "synthetic-writer-", PolicyGeneration: 1, Executable: "/proc/self/fd/6", ExecutableSHA256: c.Candidate, QualificationID: "synthetic-evidence", MaxAttempts: 1, ProactiveWindow: time.Minute, Accounts: []authowner.AccountConfig{{Label: ownerLabel, VendorID: "synthetic-vendor", Home: filepath.Join(c.Root, "home"), HomeID: c.HomeID, Disk: disk}}}
+	maxAttempts, capacity := 1, 1
+	now := func() time.Time { return c.Now }
+	var classifier authowner.Classifier
+	if lifecycleScenario(c.Scenario) {
+		maxAttempts, capacity = 4, 2
+		adapter.clock = &lifecycleClock{value: c.Now}
+		now = adapter.clock.now
+		classifier = lifecycleClassifier{}
+		ch.limit = 512
+	}
+	cfg := authowner.Config{Installation: "synthetic-install", DaemonInstance: lease.RandomID(), DaemonUnit: "synthetic-owner.service", WriterPrefix: "synthetic-writer-", PolicyGeneration: 1, Executable: "/proc/self/fd/6", ExecutableSHA256: c.Candidate, QualificationID: "synthetic-evidence", MaxAttempts: maxAttempts, ProactiveWindow: time.Minute, Accounts: []authowner.AccountConfig{{Label: ownerLabel, VendorID: "synthetic-vendor", Home: filepath.Join(c.Root, "home"), HomeID: c.HomeID, Disk: disk}}}
 	stage = "owner"
-	engine, e := authowner.New(context.Background(), cfg, adapter, adapter, nil)
+	engine, e := authowner.New(context.Background(), cfg, adapter, adapter, classifier)
 	if e != nil {
 		return fail()
 	}
 	defer engine.Close()
 	p := ownerPolicy(c)
 	stage = "lease"
-	manager, e := lease.New(p, s, engine, lease.Options{Now: func() time.Time { return c.Now }, MaxActive: 1, MaxPending: 1, MaxWaiters: 1, Qualification: func(_ context.Context, q policy.Policy) error {
+	manager, e := lease.New(p, s, engine, lease.Options{Now: now, MaxActive: capacity, MaxPending: capacity, MaxWaiters: capacity, Qualification: func(_ context.Context, q policy.Policy) error {
 		if !reflect.DeepEqual(q, p) {
 			return errors.New("synthetic tuple mismatch")
 		}
@@ -213,7 +230,11 @@ func ownerCompose(c ownerContext, ch *ownerChannel) int {
 		return 1
 	}
 	counts := map[string]int{}
-	for calls := 0; calls < 10; calls++ {
+	maxCalls := 10
+	if adapter.clock != nil {
+		maxCalls = 14
+	}
+	for calls := 0; calls < maxCalls; calls++ {
 		cmd, e := ch.read()
 		if e != nil {
 			return 1
@@ -221,8 +242,27 @@ func ownerCompose(c ownerContext, ch *ownerChannel) int {
 		if cmd.Op == "close" {
 			return 0
 		}
+		if cmd.Op == "clock" && adapter.clock != nil {
+			counts[cmd.Op]++
+			if counts[cmd.Op] > 3 {
+				return 1
+			}
+			var value time.Time
+			if wire.Decode(cmd.Data, &value) != nil || value.Before(adapter.clock.now()) {
+				return 1
+			}
+			adapter.clock.set(value)
+			if ch.send(cmd.Op, nil, nil) != nil {
+				return 1
+			}
+			continue
+		}
 		counts[cmd.Op]++
-		if counts[cmd.Op] > 3 || (cmd.Op == "prerequisite" && counts[cmd.Op] > 2) {
+		limit := 3
+		if adapter.clock != nil && cmd.Op == "lease.renew" {
+			limit = 5
+		}
+		if counts[cmd.Op] > limit || (cmd.Op == "prerequisite" && counts[cmd.Op] > 2) {
 			return 1
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -281,6 +321,7 @@ func ownerCompose(c ownerContext, ch *ownerChannel) int {
 type ownerAdapter struct {
 	ch     *ownerChannel
 	bridge chan error
+	clock  *lifecycleClock
 }
 
 func (a *ownerAdapter) Ready(context.Context) error { return a.ch.call("ready", nil, nil) }
@@ -295,6 +336,9 @@ func (a *ownerAdapter) Validate(_ context.Context, label, home string, generatio
 		Generation  uint64
 		Lower       time.Time
 	}{label, home, generation, lower}, &v)
+	if e == nil && a.clock != nil {
+		a.clock.set(v.Now)
+	}
 	return
 }
 func (a *ownerAdapter) Start(_ context.Context, s authowner.UnitSpec) error {
@@ -367,6 +411,9 @@ var ownerStoreFaults = []string{"home-absent", "home-mode", "native-absent", "na
 var ownerAbsenceFaults = []string{"stop-denied", "unit-missing", "partial", "invocation", "cgroup", "pid-only", "boot", "epoch"}
 
 func ownerScenario(s string) bool {
+	if lifecycleScenario(s) {
+		return true
+	}
 	for _, v := range append(append([]string{"current", "complete"}, ownerStoreFaults...), ownerAbsenceFaults...) {
 		if s == v {
 			return true

@@ -30,7 +30,7 @@ func rowImplemented(id string) bool {
 	case "frame-oversized", "frame-zero-length", "frame-truncated-header", "frame-malformed-first", "profile-unsupported", "peer-identity-unavailable":
 		return true
 	}
-	return ownerRow(id) || admissionRow(id) || leaseProtocolRow(id) || id == "peer-denied"
+	return lifecycleRow(id) || ownerRow(id) || admissionRow(id) || leaseProtocolRow(id) || id == "peer-denied"
 }
 
 type rowInput struct {
@@ -45,6 +45,7 @@ type rowInput struct {
 	Socket         string        `json:"socket"`
 }
 type rowObservation struct {
+	Lifecycle     *lifecycleEffects `json:"lifecycle,omitempty"`
 	Owner         *ownerRowFacts    `json:"owner,omitempty"`
 	LeaseProtocol *leaseRowEffects  `json:"lease_protocol,omitempty"`
 	Runner        *runnerRowEffects `json:"runner,omitempty"`
@@ -74,6 +75,9 @@ func descriptorDigest(f *os.File) (string, error) {
 func CaseMain(args []string) (bool, int) {
 	if len(args) > 0 && args[0] == "qualification-owner" {
 		return true, ownerMain(args)
+	}
+	if len(args) > 0 && args[0] == "qualification-writer" {
+		return true, writerMain(args)
 	}
 	if len(args) == 0 || args[0] != "qualification-case" {
 		return false, 0

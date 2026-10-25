@@ -101,7 +101,7 @@ func validRowEnvelope(f rowEnvelope, id, side string, generation uint64) bool {
 }
 
 func validRowEnvelopes(o rowObservation, generation uint64) bool {
-	if ownerRow(o.ID) {
+	if lifecycleRow(o.ID) || ownerRow(o.ID) {
 		return validOwnerEffects(o)
 	}
 	if leaseProtocolRow(o.ID) {
