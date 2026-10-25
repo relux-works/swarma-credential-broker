@@ -30,6 +30,8 @@ The shared time provider is available at
 policy and collector implementation; see [the embedding example](docs/time-policy.md#embedding-the-public-provider).
 Pin a commit until a tagged version exists. The production collector and protected
 policy loaders require Linux, and `CollectorEntry()` must run first in `main`.
+The [qualified-time consumer contract](docs/time-contract.md) specifies the
+required durable continuity and fresh pre-pin path; both remain unimplemented.
 
 ## How it fits
 

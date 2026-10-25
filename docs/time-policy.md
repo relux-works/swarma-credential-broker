@@ -65,6 +65,15 @@ The provider's parsers for tracking and authdata, evidence interfaces, strict
 policy loaders, and system collector remain public; test fixtures and constructors
 are confined to test files.
 
+## Qualified time for consumers
+
+The normative [consumer contract](time-contract.md) maps the executor's
+`TimeFacts`, durable consumed-time high-water and hold, boot transitions, bounded
+fresh sampling immediately before pin, and paired acceptance/refusal vectors.
+Its continuity store and pre-pin API are required integration work, not shipped
+capabilities. The embedding above demonstrates collection only and does not
+satisfy that contract or authorize production activation.
+
 ## Shared rules
 
 Every server or pool in the complete chrony configuration must carry `nts`.
@@ -153,13 +162,14 @@ confidence; different bounds require their sum. A hold or boot change requires
 re-establishing evidence and continuity. Waiting cannot reconstruct missing
 history, and confidence must still be checked at later decisions.
 
-A hold belongs to its provider instance and boot in this slice; durable hold
-storage is not placed in the rollback domain. A backward step spanning process
-replacement within the same boot remains an **activation integration gate**.
-The contained owner's durable watermark keeps effective time from decreasing
-and preserves expiry refusals, while the new process requires fresh independent
-evidence. Consumers without their own durable watermark must decide separately
-how they preserve the previous decision bound and hold continuity.
+The current hold belongs to its provider instance and boot. Qualified consumers
+require the [durable continuity store](time-contract.md#durable-continuity),
+which must retain every consumed upper bound and hold outside all rollback
+domains, including across failed attempts and reboot. The owner's existing
+watermark does not supply this shared history. This remains an **activation
+integration gate**. The ordering explanation above permits resampling outside
+consumer locks; the [bounded pre-pin path](time-contract.md#bounded-sample-immediately-before-the-pin)
+refuses rather than waiting under those locks.
 
 ## Protected configuration and evidence interface
 

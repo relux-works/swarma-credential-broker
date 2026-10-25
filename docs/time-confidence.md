@@ -214,8 +214,10 @@ in the restored account store. Replacing an instance is not an operator
 acknowledgement. Deployments needing one hold across process replacement must
 retain that independent authority or require authenticated resynchronization
 before reopening. A backward step spanning process replacement within one boot
-is an activation integration gate; consumers without a durable watermark must
-decide continuity separately. See the [platform policy](time-policy.md).
+is an activation integration gate. The normative [consumer contract](time-contract.md)
+requires a shared durable consumed-time high-water and hold plus a bounded
+pre-pin API; those guarantees are not supplied by this implementation. See the
+[platform policy](time-policy.md).
 Diagnostics contain fixed incident codes, never command output, boot IDs or
 source addresses.
 

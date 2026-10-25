@@ -79,10 +79,13 @@ Implementation integration questions:
   selection and owner wiring stay off until activation. Activation must establish
   protected shared upper bounds, the complete running source inventory and
   monitoring permission. A backward step spanning process replacement within the
-  same boot is an activation integration gate: the owner retains its durable
-  watermark, while consumers without one must decide hold and prior-decision
-  continuity separately. Durable hold storage is outside this slice and must
-  not be placed in the rollback domain. Broker backward tolerance is zero.
+  same boot remains an activation integration gate. The
+  [qualified-time contract](docs/time-contract.md) requires durable consumed-time
+  and hold continuity across restart and reboot; the owner's watermark alone
+  is insufficient. Before implementation, select the independent local rollback
+  witness backend and enforce storage/restore exclusions for both checkpoint and
+  witness. No missing or restored history may be reset. The bounded pre-pin API
+  and consumer review are also pending. Broker backward tolerance is zero.
 
 - The `time-untrusted` qualification row needs a bounded durable synthetic-owner
   enrollment/restart fixture using the real time provider, adapter and retained
