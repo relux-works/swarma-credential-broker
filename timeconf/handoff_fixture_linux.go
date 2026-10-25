@@ -180,12 +180,17 @@ func (f *FixtureConsumer) CollectHandoff(ctx context.Context, r ConsumptionReque
 	if err != nil {
 		return FixtureHandoff{}, err
 	}
-	expected := WindowExpected{f.Enrollment(), r.OperationDigest, r.Challenge, run, window, meta.TransitionVersion, deadline, budget, r.JournalFloor, int64(PlatformMaxUncertainty)}
+	expected := WindowExpected{
+		Enrollment: f.Enrollment(), Operation: r.OperationDigest, Challenge: r.Challenge,
+		Run: run, Epoch: "writer:deployment-7:epoch-42", Window: window,
+		TransitionVersion: meta.TransitionVersion, Deadline: deadline, Budget: budget,
+		JournalFloorNS: r.JournalFloor, UncertaintyCapNS: int64(PlatformMaxUncertainty),
+	}
 	p, err := PrepareFixtureHandoff(encoded, originals, expected, sample+100000000)
 	if err != nil {
 		return FixtureHandoff{}, err
 	}
-	local := LockedWindowState{expected, "0", run, true, true, r.JournalFloor, 300000000000}
+	local := LockedWindowState{expected, "0", expected.Epoch, true, true, r.JournalFloor, 300000000000}
 	if ctx.Err() != nil {
 		return FixtureHandoff{}, handoffRefusal("deadline")
 	}
@@ -236,7 +241,9 @@ func PrepareFixtureHandoff(raw []byte, originals [][]byte, e WindowExpected, p i
 }
 
 // ReferenceUseStore is test-only serialized memory, not durable/rollback-safe
-// storage. Faults model the contract cuts; they do not qualify a native protocol.
+// storage. This separable-effect model stores only a generation, not H or
+// outcomes, and has no native status recovery. Faults model only the documented
+// reference cuts; they do not qualify a native atomic act/use protocol.
 type ReferenceUseStore struct {
 	mu            sync.Mutex
 	entries       map[UseKey]Generation
@@ -271,8 +278,11 @@ func (s *ReferenceUseStore) consumeLocked(c WindowCandidate, local LockedWindowS
 	if s.entries == nil || s.unknown || !local.Current {
 		return handoffRefusal("continuity")
 	}
-	if h == "" || epoch != s.current || epoch != local.Epoch || local.Intent.Run != epoch {
+	if h == "" || c.run != local.Intent.Run {
 		return handoffRefusal("run")
+	}
+	if epoch == "" || epoch != s.current || epoch != local.Epoch || local.Intent.Epoch != epoch {
+		return handoffRefusal("epoch")
 	}
 	want := UseKey{local.Intent.Enrollment.Scope.Consumer, local.Intent.Enrollment.Store, local.Intent.Operation, local.Intent.Window}
 	if key != want || c.TransitionVersion() != local.Intent.TransitionVersion {
@@ -322,9 +332,13 @@ func (s *ReferenceUseStore) Admit(local LockedWindowState) (*ReferenceAdmission,
 	s.mu.Lock()
 	key := UseKey{local.Intent.Enrollment.Scope.Consumer, local.Intent.Enrollment.Store, local.Intent.Operation, local.Intent.Window}
 	revision, known := s.unused[key]
-	if !known || s.unknown || !local.Current || !local.Unused || revision != local.Revision || s.current != local.Epoch {
+	if !known || s.unknown || !local.Current || !local.Unused || revision != local.Revision {
 		s.mu.Unlock()
 		return nil, handoffRefusal("continuity")
+	}
+	if local.Epoch == "" || s.current != local.Epoch || local.Intent.Epoch != local.Epoch {
+		s.mu.Unlock()
+		return nil, handoffRefusal("epoch")
 	}
 	return &ReferenceAdmission{s, local, true}, nil
 }

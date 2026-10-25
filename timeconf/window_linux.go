@@ -39,8 +39,11 @@ func VerifyWindow(prepared PreparedHandoff, expected WindowExpected, local Locke
 	if expected.Window != a.expected.Window || local.Intent.Window != expected.Window || expected.TransitionVersion != a.expected.TransitionVersion || local.Intent.TransitionVersion != expected.TransitionVersion {
 		return zero, handoffRefusal("window")
 	}
-	if expected.Run != a.expected.Run || local.Intent.Run != expected.Run || local.Epoch != expected.Run {
+	if expected.Run != a.expected.Run || local.Intent.Run != expected.Run {
 		return zero, handoffRefusal("run")
+	}
+	if expected.Epoch == "" || expected.Epoch != a.expected.Epoch || local.Intent.Epoch != expected.Epoch || local.Epoch != expected.Epoch {
+		return zero, handoffRefusal("epoch")
 	}
 	if expected.Challenge != a.expected.Challenge || local.Intent.Challenge != expected.Challenge {
 		return zero, handoffRefusal("binding")
@@ -160,7 +163,7 @@ func VerifyWindow(prepared PreparedHandoff, expected WindowExpected, local Locke
 		return zero, handoffRefusal("authority")
 	}
 	key := UseKey{f.Scope.Consumer, f.Continuity.Store, expected.Operation, expected.Window}
-	return WindowCandidate{key, a.commitment, local.Revision, local.Epoch, expected.TransitionVersion}, nil
+	return WindowCandidate{key: key, commitment: a.commitment, revision: local.Revision, epoch: local.Epoch, transitionVersion: expected.TransitionVersion, run: expected.Run}, nil
 }
 
 // These bounded scalar helpers avoid parsing, reflection or dynamic dispatch

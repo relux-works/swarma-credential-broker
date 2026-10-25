@@ -57,7 +57,7 @@ func TestPositiveReceipt(t *testing.T) {
  packet,err:=hp.CollectHandoff(context.Background(),tc.ConsumptionRequest{Deadline:time.Now().Add(400*time.Millisecond),Expected:hp.Enrollment(),OperationDigest:d,Challenge:"22222222222222222222222222222222",JournalFloor:140000000000},tc.WindowIdentity{Profile:"fixture-window",Sequence:"1"},"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
  if err!=nil {t.Fatal(err)}
  candidate,err:=tc.VerifyWindow(packet.Prepared,packet.Expected,packet.Local,packet.Capture);if err!=nil {t.Fatal(err)}
- _ = candidate; e:=packet.Expected;key:=tc.UseKey{Consumer:e.Enrollment.Scope.Consumer,Store:e.Enrollment.Store,Operation:e.Operation,Window:e.Window};_ = fixture.NewUseStore(e.Run,key)
+ _ = candidate; e:=packet.Expected;key:=tc.UseKey{Consumer:e.Enrollment.Scope.Consumer,Store:e.Enrollment.Store,Operation:e.Operation,Window:e.Window};_ = fixture.NewUseStore(e.Epoch,key)
 }
 `,
 			}

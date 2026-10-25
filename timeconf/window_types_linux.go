@@ -4,11 +4,15 @@ package timeconf
 
 // WindowExpected comes from protected original intent and installed enrollment,
 // never from a decoded envelope. Native stricter capture/H retention rules win.
+// Operation binds every protected native field through the owning codec without
+// provider-wire additions. These structs neither prove admission nor select
+// current state; the admitted owning transaction retains the full native read set.
 type WindowExpected struct {
 	Enrollment        Enrollment
 	Operation         string
 	Challenge         string
-	Run               string
+	Run               string // Private per-attempt nonce bound to preparation.
+	Epoch             string // Independently enrolled live-writer/instance fence.
 	Window            WindowIdentity
 	TransitionVersion string
 	Deadline          HandoffDeadline
@@ -21,7 +25,11 @@ type WindowExpected struct {
 // persistence/use exclusion. These data are not self-authenticating claims;
 // only the consumer's qualified currentness/custody protocol can supply them.
 type LockedWindowState struct {
-	Intent   WindowExpected
+	Intent WindowExpected
+	// Revision is the uint64 generation of unused v, never a cast/truncation of
+	// a composite native StateID. Bind the exact predecessor and protected read
+	// set in Intent.Operation, re-derived under admission before m; retain both
+	// for the owning transaction's atomic full-predecessor and unused-v CAS.
 	Revision Generation
 	Epoch    string
 	Unused   bool
@@ -53,6 +61,7 @@ type WindowCandidate struct {
 	revision          Generation
 	epoch             string
 	transitionVersion string
+	run               string
 }
 
 func (c WindowCandidate) TransitionVersion() string { return c.transitionVersion }
@@ -65,7 +74,12 @@ func (c WindowCandidate) Use() (UseKey, string, Generation, string) {
 // Implementations compare exact revision/current logical key/live epoch/unused
 // together under retained serialization. Every H for a burned key refuses.
 // Ambiguous persistence means no act; lost replies never authorize redispatch.
-// No production implementation or adapter is supplied.
+// The burn-before-Act ordering describes separable effects. A native atomic
+// act/use profile supplies its own admitted transaction implementation and
+// commits the use state atomically with the act. It compares full predecessor,
+// unused v, H and exact outcome together, not via an independently committing
+// reference burn and Act. Recovery is a native outcome/status path, never a new
+// successful consume or dispatch grant. No production adapter is supplied.
 type ConsumeIfUnused interface {
 	ConsumeIfUnused(WindowCandidate, LockedWindowState, ActProtocol) error
 }
@@ -73,5 +87,5 @@ type ConsumeIfUnused interface {
 // ActProtocol describes a separable authoritative effect, not a callback used by
 // VerifyWindow. A consumer must durably burn before Act, enforce live epoch and
 // original deadline through completion, and retain outcome/cleanup under its own
-// transaction. An atomic act/use store needs its own reviewed implementation.
+// transaction. Atomic act/use profiles own their admitted atomic implementation.
 type ActProtocol interface{ Act() error }

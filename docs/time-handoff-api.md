@@ -69,7 +69,7 @@ cannot do so. Independent expectations and locked intent are compared afresh;
 owned exact originals remain retained. No cached pass grants use authority.
 
 The checker performs bounded scalar comparisons and checked integer arithmetic:
-operation/enrollment, boot/domain, original deadline, window/transition, run,
+operation/enrollment, boot/domain, original deadline, window/transition, run/epoch,
 challenge, current unused revision, reserve/cap, unchanged interval, stricter
 locked floor/expiry and `m>=p>=s`, `m-s+f+epsilon<=T`, `m+f+epsilon<D`.
 The original budget bounds D; equality and overflow refuse. Reserve covers T
@@ -82,6 +82,28 @@ before m. It keeps serialization/live custody through consume and the full
 endpoint. A candidate cannot survive lock release. A separable act follows a
 durable burn; ambiguous burn means no act, and lost reply grants no redispatch.
 Native transition versions and stricter native requirements remain authoritative.
+`Run` is a private per-attempt nonce bound into preparation. `WindowExpected.Epoch`
+is the independently enrolled live-writer/instance fence retained in protected
+preparation, not a provider-wire member. `LockedWindowState.Epoch` must match
+that expected fence, independently of Run. Epoch may remain stable across attempts;
+replacement changes the fence. A wrong fence refuses `epoch`; a wrong run refuses
+`run`. Neither identity creates a new logical use slot.
+
+`WindowExpected.Operation` binds every native field through the owning codec,
+without provider-wire additions. For an opaque native predecessor and a separate
+use revision, `LockedWindowState.Revision` carries the uint64 generation of unused
+v. Bind the exact predecessor and protected native read set in `Intent.Operation`
+and retain them in the admitted owning transaction. Re-derive that digest from
+the locked read set before m; atomically compare the full predecessor and unused
+v at consumption. Do not cast or truncate a native StateID into Generation.
+The structs alone neither prove admission nor select current state.
+
+The burn-before-Act ordering describes separable effects. A native atomic act/use
+profile supplies its own admitted transaction implementation and commits the use
+state atomically with the act. It compares full predecessor/use, H, act and exact
+outcome together; composing the reference burn and an independently committing
+Act does not implement that profile. Recovery is a separate native outcome/status
+path, never another successful consume or a grant to dispatch.
 
 ## Tagged controls and limits
 
@@ -90,7 +112,9 @@ synthetic provider settlements; `CollectHandoff` returns mutable test copies and
 an isolated private preparation. `PrepareHandoff` accepts only the synthetic
 fixture root. `NewUseStore(epoch, authorizedKeys...)` explicitly initializes
 originally authorized slots, independently of H, before checking. Its reference
-store is **volatile memory**, without native persistence or rollback protection.
+store is a **volatile separable-effect model**, without native persistence or
+rollback protection. It stores only a generation, does not persist H or outcomes,
+and has no native status recovery.
 Its `Admit` token retains the reference lock across the supplied synthetic read,
 pure check and consume; `Release` retires it. No initial lock is reacquired after
 that read in this reference path. It demonstrates exact revision/use comparison,
@@ -112,3 +136,10 @@ Stale pre-lock bytes and pauses after m remain documented infeasibility, not
 simulated native runs. The epoch test proves only reference pre-dispatch rejection;
 post-burn stale-executor fencing still needs the native effect primitive. The
 macOS case refuses mixed domains; no native macOS storage/suspend run is claimed.
+
+`HandoffUseRecovery` currently exercises only ambiguous-burn containment,
+lost-reply no-replay, and missing reference-store refusal. Exact recovered outcome,
+freshness Retry without a new publication position, intact-content/missing-completion
+metadata, frozen post-intent inventory, and restored consumer-use history beside
+intact provider W remain native **PENDING** controls. `HandoffN1Continuity` tests
+provider history, not consumer-use history or its rollback authority.

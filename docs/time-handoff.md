@@ -270,6 +270,13 @@ is not a killed control. Existing reviewer tests retain their names.
 | `HandoffEpochAfterBurn` | Resume old writer after burn and replacement ownership/deadline: forbid any authoritative effect. | Current live epoch plus timely qualified endpoint commits once; plant burn-only epoch check and stale-effect assertion must fail. |
 | `HandoffMacParity` | Awake-only clock, mixed domain, conversion overflow, unsupported flush, unproved namespace recovery or sleep past D cannot qualify. | Same invariants on qualified native continuous-clock/boot/storage/fence target; substitute uptime or bypass parity gate and suspend/durability assertion must fail. |
 
+`HandoffUseRecovery` currently exercises only ambiguous-burn containment,
+lost-reply no-replay, and missing reference-store refusal. Exact recovered outcome,
+freshness Retry without a new publication position, intact-content/missing-completion
+metadata, frozen post-intent inventory, and restored consumer-use history beside
+intact provider W remain native **PENDING** controls. `HandoffN1Continuity` tests
+provider history, not consumer-use history or its rollback authority.
+
 N1 before-burn and after-burn branches are deliberately separate. A provider
 time pass never overrides consumer burned state. No native row is claimed
 qualified by this documentation, the closed-reader unit test or the synthetic API

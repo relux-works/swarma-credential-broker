@@ -178,7 +178,8 @@ func TestHandoffWindowVectors(t *testing.T) {
 		{"HandoffLockedStateRace", "operation", func(p *FixtureHandoff) { p.Local.Intent.Operation = sum([]byte("changed locked head")) }},
 		{"Window", "window", func(p *FixtureHandoff) { p.Expected.Window.Sequence = "2"; p.Local.Intent = p.Expected }},
 		{"TransitionVersion", "window", func(p *FixtureHandoff) { p.Local.Intent.TransitionVersion = "fixture-use:2" }},
-		{"Run", "run", func(p *FixtureHandoff) { p.Local.Epoch = strings.Repeat("b", 32) }},
+		{"Run", "run", func(p *FixtureHandoff) { p.Local.Intent.Run = strings.Repeat("b", 32) }},
+		{"Epoch", "epoch", func(p *FixtureHandoff) { p.Local.Epoch = "writer:replacement:epoch-43" }},
 		{"Replay", "replay", func(p *FixtureHandoff) { p.Local.Unused = false }},
 		{"Continuity", "continuity", func(p *FixtureHandoff) { p.Local.Current = false }},
 		{"LockedFloor", "interval", func(p *FixtureHandoff) { p.Local.FloorNS = 210000000000 }},
@@ -221,7 +222,7 @@ func TestHandoffDoubleCheck(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		_, p := handoffPacket(t)
 		a, b := checked(t, p), checked(t, p)
-		s := NewReferenceUseStore(p.Expected.Run, expectedUseKey(p.Expected))
+		s := NewReferenceUseStore(p.Expected.Epoch, expectedUseKey(p.Expected))
 		acts := 0
 		act := handoffAct(func() error { acts++; return nil })
 		if err := s.ConsumeIfUnused(a, p.Local, act); err != nil {
@@ -253,7 +254,7 @@ func TestHandoffUseAdmissionOrder(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		_, p := handoffPacket(t)
 		c := checked(t, p)
-		s := NewReferenceUseStore(p.Expected.Run, expectedUseKey(p.Expected))
+		s := NewReferenceUseStore(p.Expected.Epoch, expectedUseKey(p.Expected))
 		bad := p.Local
 		bad.Revision = "1"
 		acts := 0
@@ -295,13 +296,16 @@ func TestHandoffUseAdmissionOrder(t *testing.T) {
 
 // Claim: ambiguous burn prevents act, a lost reply keeps its exact burn, and a
 // missing store does not reconstruct unused. These are in-memory fault controls.
+// Exact recovered outcome, freshness Retry without a new publication position,
+// intact-content/missing-completion metadata, frozen post-intent inventory and
+// restored consumer-use history beside intact provider W remain native PENDING.
 func TestHandoffUseRecovery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		_, p := handoffPacket(t)
 		c := checked(t, p)
 		acts := 0
 		act := handoffAct(func() error { acts++; return nil })
-		s := NewReferenceUseStore(p.Expected.Run, expectedUseKey(p.Expected))
+		s := NewReferenceUseStore(p.Expected.Epoch, expectedUseKey(p.Expected))
 		s.AmbiguousBurn = true
 		handoffCode(t, s.ConsumeIfUnused(c, p.Local, act), "continuity")
 		s.AmbiguousBurn = false
@@ -309,7 +313,7 @@ func TestHandoffUseRecovery(t *testing.T) {
 		if acts != 0 || len(s.entries) != 1 {
 			t.Fatal("ambiguous burn authorized act")
 		}
-		s = NewReferenceUseStore(p.Expected.Run, expectedUseKey(p.Expected))
+		s = NewReferenceUseStore(p.Expected.Epoch, expectedUseKey(p.Expected))
 		s.LoseReply = true
 		handoffCode(t, s.ConsumeIfUnused(c, p.Local, act), "reply_lost")
 		s.LoseReply = false
@@ -318,7 +322,7 @@ func TestHandoffUseRecovery(t *testing.T) {
 			t.Fatal("lost reply authorized replay")
 		}
 		handoffCode(t, (&ReferenceUseStore{}).ConsumeIfUnused(c, p.Local, act), "continuity")
-		handoffCode(t, NewReferenceUseStore(p.Expected.Run).ConsumeIfUnused(c, p.Local, act), "continuity")
+		handoffCode(t, NewReferenceUseStore(p.Expected.Epoch).ConsumeIfUnused(c, p.Local, act), "continuity")
 	})
 }
 
@@ -405,7 +409,7 @@ func TestHandoffN1(t *testing.T) {
 				if w, _ := f.HighWater(); w != "201000000000" {
 					t.Fatal(w)
 				}
-				s := NewReferenceUseStore(first.Expected.Run, expectedUseKey(first.Expected))
+				s := NewReferenceUseStore(first.Expected.Epoch, expectedUseKey(first.Expected))
 				acts := 0
 				act := handoffAct(func() error { acts++; return nil })
 				if burned {
@@ -448,6 +452,7 @@ func TestHandoffN1(t *testing.T) {
 
 // Claim: missing/restored provider pointers cannot use intact in-memory witness
 // state as unused genesis. A nearby full-history receipt passes before each cut.
+// This tests provider history, not consumer-use history or rollback authority.
 func TestHandoffN1Continuity(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "restored", true: "missing"}[missing], func(t *testing.T) {
@@ -490,11 +495,11 @@ func TestHandoffEpochAfterBurn(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		_, p := handoffPacket(t)
 		c := checked(t, p)
-		s := NewReferenceUseStore(p.Expected.Run, expectedUseKey(p.Expected))
+		s := NewReferenceUseStore(p.Expected.Epoch, expectedUseKey(p.Expected))
 		_ = s.ConsumeIfUnused(c, p.Local, handoffAct(func() error { return ErrUnavailable }))
 		s.Fence(strings.Repeat("b", 32))
 		acts := 0
-		handoffCode(t, s.ConsumeIfUnused(c, p.Local, handoffAct(func() error { acts++; return nil })), "run")
+		handoffCode(t, s.ConsumeIfUnused(c, p.Local, handoffAct(func() error { acts++; return nil })), "epoch")
 		if acts != 0 || len(s.entries) != 1 {
 			t.Fatal("old epoch dispatched/refunded")
 		}
@@ -569,7 +574,7 @@ func TestHandoffConcurrentUse(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		_, p := handoffPacket(t)
 		a, b := checked(t, p), checked(t, p)
-		s := NewReferenceUseStore(p.Expected.Run, expectedUseKey(p.Expected))
+		s := NewReferenceUseStore(p.Expected.Epoch, expectedUseKey(p.Expected))
 		acts := 0
 		act := handoffAct(func() error { acts++; return nil })
 		results := make(chan error, 2)
@@ -595,7 +600,7 @@ func TestHandoffTransitionVersionDoesNotRefund(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		_, p := handoffPacket(t)
 		c := checked(t, p)
-		s := NewReferenceUseStore(p.Expected.Run, expectedUseKey(p.Expected))
+		s := NewReferenceUseStore(p.Expected.Epoch, expectedUseKey(p.Expected))
 		act := handoffAct(func() error { return nil })
 		if err := s.ConsumeIfUnused(c, p.Local, act); err != nil {
 			t.Fatal(err)
@@ -615,5 +620,114 @@ func TestHandoffTransitionVersionDoesNotRefund(t *testing.T) {
 			t.Fatal("transition version allocated another slot")
 		}
 		handoffCode(t, s.ConsumeIfUnused(next, p.Local, act), "replay")
+	})
+}
+
+// Claim: a protected live-writer fence differs from the per-attempt run nonce.
+// The pure check and admitted reference use preserve both bindings, reject each
+// mismatch without burn/act, and never refund a burn for a later run.
+func TestHandoffRunEpochBindings(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		_, p := handoffPacket(t)
+		if p.Expected.Epoch != "writer:deployment-7:epoch-42" || p.Expected.Epoch == p.Expected.Run {
+			t.Fatal("fixture conflated run and epoch")
+		}
+		c, err := VerifyWindow(p.Prepared, p.Expected, p.Local, p.Capture)
+		if err != nil {
+			t.Fatal("distinct run and epoch refused:", err)
+		}
+		for _, n := range []struct {
+			name, code string
+			change     func(*FixtureHandoff)
+		}{
+			{"live epoch", "epoch", func(q *FixtureHandoff) { q.Local.Epoch = "writer:replacement:epoch-43" }},
+			{"expected epoch", "epoch", func(q *FixtureHandoff) {
+				q.Expected.Epoch = "writer:replacement:epoch-43"
+				q.Local.Epoch = q.Expected.Epoch
+				q.Local.Intent = q.Expected
+			}},
+			{"intent epoch", "epoch", func(q *FixtureHandoff) { q.Local.Intent.Epoch = "writer:replacement:epoch-43" }},
+			{"missing epoch", "epoch", func(q *FixtureHandoff) { q.Expected.Epoch = ""; q.Local.Epoch = ""; q.Local.Intent = q.Expected }},
+			{"expected run", "run", func(q *FixtureHandoff) { q.Expected.Run = strings.Repeat("b", 32); q.Local.Intent = q.Expected }},
+			{"intent run", "run", func(q *FixtureHandoff) { q.Local.Intent.Run = strings.Repeat("b", 32) }},
+		} {
+			q := p
+			n.change(&q)
+			rejected, err := VerifyWindow(q.Prepared, q.Expected, q.Local, q.Capture)
+			handoffCode(t, err, n.code)
+			if rejected != (WindowCandidate{}) {
+				t.Fatal(n.name, "returned a partial candidate")
+			}
+		}
+		acts := 0
+		act := handoffAct(func() error { acts++; return nil })
+		for _, n := range []struct {
+			name, code string
+			change     func(*LockedWindowState)
+		}{
+			{"live epoch", "epoch", func(l *LockedWindowState) { l.Epoch = "writer:replacement:epoch-43" }},
+			{"intent epoch", "epoch", func(l *LockedWindowState) { l.Intent.Epoch = "writer:replacement:epoch-43" }},
+			{"intent run", "run", func(l *LockedWindowState) { l.Intent.Run = strings.Repeat("b", 32) }},
+		} {
+			local := p.Local
+			n.change(&local)
+			store := NewReferenceUseStore(p.Expected.Epoch, expectedUseKey(p.Expected))
+			handoffCode(t, store.ConsumeIfUnused(c, local, act), n.code)
+			if acts != 0 || len(store.entries) != 0 || len(store.unused) != 1 {
+				t.Fatal(n.name, "changed use/act state")
+			}
+			if n.code == "epoch" {
+				admission, err := store.Admit(local)
+				handoffCode(t, err, "epoch")
+				if admission != nil {
+					admission.Release()
+					t.Fatal("wrong epoch admitted")
+				}
+			}
+		}
+		replaced := NewReferenceUseStore("writer:replacement:epoch-43", expectedUseKey(p.Expected))
+		handoffCode(t, replaced.ConsumeIfUnused(c, p.Local, act), "epoch")
+		if acts != 0 || len(replaced.entries) != 0 || len(replaced.unused) != 1 {
+			t.Fatal("replacement epoch changed use/act state")
+		}
+		store := NewReferenceUseStore(p.Expected.Epoch, expectedUseKey(p.Expected))
+		admission, err := store.Admit(p.Local)
+		if err != nil {
+			t.Fatal(err)
+		}
+		func() {
+			defer admission.Release()
+			c, err = VerifyWindow(p.Prepared, p.Expected, p.Local, p.Capture)
+			if err != nil {
+				t.Fatal("distinct run and epoch refused:", err)
+			}
+			if err = admission.ConsumeIfUnused(c, p.Local, act); err != nil {
+				t.Fatal("distinct epoch consume refused:", err)
+			}
+		}()
+		if acts != 1 || len(store.entries) != 1 {
+			t.Fatal("wrong reference transition")
+		}
+		h, _ := DecodeHandoff(p.Raw)
+		h.Handoff.ConsumerRun = strings.Repeat("b", 32)
+		raw, err := EncodeHandoff(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		next := p
+		next.Expected.Run = h.Handoff.ConsumerRun
+		next.Local.Intent = next.Expected
+		next.Prepared, err = PrepareFixtureHandoff(raw, p.Originals, next.Expected, p.Capture.NS-10000000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fresh := checked(t, next)
+		if fresh.key != c.key || fresh.epoch != c.epoch || fresh.run == c.run {
+			t.Fatal("new run changed logical window or fence")
+		}
+		handoffCode(t, store.ConsumeIfUnused(fresh, next.Local, act), "replay")
+		if acts != 1 || len(store.entries) != 1 {
+			t.Fatal("new run refunded burn")
+		}
 	})
 }
