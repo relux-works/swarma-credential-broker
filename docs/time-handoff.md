@@ -24,15 +24,20 @@ new fixture. The unchanged eleven-fact `qualified-time/1` receipt and
 
 A qualified preparer authenticates exact retained receipt, source, settlement
 and ancestry bytes against protected enrollment and an independently current
-rollback witness, before final locks. It retains bounded immutable owned copies
-and a private anchor. H binds that preparation; requester-provided bytes and
+rollback witness, before terminal consumer time-use locks. It retains bounded
+immutable owned copies and a private anchor. H binds that preparation;
+requester-provided bytes and
 their hash, `DecodeReceipt`, a sealed/duplicated descriptor, a nonce, a revision
 string or an opaque private Go type alone cannot authenticate it. A signature
 or MAC would not establish elapsed time, one-use or rollback safety either.
 
 Original loading, witness/provider traffic, history traversal, validation and
 bundle allocation finish before the window under the original deadline. No
-lazy reader, helper, callback, provider or witness RPC runs under final locks.
+lazy reader, helper, callback, provider or witness RPC runs under those terminal
+locks. These are the consuming window's terminal locks; permitted outer exclusions
+may remain held during preparation under the
+[consumer exclusion contract](time-contract.md#final-issuance-enrollment-and-registration-windows).
+In particular, an executor package exclusion is distinct from terminal consumer F.
 Protected live custody must exclude or invalidate known holds, steps, lost
 originals, provider/authority changes and competing writers through completion.
 Copied bytes cannot detect an otherwise unobserved revocation/deletion. Until
@@ -218,8 +223,10 @@ separately held key material alone is insufficient. An off-node backend is not
 selected or assumed equivalent to local CAS: its traffic and bootstrap/custody
 costs must fit the original budget before final locks.
 
-Only `ClosedOriginalReader` and `ClosedWitness` ship as production backends.
-The reader always returns an empty bundle and
+`OriginalReader` is exported and callers may implement it. `ClosedOriginalReader`
+is its only shipped implementation, and no production code accepts or consumes
+an injected `OriginalReader`. `ClosedWitness` is the only shipped witness
+implementation. The shipped closed reader always returns an empty bundle and
 `ActivationRefusal{Reason:"originals_unavailable"}`; the witness returns
 `ActivationRefusal{Reason:"witness_unavailable"}`. Both wrap `ErrUnavailable`.
 A future qualified reader uses `ConsumptionRefusal` codes `originals`, `binding`,

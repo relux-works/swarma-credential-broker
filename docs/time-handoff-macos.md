@@ -29,7 +29,7 @@ not a deployed release qualification; qualify the exact installed release/SDK. T
 selects the explicit Mach continuous API, not runtime fallback among clocks.
 
 For boot identity, Apple's pinned
-[XNU sysctl declarations](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.1.10/bsd/kern/kern_sysctl.c)
+[XNU sysctl declarations](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.1.10/bsd/kern/kern_sysctl.c#L2869-L2871)
 expose `kern.bootsessionuuid` as a read-only string; `kern.boottime` is a timeval,
 not a boot-session UUID. Select a protected native UUID read before final locks,
 validate its canonical nonzero representation and retain its mapping to receipt,

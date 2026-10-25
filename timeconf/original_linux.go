@@ -65,8 +65,10 @@ type OriginalBundle struct {
 }
 
 // OriginalReader is a future protected retained-original reader/validator. It
-// runs before all final consumer locks and within the original deadline. A
-// qualified implementation authenticates descriptor ownership, path/executable
+// runs before terminal consumer time-use locks and within the original deadline.
+// Permitted outer exclusions may remain held as specified by the consumer; see
+// docs/time-contract.md, Final issuance, enrollment and registration windows.
+// A qualified implementation authenticates descriptor ownership, path/executable
 // provenance, protected enrollment and codec/validator versions; validates exact
 // receipt bindings, original source/record bytes, settlement acknowledgment and
 // complete ancestry against the independently current Checkpoint; and returns
@@ -87,7 +89,9 @@ type OriginalBundle struct {
 // Installation and continuing authority/retention invalidation must be qualified
 // separately. Implementing this interface or constructing OriginalBundle grants
 // no authority and activates no path. See docs/time-handoff.md for custody and
-// currentness obligations; no production injection point is shipped.
+// currentness obligations. This exported interface may be implemented by callers;
+// ClosedOriginalReader is its only shipped implementation, and no production
+// code accepts or consumes an injected OriginalReader.
 type OriginalReader interface {
 	ReadOriginals(context.Context, OriginalRequest) (OriginalBundle, error)
 }

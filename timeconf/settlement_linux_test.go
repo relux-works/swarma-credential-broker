@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -604,43 +605,51 @@ func TestSettlementExclusiveAuthority(t *testing.T) {
 
 // Claim: original nanosecond floors survive storage. Rounding W down or L up
 // would admit the first interval; the second genuinely exceeds the same floor.
+// Virtual time isolates this arithmetic/storage claim from host scheduling and
+// fsync latency; it does not qualify the production deadline or storage bound.
 func TestSettlementSubsecondFloor(t *testing.T) {
-	f := newSettlementFixture(t)
-	s, e := f.consumer.store.open()
-	if e != nil {
-		t.Fatal(e)
-	}
-	r, e := s.record(f.witness.head)
-	s.close()
-	if e != nil {
-		t.Fatal(e)
-	}
-	r.HighWater = "200200000000"
-	b, _ := canonical(r)
-	h := WitnessHead{0, sum(b)}
-	if e = os.WriteFile(filepath.Join(f.root, objectName("record-", h.RecordDigest)), b, 0600); e != nil {
-		t.Fatal(e)
-	}
-	if e = os.WriteFile(filepath.Join(f.root, "current"), witnessBytes(h), 0600); e != nil {
-		t.Fatal(e)
-	}
-	f.witness.head = h
-	f.consumer.timePath.reserve = 100 * time.Millisecond
-	f.consumer.timePath.budget = 50 * time.Millisecond
-	f.setTime(200, fixtureBoot)
-	f.before.Now = f.before.Now.Add(200 * time.Millisecond)
-	f.before.Elapsed += 200 * time.Millisecond
-	f.after = f.before
-	raw, e := f.call(strings.Repeat("1", 32))
-	requireRefusal(t, raw, e)
-	f.setTime(202, fixtureBoot)
-	f.before.Now = f.before.Now.Add(200 * time.Millisecond)
-	f.before.Elapsed += 200 * time.Millisecond
-	f.after = f.before
-	receipt := fixturePass(t, f, strings.Repeat("2", 32))
-	if receipt.Facts.Continuity.PriorHighWater != "200200000000" || receipt.Facts.Observed != "202200000000" || receipt.Facts.Uncertainty != "100000000" {
-		t.Fatal("coarse conversion replaced exact facts")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		f := newSettlementFixture(t)
+		s, e := f.consumer.store.open()
+		if e != nil {
+			t.Fatal(e)
+		}
+		r, e := s.record(f.witness.head)
+		s.close()
+		if e != nil {
+			t.Fatal(e)
+		}
+		r.HighWater = "200200000000"
+		b, _ := canonical(r)
+		h := WitnessHead{0, sum(b)}
+		if e = os.WriteFile(filepath.Join(f.root, objectName("record-", h.RecordDigest)), b, 0600); e != nil {
+			t.Fatal(e)
+		}
+		if e = os.WriteFile(filepath.Join(f.root, "current"), witnessBytes(h), 0600); e != nil {
+			t.Fatal(e)
+		}
+		f.witness.head = h
+		f.consumer.timePath.reserve = 100 * time.Millisecond
+		f.consumer.timePath.budget = 50 * time.Millisecond
+		f.setTime(200, fixtureBoot)
+		f.before.Now = f.before.Now.Add(200 * time.Millisecond)
+		f.before.Elapsed += 200 * time.Millisecond
+		f.after = f.before
+		raw, e := f.call(strings.Repeat("1", 32))
+		requireRefusal(t, raw, e)
+		var intervalRefusal *ConsumptionRefusal
+		if !errors.As(e, &intervalRefusal) || intervalRefusal.Code != "interval" {
+			t.Fatal("subsecond floor did not return interval refusal", e)
+		}
+		f.setTime(202, fixtureBoot)
+		f.before.Now = f.before.Now.Add(200 * time.Millisecond)
+		f.before.Elapsed += 200 * time.Millisecond
+		f.after = f.before
+		receipt := fixturePass(t, f, strings.Repeat("2", 32))
+		if receipt.Facts.Continuity.PriorHighWater != "200200000000" || receipt.Facts.Observed != "202200000000" || receipt.Facts.Uncertainty != "100000000" {
+			t.Fatal("coarse conversion replaced exact facts")
+		}
+	})
 }
 
 // Claim: an unqualified reboot cannot establish a new baseline through a refused

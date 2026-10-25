@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 	"unsafe"
 
@@ -58,63 +59,71 @@ func TestProductionActivation(t *testing.T) {
 // Claim: one aggregate deadline returns refusal while an uncooperative fixture
 // is pending. A late result cannot pass or reopen the leaf; busy contention and
 // independent stop dispatch do not wait. The fixture is always released/joined.
+// Virtual time advances only after the collector blocks, not during host storage
+// or scheduling delays. This tests deadline control flow, not real-time qualification.
 func TestConsumeDeadlineNoLatePass(t *testing.T) {
-	f := newSettlementFixture(t)
-	started := make(chan struct{})
-	release := make(chan struct{})
-	ended := make(chan struct{})
-	var once sync.Once
-	var released atomic.Bool
-	unblock := func() { once.Do(func() { released.Store(true); close(release) }) }
-	f.consumer.collector = fixtureLocal{func(context.Context, Policy) (localCollection, error) {
-		close(started)
-		<-release
-		close(ended)
-		return f.collection, nil
-	}}
-	timer := time.AfterFunc(200*time.Millisecond, unblock)
-	defer timer.Stop()
-	defer unblock()
-	request := f.request(strings.Repeat("2", 32))
-	request.Deadline = time.Now().Add(20 * time.Millisecond)
-	raw, e := f.consumer.ConsumeBeforePin(context.Background(), request)
-	requireRefusal(t, raw, e)
-	if released.Load() {
-		t.Fatal("deadline return waited for collector")
-	}
-	select {
-	case <-started:
-	default:
-		t.Fatal("hang fixture was not reached")
-	}
-	// Stop is intentionally unrelated to Consumer. This checks no shared test
-	// exclusion is needed; each real consumer must prove its own stop integration.
-	stop := make(chan struct{})
-	go func() { close(stop) }()
-	select {
-	case <-stop:
-	case <-time.After(50 * time.Millisecond):
-		t.Fatal("independent stop blocked")
-	}
-	request = f.request(strings.Repeat("3", 32))
-	raw, e = f.consumer.ConsumeBeforePin(context.Background(), request)
-	var refused *ConsumptionRefusal
-	if len(raw) != 0 || !errors.As(e, &refused) || refused.Code != "busy" {
-		t.Fatal("pending collector did not fence admission", e)
-	}
-	unblock()
-	select {
-	case <-ended:
-	case <-time.After(time.Second):
-		t.Fatal("fixture did not join")
-	}
-	joinFixtureWorker(t, f)
-	// The file lock is released by the worker after its clock read. Inspect the
-	// durable record directly: no final record may follow the expired begin.
-	h, _ := f.witness.Read(context.Background())
-	if h.Generation != 1 {
-		t.Fatal("late sample settled or passed")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		f := newSettlementFixture(t)
+		started := make(chan struct{})
+		release := make(chan struct{})
+		ended := make(chan struct{})
+		var once sync.Once
+		var released atomic.Bool
+		unblock := func() { once.Do(func() { released.Store(true); close(release) }) }
+		f.consumer.collector = fixtureLocal{func(context.Context, Policy) (localCollection, error) {
+			close(started)
+			<-release
+			close(ended)
+			return f.collection, nil
+		}}
+		timer := time.AfterFunc(200*time.Millisecond, unblock)
+		defer timer.Stop()
+		defer unblock()
+		request := f.request(strings.Repeat("2", 32))
+		request.Deadline = time.Now().Add(20 * time.Millisecond)
+		raw, e := f.consumer.ConsumeBeforePin(context.Background(), request)
+		requireRefusal(t, raw, e)
+		var deadlineRefusal *ConsumptionRefusal
+		if !errors.As(e, &deadlineRefusal) || deadlineRefusal.Code != "deadline" {
+			t.Fatal("pending collector did not return deadline refusal", e)
+		}
+		if released.Load() {
+			t.Fatal("deadline return waited for collector")
+		}
+		select {
+		case <-started:
+		default:
+			t.Fatal("hang fixture was not reached")
+		}
+		// Stop is intentionally unrelated to Consumer. This checks no shared test
+		// exclusion is needed; each real consumer must prove its own stop integration.
+		stop := make(chan struct{})
+		go func() { close(stop) }()
+		select {
+		case <-stop:
+		case <-time.After(50 * time.Millisecond):
+			t.Fatal("independent stop blocked")
+		}
+		request = f.request(strings.Repeat("3", 32))
+		raw, e = f.consumer.ConsumeBeforePin(context.Background(), request)
+		var refused *ConsumptionRefusal
+		if len(raw) != 0 || !errors.As(e, &refused) || refused.Code != "busy" {
+			t.Fatal("pending collector did not fence admission", e)
+		}
+		unblock()
+		select {
+		case <-ended:
+		case <-time.After(time.Second):
+			t.Fatal("fixture did not join")
+		}
+		joinFixtureWorker(t, f)
+		// The file lock is released by the worker after its clock read. Inspect the
+		// durable record directly: no final record may follow the expired begin.
+		h, _ := f.witness.Read(context.Background())
+		if h.Generation != 1 {
+			t.Fatal("late sample settled or passed")
+		}
+	})
 }
 
 // Claim: expiration while waiting for local durability also returns refusal by

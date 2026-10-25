@@ -6,6 +6,12 @@ repository. Its native codecs, lock names, refusal codes and versioned use-state
 format remain authoritative. This shared template adds no consumer record field.
 Read the [handoff contract](time-handoff.md) and [macOS binding](time-handoff-macos.md).
 
+A consumer's native stricter requirement always wins over a broader optional
+common field. A required native pre-lock capture `c` remains mandatory even though
+p is optional here. Likewise, a native requirement to persist exact H cannot be
+replaced by this template's alternative operation/use binding; that alternative
+is available only where the native contract permits it.
+
 ## Profile schema
 
 One document may contain multiple windows and shared requirements. Every window
@@ -172,3 +178,12 @@ not inherit a writer's 1000 ms by analogy. Likewise a versioned policy/journal
 burn-act-completion protocol and an intent/participants/root/use/cleanup
 protocol both fit the multi-file endpoint field without claiming atomic rename
 of the whole transaction. These are schema examples, not consumer profiles.
+
+The following generic crosswalk preserves those native protocol distinctions;
+it does not approve or activate a profile.
+
+| Native protocol | Required mapping into this schema |
+| --- | --- |
+| Policy pin with use journal | Initial append/use admission, including exact unused-state selection, precedes m. The retained outer exclusion/live fence may permit completion reentry after m within the original f and D; it does not permit initial append admission after m. A committed pre-pin window grants no later acceptance authority. |
+| Intent, participants, root, use and cleanup | Retain the ordered recoverable multi-file endpoint and native intent/use binding. Persist H when the native protocol requires it; no shared optional field waives that requirement. |
+| Frozen content with later completion/use | Retain the distinct immutable content and current completion/use roots, fresh authenticated bridge and independent visibility authority. A content witness alone grants no completion or release authority. |
