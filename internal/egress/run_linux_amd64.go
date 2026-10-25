@@ -72,6 +72,9 @@ func validate(c Config) error {
 // this package and trusted by the caller, just like the supervisor itself.
 // Errors never trigger an unfiltered retry. Callers must supply a deadline.
 func Run(ctx context.Context, c Config) (report Report, err error) {
+	if c.Origin != nil {
+		return runOrigin(ctx, c)
+	}
 	report.Summary = map[string]Counts{}
 	defer func() {
 		if err != nil {

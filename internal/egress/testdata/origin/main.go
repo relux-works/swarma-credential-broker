@@ -21,7 +21,7 @@ func main() {
 	mode, status := os.Args[2], os.Args[3]
 	if os.Args[1] == "bootstrap" {
 		if mode == "pre-exec" {
-			if _, err := unix.Write(5, make([]byte, 32)); err != nil {
+			if _, err := unix.Write(9, make([]byte, 32)); err != nil {
 				os.Exit(125)
 			}
 		}
@@ -56,9 +56,13 @@ func main() {
 	if os.Args[1] != "case" || len(os.Args) != 4 {
 		os.Exit(125)
 	}
-	unix.CloseOnExec(5)
+	unix.CloseOnExec(9)
+	if mode == "wrong-sender" {
+		_, _ = unix.Read(8, make([]byte, 1))
+		os.Exit(125)
+	}
 	b := make([]byte, 32)
-	if n, err := unix.Read(5, b); err != nil || n != len(b) {
+	if n, err := unix.Read(9, b); err != nil || n != len(b) {
 		os.Exit(125)
 	}
 	if mode == "later-exec" {
@@ -67,8 +71,28 @@ func main() {
 		}
 	}
 	if mode != "pre-exec" && mode != "wrong-sender" {
-		if _, err := unix.Write(5, b); err != nil {
+		if mode == "malformed" {
+			b = append(b, 0)
+		}
+		if _, err := unix.Write(9, b); err != nil {
 			os.Exit(125)
+		}
+		if mode == "duplicate" || mode == "empty-duplicate" {
+			if mode == "empty-duplicate" {
+				b = []byte{}
+			}
+			_, _ = unix.Write(9, b)
+		}
+	}
+	if mode == "descendant" {
+		pid, _, errno := unix.RawSyscall(unix.SYS_CLONE, uintptr(unix.SIGCHLD), 0, 0)
+		if errno != 0 {
+			os.Exit(125)
+		}
+		if pid == 0 {
+			for {
+				unix.RawSyscall(unix.SYS_PAUSE, 0, 0, 0)
+			}
 		}
 	}
 	// Real notification traffic: permit socket creation, refuse an unlisted

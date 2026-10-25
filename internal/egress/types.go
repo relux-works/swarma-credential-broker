@@ -25,6 +25,9 @@ type Policy struct {
 // descriptor 3 is private bootstrap transport and is closed before candidate exec.
 // Only regular files and pipes may be inherited in explicit slots.
 type Config struct {
+	// Origin opts qualification into the owned traced lifecycle. Nil preserves
+	// the ordinary boundary, including its file-only inherited descriptor rule.
+	Origin   *CaseOrigin
 	Launcher string
 	// Started reports the supervised child PID before bootstrap is released.
 	// It is parent-only bookkeeping and grants no network permission.
