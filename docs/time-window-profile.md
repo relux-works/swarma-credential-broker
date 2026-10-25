@@ -9,32 +9,78 @@ Read the [handoff contract](time-handoff.md) and [macOS binding](time-handoff-ma
 ## Profile schema
 
 One document may contain multiple windows and shared requirements. Every window
-must resolve all rows below, directly or through an exact versioned reference.
-Use the published labels `Final locks`, `Original budget`, `Read point`,
-`Post-read mechanism`, `Deadline endpoint`, `Uncertainty`, `Public refusals` and
-`Versioned consumer use transition`; expand them rather than inventing another
-set of native lock/identity names. A narrative profile with symbol tables and
-use-member tables is equally valid if every requirement is explicit.
+must resolve all seven groups below, directly or through exact versioned
+references. Narrative/symbol tables and field-per-row tables are equally valid.
+The published field labels below are documentation requirements, not a shared
+wire record. Each consumer names **its own transition version**; byte formats,
+migration, genesis and capacity remain consumer-owned. Similar semantic labels
+never imply an interoperable universal use record.
+
+### 1. Versioned identity and dependency graph
 
 | Required field | Content and rejection condition |
 | --- | --- |
-| Profile identity and status | Owning version/codec, original operation classes, each enrolled window profile/phase/sequence, scope exclusions, source pins and approval state. Multiple audit/publication or preparation/publication windows are separate entries, not one broad permission. Explicit implementation/qualification gaps keep admission closed. |
-| Trust and preparation | Single-process/host boundary, protected enrollment and original-reader/witness versions, exact owning identity/argument/base/candidate/authority binding, complete original closure and live custody/invalidation. Expected state is independently derived. No H-dependent operation digest or final-result-dependent identity cycle. |
-| Logical window identity | Exact native uniqueness tuple and how the original owner allocates its complete allowed phase/action/sequence/slot set before preparation, including scheduled occurrences and later revalidation when applicable. H/challenge/run cannot allocate another slot. Distinguish original operation, logical slot, one live candidate and local use revision. State abandonment/retirement and no candidate crossing final-lock release. |
-| Final locks | Exact ordered exclusions, ownership and modes held throughout each stage, including outer locks, separate in-process gates and delegated-writer fences. List locks released at collection, final read/check, burn admission, act and completion; forbidden acquisition/upgrade/RPC beneath terminal locks. If append admission occurs later, name it and include its bounded nonwaiting cost in f. Similar lock letters across consumers imply no equivalence. |
-| Original start and deadline mapping | Independently retained original boot/domain/start/absolute exclusive D/UTC deadline/budget and conservative mapping rule identity. Bind to the original durable intent before mutation, not a new receipt/context. Specify checked integer units, rounding, nonrepresentability and boot/restart policy. A receipt without deadline fields cannot invent these values. |
-| Original budget | Every applicable original start/limit/deadline as an intersection. Effective D is the earliest qualified mapped deadline, preserving each original identity and limit independently. Include original caller/native timeout, reader data window, enclosing writer/observation bounds only where actually applicable. Never assign one consumer's 250/1000/2000 ms limits to another by analogy. |
-| Budget gaps | `undefined` explicitly identifies an unspecified operation budget; name the missing owner input and refusing disposition. `pending qualification` identifies a specified bound lacking proof. Neither means unlimited, zero, inherited by guesswork or an optional gate. A profile may be published with gaps but cannot admit those paths. |
-| Read point | Repeat the approved amendment: exactly one fixed qualified suspend-aware read after all applicable final-lock admission, outside pure VerifyWindow; Linux BOOTTIME or separately versioned macOS continuous domain. Define s and optional pre-entry c, final m (native n/c aliases allowed), T, f, epsilon. Require m>=c>=s, f>0, m-s+f+epsilon<=T and m+f+epsilon<D; checked same-boot arithmetic. No clock callback/provider/I/O in the pure check. |
-| Post-read mechanism | Concrete enforceable f or deadline-honoring act through the full endpoint, including pause/suspend/GC, faults, contention, every nested window, storage, readback and cleanup. Finite values/units, maximum qualified workload (bytes, files, retained history and device), action-specific rate/error/reserve calculation, qualification identity and native evidence, or `handoff_unqualified`. A post-effect check or withheld reply cannot prevent a late act. |
-| Uncertainty | Immutable original interval, effective cap, floors/authority/release and coarse projection checks; pre-reserved work/conversion/rate allowance and exact accounting without double spending. T and reserve never restart or grow. Each nested logical window needs its own fresh evidence/challenge/use, while enclosing deadlines and full work bounds remain in force. |
-| Act and Deadline endpoint | Exact authoritative effect, required file/namespace barriers and readbacks, durable committed use/outcome, cleanup and when authority becomes visible. Choose genuine atomic act/use commit or an explicitly recoverable multi-file burn-intent/act/completion graph. Enumerate every component; rename or append alone is not multi-file atomicity. Separate later external delivery/visibility windows and their remaining deadlines. |
-| Versioned consumer use transition | Exact owning durable home/version, uniqueness key, independently current expected predecessor, CAS/serialization, burn-before-separable-act, committed/held outcomes, H retention policy, rollback/epoch custody and retention after cleanup. Existing frozen/witnessed inventories and closed wire bytes cannot be repurposed. Version/migration/genesis/capacity changes need review; a separate ledger needs owner approval. |
-| Crash/retry mapping | Cuts before/ambiguous/after burn, partial act, unknown namespace durability, missing use, lost reply, restored consumer/provider/witness and old/delegated writer resumption after burn. No unburn, redispatch, deadline renewal or invented completion. Recover exact original outcome only. Distinct new operation/window requires independent authorization. |
-| Stop behaviour | Independent emergency dispatch and exclusion/fence path, including retained lock holders/descendants; no waiting on provider/store leaves. Specify how unsafe/late/unknown effect is contained without reopening admission or losing burn evidence. Ordinary transactional revoke is not assumed to be an independent stop path. |
-| Public refusals | Map future internal activation/predicate reasons to existing native public codes, including clean contention/expiry, untrusted time, replay, ambiguous persistence and authority mismatches. A template/internal code does not extend the public refusal vocabulary. |
-| Linux and macOS parity | Per-window clock/boot/deadline/store/exclusion/act/stop bindings, exact native OS/filesystem/device/closure and qualification state, primary references and explicit unknowns. Both are mandatory; the Linux implementation cannot waive a macOS gap. |
-| Future controls and open gates | Named nearby positive/negative controls from the shared list plus native-specific lock, crash, reserve, currentness and multi-file cuts. State expected act/use/provider post-state and narrowing plant. Distinguish specified, executed, qualified and pending; list missing owner decisions explicitly. |
+| Profile identity and status | Owning profile/version/approval/source pins, consumer enrollment and original operation classes; each logical window/profile/version and fixed authorized slot set. Separate original operation identity from receipt challenge, H, run, use revision and publication sequence. Multiple phases are distinct windows. |
+| Native operation and expected read set | Exact native operation codec/version and canonical preimage/domain; authority generation or incarnation, exact predecessor revisions, candidate/base/checkpoint/snapshot and independently expected read set. Derive expectations from protected original intent and current locked state, never from the receipt. Bind exact owner/arguments/purpose without truncation or normalization. |
+| Logical window identity | Exact original operation/owner/phase/action/sequence/slot uniqueness tuple, with allocation controlled by the original owner before preparation. A scheduled occurrence is an independently authorized operation, not a new slot selected by H/challenge/run. State abandonment/retirement and no checked candidate surviving final-lock release. |
+| Dependency graph | Specify acyclic dependencies among original operation, already frozen/signed artifacts, receipt/closure, H and later completion/use/outcome. Operation identity cannot depend on H or on a post-state digest containing H. A sole final capture occurs later and is not a receipt claim or future value required in the preparation commitment. Native profile names containing `/` need explicit protected representation/mapping; do not copy them into the provider's restricted enrolled-ID alphabet. |
+
+### 2. Canonical timing meanings
+
+The canonical symbols are **s** (original receipt observation), **p** (optional
+last qualified pre-lock capture, otherwise s), and **m** (sole local final
+capture). These are three distinct meanings. A native symbol `c` must be mapped
+to exactly one meaning in that native profile: pre-lock c maps to p; a native
+final c or n maps to m. Never alias the pre-lock capture to the final capture or
+infer one from the other. Their meanings, not their spelling, are authoritative.
+
+| Required field | Content and rejection condition |
+| --- | --- |
+| Original start and deadline mapping | Independently retained original boot/domain/start/absolute exclusive D/UTC deadline/budget and conservative mapping-rule identity. Bind to original durable intent before mutation. Specify exact integer units, rounding, nonrepresentability and boot/restart policy; receipts lacking these fields cannot invent them. |
+| Original budget | Intersect every applicable original start/limit/deadline; effective D is the earliest qualified mapped deadline. Preserve each native timeout, reader data window and enclosing writer/observation limit from its original start, only where actually applicable. No universal 250/1000/2000 ms defaults. |
+| Budget gaps | `undefined` names an unspecified operation budget and missing owner input; `pending qualification` names a specified bound lacking proof. Both refuse admission. Neither means unlimited, inherited by analogy or optional. |
+| Read point and allowance | T is the finite positive original allowance **from s through the full endpoint**, never a new remainder at admission. Use checked same-boot/domain nanoseconds, epsilon>=0, f>0, T>0; require m>=p>=s, m-s+f+epsilon<=T and m+f+epsilon<D. Equality at D refuses; original deadline intersections remain mandatory. The sole m is local input to the pure check, not receipt-supplied freshness. |
+
+### 3. Uncertainty coverage
+
+| Required field | Content and rejection condition |
+| --- | --- |
+| Original settlement reserve | Bind the original reserve, rate/error rule and qualification to the authentic receipt settlement **before W advances**. Cover elapsed preparation/admission since s plus the entire residual through act/use durability exactly once. No refreshed reserve, reduced delta, shifted O, double charging or transfer of already spent reserve to another act. |
+| Uncertainty | Preserve O/delta and original interval, effective cap, U<A, L>max(prior provider W, imported J), stricter locked floors, consumer expiry/release predicates and both raw/coarse projections. Reserve must fit under the cap together with source uncertainty, not merely fit the operation deadline. T and reserve cannot grow. |
+| Composition of reserves | Distinct nested or sequential windows require distinct fresh settlement/challenge/candidate/use and their own qualified reserve within the same original operation deadlines. A parent's f includes the whole nested span. Never reuse a capture or spend one interval's reserve twice. |
+
+### 4. Preparation authenticity and bounded ownership
+
+| Required field | Content and rejection condition |
+| --- | --- |
+| Trust and preparation | Trusted process/host boundary; exact receipt, settlement, original closure and witness association; protected reader/validator versions, enrollment and actual checked descriptor/object identities. Require authoritative current checkpoint and ancestry acknowledgment, not a head digest or structural decode. Preparation/publication domains and canonical owning bytes stay versioned without widening the closed receipt. |
+| Retention and invalidation | Bound count/bytes/depth/history before allocation/traversal; authenticate every original and ancestry link, retain immutable disjoint owned bytes and a qualified live custody/invalidation/fencing model. All external reads, provider/witness/signing work precede final locks. Missing or excessive ancestry/originals returns no bundle: never truncate. No publicly forgeable prepared authority from bytes/hash, boot UUID or run nonce. |
+
+### 5. Final admission, durable use and recovery
+
+| Required field | Content and rejection condition |
+| --- | --- |
+| Final locks | Exact ordered exclusions, modes, persistence admission and consuming use/CAS admission **before the sole read**; select protected exact head/epoch/unused revision before m. List held/released locks at collection, initial use admission, read/check, burn, act and completion. A nonwaiting initial append/CAS admission after m is forbidden even if budgeted in f. Later completion reentry is allowed only under continuous outer exclusion/live fence and within the same enforced f/original D, with no new read. Specify forbidden acquisitions/upgrades/RPC beneath terminal locks. |
+| Pure check inputs and output | After all initial admissions, take exactly one fixed qualified suspend-aware read outside VerifyWindow. The pure check receives bounded owned prepared data, independently expected original operation/window/boot/deadline, current protected read set/authority/use revision, floors and m. No clock/callback/provider/descriptor/I/O/mutation inside it. Output is a candidate or typed refusal, never dispatch/use authority. |
+| Versioned consumer use transition | Name this consumer's own durable transition/version/home and exact operation/window predecessor+unused CAS under retained serialization. Every H for a burned slot refuses. Burn before a separable act, or demonstrate a genuinely atomic act/use commit. State H retention/binding without requiring all consumers to persist H. Closed records/frozen inventory cannot be repurposed; schema/migration/genesis/capacity stay native and reviewed. A separate ledger needs owner approval. |
+| Act and Deadline endpoint | Exact authoritative effect, every file/namespace barrier, readback, committed use/outcome and required cleanup before authority opens, strictly before D. Choose proved atomic act/use or an ordered recoverable multi-file burn-intent/act/completion graph; rename alone is not multi-file atomicity. Later delivery/visibility needs its own bounded window. |
+| Crash/retry mapping | Retain exact outcome/tombstones after cleanup. Cuts before/ambiguous/after burn, partial/late act, unknown durability, lost reply, missing/restored use and old/delegated executor resumption must not refund, redispatch or renew D. Independent consumer rollback authority and live-instance fence are required. Distinguish safe stored-outcome retrieval from new time-dependent exposure. |
+| Public refusals | Map precise internal activation/predicate/persistence reasons to existing native public codes; no template label creates a new public code. Unknown outcome remains held/burned and contained, not automatically late-published. |
+
+### 6. Enforcement and per-platform qualification
+
+| Required field | Content and rejection condition |
+| --- | --- |
+| Post-read mechanism | Finite workload-specific T, f, epsilon and reserve, their units/rate/error rule and enforced bound or deadline-aware commit through the full endpoint. Specify maximum history, bytes and files; OS/filesystem/device; installed qualification revision and native evidence. Include GC/preemption/faults, pause, suspend, contention, storage faults, nested work, readback and cleanup. Missing proof is handoff_unqualified; no percentile, post-effect clock check or withheld reply supplies enforcement. |
+| Linux and macOS parity | Per-window clock/boot/deadline/store/exclusion/act/stop, reviewed platform representation, exact source/closure and qualification. Linux BOOTTIME and macOS continuous time are distinct domains; no receipt relabeling. Both platform bindings are mandatory with explicit unknowns; one cannot waive the other's gaps. |
+| Stop behaviour | Independent emergency dispatch and old/delegated-writer fence through retained lock holders and unknown storage outcomes. It cannot wait for provider/store leaves or lose burn evidence/reopen authority. Ordinary transactional revoke is not presumed independent stop. |
+
+### 7. Paired controls and composition
+
+| Required field | Content and rejection condition |
+| --- | --- |
+| Future controls and open gates | Shared feasible arithmetic/strict boundaries, stale admission and post-read pause, duplicate CAS, H replacement, original deadline substitution, lost acknowledgment, missing/restored use state and unavailable originals. Pair every negative with a positive under the same declared qualification, exact provider/use/act post-state and narrowing plant. Add the initial use-admission-before-read order assertion. Arithmetic does not qualify native timing. Distinguish specified/executed/qualified/pending and list missing owner inputs. |
+| Window composition | Specify how nested audit/publication and sequential commit/visibility windows retain original deadlines and live authority, with independent evidence/challenge/use and no reused final capture or double-spent reserve. Each window gets one read after its own full admission; all nested work remains inside the parent's already enforced f. Failure fences the parent; private builders and stored-outcome retrieval grant no later release permission. |
 
 ## Optional native extensions
 
@@ -64,6 +110,7 @@ Windows: [repeat the following for every logical phase/slot]
   Logical window identity: [exact operation/owner/phase/slot uniqueness tuple]
   Final locks:
     Collection: held [..], released [..], lock order/fence [..]
+    Initial persistence/use admission: [held before m, exact head/epoch/unused]
     Read/check: held [..], released [..]
     Burn admission / act / completion: held [..], released [..], differences [..]
     Forbidden acquisitions, upgrades and calls: [..]
@@ -78,9 +125,11 @@ Windows: [repeat the following for every logical phase/slot]
       - [other actually applicable enclosing deadline]
     Effective D: [earliest conservative mapped deadline]
     Undefined paths and refusing disposition: [none, or exact gap + owner]
-  Read point: [approved single-read amendment, original s/c and final m]
+  Read point: [approved single-read amendment after ALL initial admissions]
+    Captures: s [receipt], p [optional pre-lock], m [sole local final]
+    Native symbol mapping: [each symbol maps to exactly one capture meaning]
     T / f / epsilon: [finite qualified bounds or explicit pending gap]
-    Predicates: m>=c>=s; f>0; m-s+f+epsilon<=T; m+f+epsilon<D
+    Predicates: m>=p>=s; epsilon>=0; T>0; f>0; m-s+f+epsilon<=T; m+f+epsilon<D
   Post-read mechanism: [enforced bound/deadline act, native evidence or closed]
   Uncertainty: [original interval/cap/floors/reserve and nested accounting]
   Act: [exact authoritative effect; private builders are not publication]
@@ -90,7 +139,7 @@ Windows: [repeat the following for every logical phase/slot]
     Authority/public visibility gate: [..]
     Later distinct release/visibility windows: [..]
   Versioned consumer use transition:
-    Durable home/version and migration/capacity: [..]
+    Consumer-owned transition version/home, migration/genesis/capacity: [..]
     Expected revision and independent currentness/epoch: [..]
     State graph: unused -> burned -> committed or held; never unused again
     Optional native extensions: [scheduled action/workload, staged artifact,
@@ -104,6 +153,7 @@ Windows: [repeat the following for every logical phase/slot]
   Linux binding: [clock/boot/deadline/store/exclusion/act/stop + evidence/gaps]
   macOS binding: [equivalent dimensions + primary sources/evidence/gaps]
   Future controls and open gates: [names, exact expected outcomes and plants]
+  Window composition: [nested/sequential evidence, deadlines, reserve, captures]
 ```
 
 The deadline tuple above preserves existing published field labels; it does not

@@ -414,18 +414,19 @@ none of those final locks held. Reserve the entire qualified handoff and final
 operation allowance in its interval before persisting the consumed upper bound.
 Then enter the final window through one bounded handoff. The approved clock-rule
 amendment permits **exactly one fixed, qualified, suspend-aware monotonic read
-after admission under all final locks**, immediately before the pure local check:
-`CLOCK_BOOTTIME` on Linux. The read is outside `VerifyWindow`, which takes its
+after admission under all final locks**, including initial persistence/use CAS
+admission and protected head/epoch/unused selection, immediately before the pure
+local check: `CLOCK_BOOTTIME` on Linux. The read is outside `VerifyWindow`, which takes its
 value as data and reads no clock, callback, provider or ambient state. It is not
 an injected `Clock`, `time.Now()`, helper query, relay or cached "passed" verdict.
 Only bounded local checks and the profile's permitted durability follow it.
 
 Preserve the original boot, start, exclusive deadline D and clock-domain mapping.
-Let s be the original receipt observation, c a retained pre-entry capture (if
+Let s be the original receipt observation, p a retained pre-entry capture (if
 present, otherwise s), m the single admitted read, T the original qualified
 observation-to-completion allowance, f the enforced read-to-durable-endpoint
 bound, and epsilon the conservative rate/conversion/error allowance. Require
-checked same-boot nanoseconds, `m >= c >= s`, `f > 0`,
+checked same-boot nanoseconds, `m >= p >= s`, `f > 0`,
 `m - s + f + epsilon <= T` and **`m + f + epsilon < D`**. Equality at D refuses.
 Keep all original interval, reserve, current authority, challenge, floor and
 use-revision checks. D, T and the uncertainty reserve cannot grow or be spent

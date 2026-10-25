@@ -72,8 +72,10 @@ type OriginalBundle struct {
 // complete ancestry against the independently current Checkpoint; and returns
 // only a complete owned snapshot. The entire closure, including receipt and
 // witness material, is limited to 64 objects, 8 MiB total and depth 16, without
-// cycles; the receipt is at most 65536 bytes. Backend-specific witness material
-// requires its own reviewed closed validator, not a hash or placeholder proof.
+// cycles; the receipt is at most 65536 bytes. Excessive ancestry or originals
+// must refuse with no bundle; never truncate the closure to fit. Backend-specific
+// witness material requires its own reviewed closed validator, not a hash or
+// placeholder proof.
 //
 // Missing, substituted, restored, held, in-flight or unauthenticated material
 // must return no bundle and a ConsumptionRefusal (originals, binding, continuity

@@ -69,22 +69,28 @@ not possible for that window, even if no act occurred.
 
 ## Timing admission and reserve
 
+Initial persistence/use admission and protected head/epoch/unused selection must
+precede the sole read. Budgeting nonwaiting admission after the read is not an
+exception. Later completion reentry needs continuous outer exclusion/live fence
+and must remain inside the same enforced f and original D, without a new read.
+
 Each profile repeats the approved read placement, pure-check boundary and
 same-boot checked inequalities. Use receipt observation s, optional retained
-capture c (otherwise c=s), final read m, original qualified allowance T,
+pre-lock capture p (otherwise p=s), final read m, original qualified allowance T,
 enforced remaining bound f and conservative error epsilon:
 
 ```
-m >= c >= s
+m >= p >= s
 f > 0
 m - s + f + epsilon <= T
 m + f + epsilon < D
 ```
 
-Some profiles call m `n` or `c`; names do not change these meanings. T is the
+The optional pre-lock p and final m are distinct. A native pre-lock `c` maps
+to p; a native final `c` or `n` maps to m, never to both meanings. T is the
 total original observation-to-endpoint allowance, not a fresh allowance starting
 at entry. All bounds are finite nonnegative integer nanoseconds, f strictly
-positive. Reject overflow, mixed domains/boots, and equality at D. Reserve
+positive, including T. Reject overflow, mixed domains/boots, and equality at D. Reserve
 verification, atomic use admission, every act write/sync/rename, namespace
 barrier, readback, completion and required cleanup before provider settlement.
 An unknown bound returns activation refusal `handoff_unqualified`; a proved
@@ -193,7 +199,8 @@ provenance. No constructor accepts a backend or enables production admission.
 Closure limits remain 64 objects, 8 MiB aggregate, depth 16, no cycles, each
 object at most 8 MiB, receipt at most 65536 bytes; all receipt/record/source and
 backend witness material count, with no hidden unbounded ancestry. Preparation
-must refuse an incomplete closure. Required pinned validators authenticate
+must refuse any incomplete or over-limit closure, including excessive ancestry,
+and return no bundle. Never truncate ancestry or originals to fit these limits. Required pinned validators authenticate
 original source and record semantics, not only their digest; unknown formats
 and unavailable provenance refuse. Witness material has **no frozen handoff
 wire format** until an independent backend is selected and reviewed.
@@ -223,20 +230,30 @@ shapes do not supply the [mandatory macOS implementation](time-handoff-macos.md)
 ## Named future controls
 
 **Specified, not executed or implemented here.** Every row needs the nearby
-valid control, intended refusal and exact provider/use/act post-state. Native
-pause, storage, suspend and restore controls require isolated authorized targets;
+valid control, intended refusal and exact provider/use/act post-state. All full
+positive controls below assume source uncertainty 500 ms, original pre-settled
+reserve 500 ms and total delta 1000 ms under a 1500 ms effective cap. The reserve
+covers T=300 ms from receipt observation s through the endpoint, including the
+already charged epsilon=1 ms; f=20 ms and original D=250 ms use the same finite
+qualification. Retain the original O and interval: O=200 s gives [199,201] and
+O=211 s gives [210,212]. Reserve is fixed before W advances, not allocated again
+at admission. These numbers are feasible assumptions, not measured or qualified
+native bounds; any stricter cap or missing enforcement still refuses admission.
+
+Native pause, storage, suspend and restore controls require isolated authorized targets;
 arithmetic fixtures do not qualify them. An unapplied plant, skip or setup crash
 is not a killed control. Existing reviewer tests retain their names.
 
 | Future vector | Exact negative expectation | Positive control and narrowing plant |
 | --- | --- | --- |
 | `HandoffStaleCapture` | Same bytes with pre-entry capture 100 ms, D=250 ms, f=20 ms can enter at 110 ms or after a pause at 1500 ms. Pure input alone cannot distinguish them. Actual admitted read at 1500 refuses deadline with no burn/act. | Same qualified inputs at 110 ms may pass time predicates; remove/move the admitted read and the native stale-admission assertion must fail. |
+| `HandoffUseAdmissionOrder` | Initial persistence/use admission or protected head/epoch/unused selection after m violates the single-read contract, even if nonwaiting and included in f. No burn or act may follow that order. | Admit every consuming exclusion and select exact state before m, then pure check and serialized burn. Move initial admission after m and the order assertion must fail; later guarded completion reentry alone is not a second initial admission. |
 | `HandoffDoubleCheck` | Two pure checks of unused revision v may both produce candidates; serialized consume accepts at most one, with one burn and at most one act. H2 for the burned logical key also refuses. | One candidate under exact matching current revision commits once; remove predecessor/use comparison or key by H and duplicate-act assertion must fail. |
-| `HandoffTimelyRun` | Missing enforced f or native act qualification gives `handoff_unqualified`, even with favorable numbers. | Illustrative ms s=0,c=100,m=110,f=20,epsilon=1,T=2000,D=250: 131<=2000 and 131<250; native qualified act/use endpoint must also finish strictly before D. Remove qualification gate and the unqualified-path assertion must fail. |
+| `HandoffTimelyRun` | Missing enforced f or native act qualification gives `handoff_unqualified`, even with favorable numbers. | Illustrative ms s=0,p=100,m=110,f=20,epsilon=1,T=300,D=250: 131<=300 and 131<250; native qualified act/use endpoint must also finish strictly before D. Remove qualification gate and the unqualified-path assertion must fail. |
 | `HandoffLateRun` | With the same constants and m=1500, deadline refuses before burn. Also pause immediately after on-time m until past D: mechanism must prevent late authoritative act, not just suppress reply. Without it admission remains closed. | Same real act/use protocol completes before D with independently enforced f; remove effect fencing while retaining pure arithmetic and late-effect assertion must fail. |
-| `HandoffN1BeforeBurn` | Start J=140; settle O=200,delta=1 so W=201, then crash before consumer burn. Fresh [170,172] refuses provider continuity; missing witness/history refuses even [210,212]. No W reset or act. | Complete independent history and still-unused authorized original window, fresh [210,212], matching authority and remaining original deadline permit reprepare/new-run use. Plant restoring W from J=140; continuity assertion must fail. |
+| `HandoffN1BeforeBurn` | Start J=140; settle O=200,delta=1 so W=201, then crash before consumer burn. Fresh [170,172] with intact W=201 refuses `interval`; missing/restored witness/history is a separate `continuity` refusal even for [210,212]. No W reset or act. | Complete independent history and still-unused authorized original window, fresh [210,212], matching authority and remaining original deadline permit reprepare/new-run use. Plant restoring W from J=140; interval assertion must fail. A separate missing-history plant must fail the continuity assertion. |
 | `HandoffN1AfterBurn` | Same provider sequence, but H1 burned the slot before failed act. [210,212] may pass provider time only; H2 still refuses that burned slot. W stays >=201, with no refund or second act. | Full consume only for an independently authorized distinct operation/window/attempt retaining all applicable original constraints; plant new-H/new-run key allocation and same-window replay assertion must fail. |
-| `HandoffDeadlineEquality` | With s=0,c=100,m=229,f=20,epsilon=1,T=2000,D=250 ms, m+f+epsilon=D refuses `deadline`, no burn/act. U=A separately refuses authority. | m=228999999 ns gives endpoint bound 249999999 ns with the other constants converted exactly to ns; U<A and all other checks may pass. Plant inclusive D comparison; equality assertion must fail. |
+| `HandoffDeadlineEquality` | With s=0,p=100,m=229,f=20,epsilon=1,T=300,D=250 ms, m+f+epsilon=D refuses `deadline`, no burn/act. U=A separately refuses authority. | m=228999999 ns gives endpoint bound 249999999 ns with the other constants converted exactly to ns; U<A and all other checks may pass. Plant inclusive D comparison; equality assertion must fail. |
 | `HandoffLockedStateRace` | Prepare base/head A, find locked B: refuse binding with no burn/publication. Native sequence, owner bytes, reference size, phase or authority substitution also refuses. | Identical valid candidate under exact A/revision matches; plant copying expected state from H and binding assertion must fail. |
 | `HandoffUseRecovery` | Lost acknowledgment returns exact outcome only; missing use metadata, independently restored use history beside intact W, post-intent H changing frozen inventory, or freshness retry minting another position fences/refuses. | Complete exact candidate/use/history recovers one outcome without redispatch; separately authorized freshness revalidation advances use/floor only. Plant omitted use/bridge validation and recovery assertion must fail. |
 | `HandoffProvenanceAndPurity` | Missing/tampered original, another consumer/operation, changed boot/deadline/mapping, requester validator, accepting witness placeholder, or I/O/clock/provider inside pure check must refuse or fail structural gate. | Enrolled original-reader/witness and same exact bounded bytes match; remove one validation/dependency boundary and its named assertion must fail. |
@@ -245,4 +262,59 @@ is not a killed control. Existing reviewer tests retain their names.
 
 N1 before-burn and after-burn branches are deliberately separate. A provider
 time pass never overrides consumer burned state. No row is claimed green by
-this documentation or by the shipped closed-reader unit test.
+this documentation or by the shipped closed-reader unit test. The arithmetic
+examples below check only their declared numeric predicates.
+
+
+## Executable arithmetic controls
+
+Run `python3 tests/time-handoff-vectors.py` from the repository root. This checks
+published arithmetic only, not a handoff codec, verifier, consume store or native
+timing mechanism. The same qualification/source/rate assumptions above apply
+to every full positive and nearby negative. Non-numeric future controls still
+require their actual adapter/primitive; a model cannot qualify their effects.
+
+The fixed inputs below are nanoseconds. O/A/W/J are UTC values; s/p/m/D are
+same-boot elapsed values. These domains are not compared with each other.
+T includes epsilon; requiring reserve>=T is conservative coverage without adding
+that already charged epsilon twice. Source+reserve is the original settled delta.
+
+| Constant | Value |
+| --- | --- |
+| source_uncertainty_ns | 500000000 |
+| cap_ns | 1500000000 |
+| s_ns | 0 |
+| p_ns | 100000000 |
+| f_ns | 20000000 |
+| epsilon_ns | 1000000 |
+| D_ns | 250000000 |
+| A_ns | 300000000000 |
+| prior_W_ns | 201000000000 |
+| J_ns | 140000000000 |
+
+Each `none` row is a full **arithmetic** positive with native enforcement still
+required. Failure labels name predicates, not new runtime refusal codes. Both
+pre-admission and post-read pause obligations in the future control list remain
+mandatory: this table does not simulate an actual pause or storage completion.
+
+| Arithmetic case | m_ns | T_ns | reserve_ns | O_ns | history_current | Failed predicates |
+| --- | --- | --- | --- | --- | --- | --- |
+| timely | 110000000 | 300000000 | 500000000 | 211000000000 | true | none |
+| deadline-neighbour | 228999999 | 300000000 | 500000000 | 211000000000 | true | none |
+| unused-window-reprepare | 110000000 | 300000000 | 500000000 | 211000000000 | true | none |
+| independently-authorized-window | 110000000 | 300000000 | 500000000 | 211000000000 | true | none |
+| stale-admission | 1500000000 | 300000000 | 500000000 | 211000000000 | true | coverage,deadline |
+| deadline-equality | 229000000 | 300000000 | 500000000 | 211000000000 | true | deadline |
+| old-allowance-with-fixed-reserve | 110000000 | 2000000000 | 500000000 | 211000000000 | true | reserve |
+| old-allowance-with-expanded-reserve | 110000000 | 2000000000 | 2000000000 | 211000000000 | true | cap |
+| intact-history-lower-interval | 110000000 | 300000000 | 500000000 | 171000000000 | true | interval |
+| missing-history | 110000000 | 300000000 | 500000000 | 211000000000 | false | continuity |
+| restored-history | 110000000 | 300000000 | 500000000 | 211000000000 | false | continuity |
+| authority-equality | 110000000 | 300000000 | 500000000 | 299000000000 | true | authority |
+
+The two 2000 ms rows are deliberately **non-admissible negatives**, not full
+positives: keeping the reserve underfunds the allowance, while expanding it
+breaks the cap. The valid timely and deadline-neighbour controls use T=300 ms.
+The [170,172] case with intact history fails interval; removing/restoring history
+is an independent continuity case. None of these computations grants reuse of
+a burned logical window or changes W.
