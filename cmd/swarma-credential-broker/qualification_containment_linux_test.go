@@ -5,11 +5,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,47 +23,193 @@ import (
 
 type containmentSource struct {
 	path string
+	pkg  string
 	file *ast.File
 }
 
-// Claim: shipped sources can reach either synthetic constructor only through
-// the qualification package and its explicit command gate. Server wrappers and
-// aliases are included; initializers cannot construct authority at daemon startup.
-// This is a conservative source dependency check, not binary exclusion or a
-// general analysis of reflection/unsafe code. Protected-input execution is paired
-// with this check in TestQualificationAuthorityProtectedInputs.
+const containmentModule = "github.com/relux-works/swarma-credential-broker"
+const containmentCommand = containmentModule + "/cmd/swarma-credential-broker"
+const containmentDriver = containmentModule + "/internal/qualify"
+const containmentServer = containmentModule + "/internal/server"
+
+type containmentPackage struct {
+	ImportPath, Dir string
+	CompiledGoFiles []string
+	Imports         []string
+	Error           *struct{ Err string }
+	DepsErrors      []struct{ Err string }
+}
+
+type containmentGraph map[string]containmentPackage
+
+func containmentGo(t *testing.T, root string, args ...string) *exec.Cmd {
+	t.Helper()
+	goTool := os.Getenv("GO")
+	if goTool == "" {
+		goTool = "go"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(cancel)
+	cmd := exec.CommandContext(ctx, goTool, args...)
+	cmd.Dir = root
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if key != "GOOS" && key != "GOARCH" && key != "GOFLAGS" && key != "GOWORK" {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	// Match the production target and default tags, without inheriting a test
+	// overlay, tag selection or workspace that could hide a shipped dependency.
+	cmd.Env = append(cmd.Env, "GOOS=linux", "GOARCH=amd64", "GOFLAGS=-trimpath", "GOWORK=off")
+	return cmd
+}
+
+func containmentProductionGraph(t *testing.T, root string) (containmentGraph, error) {
+	t.Helper()
+	cmd := containmentGo(t, root, "list", "-deps", "-compiled", "-json", "-tags=", "./cmd/swarma-credential-broker", "./internal/server")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("production build graph unavailable: %w", err)
+	}
+	graph := containmentGraph{}
+	decoder := json.NewDecoder(bytes.NewReader(out))
+	for {
+		var pkg containmentPackage
+		if err := decoder.Decode(&pkg); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("production build graph invalid: %w", err)
+		}
+		if pkg.ImportPath == "" || pkg.Error != nil || len(pkg.DepsErrors) != 0 {
+			return nil, fmt.Errorf("production package unavailable: %s", pkg.ImportPath)
+		}
+		if _, duplicate := graph[pkg.ImportPath]; duplicate {
+			return nil, fmt.Errorf("duplicate production package: %s", pkg.ImportPath)
+		}
+		graph[pkg.ImportPath] = pkg
+	}
+	for _, path := range []string{containmentCommand, containmentDriver, containmentServer} {
+		if _, exists := graph[path]; !exists {
+			return nil, fmt.Errorf("production root missing: %s", path)
+		}
+	}
+	return graph, nil
+}
+
+func containmentSources(root string, graph containmentGraph) ([]containmentSource, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	var sources []containmentSource
+	for path, pkg := range graph {
+		if path != containmentModule && !strings.HasPrefix(path, containmentModule+"/") {
+			continue
+		}
+		if len(pkg.CompiledGoFiles) == 0 {
+			return nil, fmt.Errorf("production sources missing: %s", path)
+		}
+		for _, name := range pkg.CompiledGoFiles {
+			if !filepath.IsAbs(name) {
+				name = filepath.Join(pkg.Dir, name)
+			}
+			rel, err := filepath.Rel(root, name)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return nil, fmt.Errorf("production source outside module: %s", path)
+			}
+			// No directory filter: imported testdata, underscore and vendor-like
+			// trees are checked exactly like any other production dependency.
+			file, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+			if err != nil {
+				return nil, fmt.Errorf("production source unreadable or invalid: %s: %w", path, err)
+			}
+			sources = append(sources, containmentSource{filepath.ToSlash(rel), path, file})
+		}
+	}
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("production sources empty")
+	}
+	return sources, nil
+}
+
+// Remove only the command-to-driver edge whose exact syntax is checked below.
+// Any dependency also reached through the ordinary entry remains forbidden,
+// even when qualification imports that same dependency.
+func containmentReachable(graph containmentGraph, roots []string, ordinary bool) (map[string]bool, error) {
+	seen := map[string]bool{}
+	queue := append([]string(nil), roots...)
+	for len(queue) != 0 {
+		path := queue[0]
+		queue = queue[1:]
+		if seen[path] || path == "C" { // cgo pseudo-import has no package source.
+			continue
+		}
+		pkg, exists := graph[path]
+		if !exists {
+			return nil, fmt.Errorf("production dependency missing: %s", path)
+		}
+		seen[path] = true
+		for _, dependency := range pkg.Imports {
+			if ordinary && path == containmentCommand && dependency == containmentDriver {
+				continue
+			}
+			queue = append(queue, dependency)
+		}
+	}
+	return seen, nil
+}
+
+// Claim: every compiled first-party dependency is scanned for the production
+// linux/amd64 build with default tags, regardless of directory name. Constructor
+// aliases/wrappers are allowed in qualification-only dependencies; ordinary or
+// shared dependencies cannot consume either authority. Server-local wrappers
+// and exact command dispatch gates are checked separately. This source guard
+// does not claim binary exclusion or reflection/unsafe analysis.
 func TestQualificationAuthorityContainment(t *testing.T) {
 	root := filepath.Join("..", "..")
-	fset := token.NewFileSet()
-	var sources []containmentSource
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && path != root || d.Name() == "testdata" || d.Name() == "vendor" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(root, path)
-		if err == nil {
-			sources = append(sources, containmentSource{filepath.ToSlash(rel), file})
-		}
-		return err
-	})
-	if err != nil || len(sources) == 0 {
-		t.Fatal("containment source unavailable", err)
+	graph, err := containmentProductionGraph(t, root)
+	if err != nil {
+		t.Fatal("qualification authority containment:", err)
 	}
+	issues, err := containmentCheck(root, graph)
+	if err != nil {
+		t.Fatal("qualification authority containment:", err)
+	}
+	for _, issue := range issues {
+		t.Error(issue)
+	}
+}
+
+func containmentCheck(root string, graph containmentGraph) ([]string, error) {
+	sources, err := containmentSources(root, graph)
+	if err != nil {
+		return nil, err
+	}
+	ordinary, err := containmentReachable(graph, []string{containmentCommand, containmentServer}, true)
+	if err != nil {
+		return nil, err
+	}
+	qualification, err := containmentReachable(graph, []string{containmentDriver}, false)
+	if err != nil {
+		return nil, err
+	}
+	var issues []string
+	report := func(message string, args ...any) { issues = append(issues, fmt.Sprintf(message, args...)) }
 	authority := map[string]bool{"NewQualification": true, "NewQualificationAdmission": true, "NewQualificationLeaseRow": true, "NewQualificationPeerAdmission": true, "newQualificationPeer": true}
 	containmentClosure(sources, "internal/server", authority)
+	initializerNames := map[string]map[string]bool{}
+	for _, source := range sources {
+		if !qualification[source.pkg] || ordinary[source.pkg] || initializerNames[source.pkg] != nil {
+			continue
+		}
+		names := map[string]bool{}
+		for name := range authority {
+			names[name] = true
+		}
+		containmentClosure(sources, filepath.Dir(source.path), names)
+		initializerNames[source.pkg] = names
+	}
 	gates := map[string]bool{
 		`if handled, code := qualify.CaseMain(os.Args[1:]); handled { os.Exit(code) }`:                                                                           false,
 		`if len(os.Args) > 1 && os.Args[1] == "qualify-codex" { os.Exit(qualify.Command(ctx, os.Args[2:], runner.DefaultPolicyPath, os.Environ(), os.Stdout)) }`: false,
@@ -71,13 +219,13 @@ func TestQualificationAuthorityContainment(t *testing.T) {
 	for text := range gates {
 		file, err := parser.ParseFile(token.NewFileSet(), "gate.go", "package main; func main(){"+text+"}", 0)
 		if err != nil {
-			t.Fatal(err)
+			return nil, err
 		}
 		normalized[containmentText(file.Decls[0].(*ast.FuncDecl).Body.List[0])] = false
 	}
 	for _, source := range sources {
 		inServer := filepath.Dir(source.path) == "internal/server"
-		inQualify := filepath.Dir(source.path) == "internal/qualify"
+		inQualify := qualification[source.pkg] && !ordinary[source.pkg]
 		serverAlias, qualifyAlias := "", ""
 		for _, imp := range source.file.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
@@ -89,23 +237,28 @@ func TestQualificationAuthorityContainment(t *testing.T) {
 				alias = imp.Name.Name
 			}
 			if alias == "." || alias == "_" {
-				t.Errorf("qualification authority containment: opaque import in %s", source.path)
+				report("qualification authority containment: opaque import in %s", source.path)
 			}
 			if strings.HasSuffix(path, "/server") {
 				serverAlias = alias
 			} else {
 				qualifyAlias = alias
 				if source.path != "cmd/swarma-credential-broker/main.go" || alias != "qualify" {
-					t.Errorf("qualification authority containment: driver import outside command gate in %s", source.path)
+					report("qualification authority containment: driver import outside command gate in %s", source.path)
 				}
 			}
 		}
 		for _, decl := range source.file.Decls {
+			// Even a qualification-only import initializes during daemon startup.
+			// Function aliases may be stored, but startup may not call authority.
+			if inQualify && containmentInitializerCalls(decl, initializerNames[source.pkg]) {
+				report("qualification authority containment: authority call during package initialization in %s", source.path)
+			}
 			if inServer && containmentReferences(decl, authority) {
 				fn, ok := decl.(*ast.FuncDecl)
 				allowed := source.path == "internal/server/qualification_linux.go" || source.path == "internal/server/qualification_lease_rows_linux.go"
 				if !allowed || !ok || fn.Name.Name == "init" {
-					t.Errorf("qualification authority containment: server authority dependency outside fixture constructors in %s", source.path)
+					report("qualification authority containment: server authority dependency outside fixture constructors in %s", source.path)
 				}
 			}
 			ast.Inspect(decl, func(node ast.Node) bool {
@@ -127,10 +280,10 @@ func TestQualificationAuthorityContainment(t *testing.T) {
 					return true
 				}
 				if pkg.Name == serverAlias && authority[selector.Sel.Name] && !inQualify {
-					t.Errorf("qualification authority containment: %s referenced outside qualification in %s", selector.Sel.Name, source.path)
+					report("qualification authority containment: %s referenced outside qualification in %s", selector.Sel.Name, source.path)
 				}
 				if pkg.Name == qualifyAlias {
-					t.Errorf("qualification authority containment: driver reference outside command gate in %s", source.path)
+					report("qualification authority containment: driver reference outside command gate in %s", source.path)
 				}
 				return true
 			})
@@ -138,9 +291,35 @@ func TestQualificationAuthorityContainment(t *testing.T) {
 	}
 	for gate, seen := range normalized {
 		if !seen {
-			t.Errorf("qualification authority containment: command gate changed: %s", gate)
+			report("qualification authority containment: command gate changed: %s", gate)
 		}
 	}
+	return issues, nil
+}
+
+func containmentInitializerCalls(decl ast.Decl, names map[string]bool) bool {
+	var node ast.Node
+	switch decl := decl.(type) {
+	case *ast.FuncDecl:
+		if decl.Name.Name == "init" {
+			node = decl.Body
+		}
+	case *ast.GenDecl:
+		if decl.Tok == token.VAR {
+			node = decl
+		}
+	}
+	if node == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(node, func(node ast.Node) bool {
+		if call, ok := node.(*ast.CallExpr); ok && containmentReferences(call.Fun, names) {
+			found = true
+		}
+		return true
+	})
+	return found
 }
 
 // Follow local function/variable wrappers, including method selectors. Names

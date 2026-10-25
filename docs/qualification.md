@@ -52,9 +52,17 @@ default `Run`, manager defaults, daemon configuration, flags or environment.
 `serve` is currently an unsupported command. Synthetic material and stores remain
 inside the private fixture; no real account, token endpoint or store is used.
 
-`TestQualificationAuthorityContainment` checks constructor dependencies and the
-command dispatch gates; `TestQualificationAuthorityCLIContainment` checks shipped
-entry refusals. `TestQualificationAuthorityProtectedInputs` pairs those refusals
+`TestQualificationAuthorityContainment` derives its first-party source set from
+`go list -deps -compiled` for the production Linux/amd64 build with default tags.
+It scans every compiled dependency regardless of directory name; unavailable or
+invalid dependency sources fail the check. Constructor aliases in dependencies
+shared with the daemon are refused; qualification-only dependencies may hold
+aliases but cannot call authority during package initialization.
+`TestQualificationContainmentImportedWrapper` checks both directions with compiled
+source fixtures, including imported `testdata` and underscore-prefixed trees.
+The guard also checks server-local wrappers and the command dispatch gates;
+`TestQualificationAuthorityCLIContainment` checks shipped entry refusals.
+`TestQualificationAuthorityProtectedInputs` pairs those refusals
 with protected command-driver execution of both authorities and rejects missing
 or unprotected fixture inputs. These checks establish a source/entry boundary,
 not exclusion from the shipped binary.
