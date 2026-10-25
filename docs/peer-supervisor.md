@@ -8,7 +8,9 @@ configuration. B must differ from both broker and allowed identities and remain
 absent from every enabled policy entry. This proposal changes no qualification
 status: `peer-denied` remains **UNRUN** until installation, independent supervisor
 attestation and the implementation below are reviewed and qualified. The runner
-rows `home-auth-present` and `source-conflict` remain **UNRUN** and undecided.
+rows `home-auth-present` and `source-conflict` have a separate accepted
+[measured-code testimony contract](runner-testimony.md). They remain **UNRUN**
+until that contract is implemented and qualified.
 
 The existing [execution-origin rules](qualification.md#execution-evidence-origin)
 and [genuine-peer requirements](../spec/v0-codex-refresher.md#81-configured-identities-and-genuine-peer-qualification)

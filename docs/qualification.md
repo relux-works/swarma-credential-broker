@@ -347,7 +347,9 @@ suppress the neighbouring control. No approved candidate runs in these cases.
 The proposed [trusted peer supervisor contract](peer-supervisor.md) defines the
 foreign-case waiter and its installation/attestation gates. It is inactive; the
 peer row above remains UNRUN until an independent supervisor origin is approved
-and qualified. Runner origin decisions are unchanged.
+and qualified. The accepted [runner testimony contract](runner-testimony.md)
+permits credit for the two runner pairs after implementation and qualification;
+it does not change the current executable or confer credit in this docs-only step.
 
 Here P is the trusted qualification parent and K the kernel. A CaseOrigin is
 optional in the egress supervisor: ordinary Run retains its existing contract.
@@ -358,7 +360,7 @@ It accepts only a parent-created typed endpoint, never generic socket ExtraFiles
 | Transport — `TestOriginExecIdentity`, `TestRowsHarness` | P observes Start, retains the worker image and pidfd. At K's exec stop P compares `/proc` image device/inode and exact bounded initial argv. | P sends a fresh challenge only after verified exec; the measured dispatcher answers on FD9 after input, candidate and empty-home checks. K's SO_PASSCRED supplies the same PID/UID/GID. P acknowledges before exchange. | The locked Start thread owns trace stops and the sole consuming `cmd.Wait`. It retains actual case status, including genuine 0/17 (`TestCaseCompletionStatus`). | P alone writes artifacts after verified entry and join. A passing pair additionally requires exact envelopes and unchanged fixture effects. |
 | Admission — same origin tests, `TestRowRefusalEnvelope` | Same retained-image, initial-argv and pidfd proof. | Same post-exec challenge; server checks live origin together with SO_PEERCRED. | Same exact-process wait authority; no helper-supplied status. | P checks grant bounds, store state and Snapshot/Refresh counts before accepting both artifacts. |
 | Peer — `TestExecutionOrigin/peer` | P observes sudo Start and kernel connection credentials, but lacks independent measured inner-case identity. | Helper metadata or its receipt can precede entry. UNRUN. | P waits for sudo; no trusted exact-inner-case waiter. Only launcher diagnostics. | Missing origin prevents artifacts and neighbour launch. |
-| Runner — `TestExecutionOrigin/runner` | P observes direct Start, without an independent witness of real Command preflight. | Negative preflight makes no broker connection. Silence, file metadata or an inherited receipt cannot prove Command ran. UNRUN. | Actual launcher status cannot establish canonical preflight completion. | Missing preflight authority prevents artifacts and neighbour launch. |
+| Runner — `TestExecutionOrigin/runner`; accepted contract, implementation pending | P must measure the image/digest and exact argv at its own direct-child exec stop. | After real Command returns, audited code signals readiness, then answers P's fresh nonce with the actual outcome; SO_PASSCRED binds PID/UID to the traced child. This is `measured-code-testimony`, not a kernel-observed call. | P must own the exact-child wait and validate effects. Missing origin is UNRUN; a valid case with actual nonzero exit is FAIL. Expected local Command refusal 69 is separate from case exit. | P must bind the evidence class and outcome to exact artifacts and its own effect observations. Current executable stays UNRUN until the [contract](runner-testimony.md) is implemented and qualified. |
 
 The origin exchange uses a fresh SOCK_SEQPACKET pair with SO_PASSCRED; FD9 is
 marked CLOEXEC on dispatcher entry and closed after acknowledgement. Pre-exec,
@@ -384,8 +386,9 @@ parent counters and grant bounds. Serialized lifecycle claims cannot replace
 the private parent proof bound to these exact artifact bytes. Failed genuine cases retain their actual nonzero
 status, but cannot pass qualification. `row_executions` retains bounded typed
 launcher diagnostics for unavailable origins; helper text never becomes authority.
-Peer and runner still require their own ownership decisions before credit can
-be restored. The any-peer control remains a declared survivor for that boundary.
+Peer still requires its independent supervisor-origin decision. The runner
+contract is accepted; its implementation and qualification remain pending.
+The any-peer control remains a declared survivor for that boundary.
 
 Runner source rows execute the real runner Command and SocketClient. The
 protected fake app-server descriptor is measured separately; its exact digest
@@ -394,8 +397,11 @@ remains separately measured diagnostic identity and is never run. The parent
 creates a fresh launch home/project, an empty reserved source for
 `source-conflict`, or an unreadable synthetic native-path file for
 `home-auth-present`. The real preflight produces the typed local refusal;
-there is no invented wire error. Parent checks require zero authority resolution,
+there is no invented wire error. For the negatives, parent checks require zero
 connections, requests, records, Snapshot/Refresh calls and child/login events.
+The authority-resolution counter and exact local diagnostic are measured-code
+testimony, not independent parent observations; see the
+[accepted runner contract](runner-testimony.md).
 Lstat metadata and inotify verify the fixture path was unchanged and never
 opened. The clean neighbor performs one synthetic external login and releases
 its bounded lease. Only its expected scenario, event and runner bookkeeping
@@ -407,8 +413,10 @@ protocol children under the existing egress boundary, with no network allowlist.
 This placement preserves the boundary's refusal of setsid inside untrusted code
 and the runner's real containment setup. Parent validation requires exactly two
 complete boundary reports and rejects refused traffic. Negatives start no child
-and have no boundary report. These are synthetic runner fixture operations. They receive no qualification
-credit and perform no real Codex login, inference or release qualification.
+and have no boundary report. These are synthetic runner fixture operations.
+The current implementation receives no qualification credit. The accepted
+testimony contract permits synthetic pair credit only after implementation and
+qualification; no real Codex login, inference or release qualification is established.
 
 `time-untrusted` remains unrun. The snapshot-only fixture has no retained owner
 watermark, so a provider Boolean or a fake checkpoint would not prove profile
@@ -516,7 +524,8 @@ The registry below has all 46 required IDs. “Next slice” means unexecuted,
 never a skipped pass. This implementation covers the harness, framing,
 peer-probe, genuine peer denial, account, release qualification, runner source
 and ended-lease fixture implementations. Thirteen transport/admission/lease rows and seven fake owner-core rows execute with attested origin and paired artifacts.
-The peer row and two runner rows remain UNRUN even with usable fixtures.
+The peer row and two runner rows remain UNRUN even with usable fixtures; the
+accepted runner testimony contract awaits implementation and qualification.
 Other bodies remain pending; the time row
 requires the durable owner integration described above.
 P9 means [profile §9](../spec/v0-codex-refresher.md#9-negative-cases-and-adjacent-positive-controls);
@@ -537,8 +546,8 @@ fixture result cannot satisfy the live part of a combined row.
 | account-denied | fake-only; P9 | Exact allowed peer/account/profile leases | Known disallowed account gets lease_not_authorised, no writer | Executed with attested paired artifacts; disabled subject, zero Snapshot; P7:582–598, P9:801 |
 | account-unknown | fake-only; P9 | Existing allowed label leases | Missing label gets lease_account_unknown, no creation/fallback | Executed with attested paired artifacts; missing label, zero Snapshot; P7:582–598, P9:802 |
 | release-unqualified | fake-now + live-later; P9, P8.2 steps 2/4 | Exact approved fake tuple leases; later real tuple | Unqualified digest gets lease_harness_unqualified, no child | Executed with attested paired artifacts; fake tuple; no production publication; P8.2:749–788, P9:803, B9.6:575–587 |
-| source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | UNRUN: execution origin unavailable; empty reserved-variable pair; P6:493–507, P9:804 |
-| home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | UNRUN: execution origin unavailable; synthetic-file pair; retained runner link regression; P6:499–502, P9:805 |
+| source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | UNRUN: accepted measured-code-testimony contract, implementation pending; empty reserved-variable pair; P6:493–507, P9:804 |
+| home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | UNRUN: accepted measured-code-testimony contract, implementation pending; synthetic-file pair; retained runner link regression; P6:499–502, P9:805 |
 | renew-unknown-digest | fake-only; P9 | Superseded delivered token returns current payload without refresh | Unknown digest gets renew_not_current, generation unchanged | Attested synthetic pair; parent verifies history refusal and unchanged state |
 | renew-contention | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | One rejection causes one refresh | Eight same-token rejecters share exactly one refresh/generation | Attested fake pair only; live half pending |
 | renew-late | fake-now + live-later; P9, P8.2 steps 2/4 | In-budget result answers once | After-eight-second result gets renew_timeout, no late callback | Next slice |

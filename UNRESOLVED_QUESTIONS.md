@@ -35,8 +35,10 @@ Implementation integration questions:
   still needs an approved independent witness of the supervisor initial exec,
   image, argv/environment and launch ancestry across test identities. Existing
   test-role sudo permission, pidfds and socket credentials alone do not supply
-  all those facts. Installation and activation remain pending; peer and runner
-  rows remain UNRUN.
+  all those facts. Installation and activation remain pending; the peer row
+  remains UNRUN. The two runner rows have an accepted
+  [measured-code testimony contract](docs/runner-testimony.md); implementation
+  and qualification are pending, so their current runtime status is also UNRUN.
 
 - `authowner.New` now validates and reconciles `owner-*.json` before snapshots.
   Activation still needs protected fresh-enrolment checkpoints, an independently
@@ -57,9 +59,11 @@ Implementation integration questions:
   bodies. Applied unit properties remain unavailable until the contained owner
   supplies its template and current-property observer. Ten transport/admission
   fixture rows have attested paired execution; the peer row needs an independently
-  trusted inner-case waiter and image identity. Both runner rows need an approved
-  witness of real Command preflight; kernel process identity alone is insufficient.
-  These ownership/trust decisions remain open. Other rows stay pending, live
+  trusted inner-case waiter and image identity. Both runner rows now have the
+  accepted measured-code testimony contract; its post-Command challenge, effect
+  observations and explicit report class still need implementation and
+  qualification. The peer authority decision remains open; no kernel-observed
+  Command call is claimed for the runner contract. Other rows stay pending, live
   execution remains refused, and no production tuple qualifies.
   See [qualification](docs/qualification.md). An interrupted-run fence, missing activation or recovered pending activation
   requires operator reconciliation while closed; an automatic recovery tool is
