@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,13 +21,35 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 )
 
-type boundedReportBuffer struct{ bytes.Buffer }
+type boundedReportBuffer struct{ buffer bytes.Buffer }
+
+func (b *boundedReportBuffer) Len() int      { return b.buffer.Len() }
+func (b *boundedReportBuffer) Bytes() []byte { return b.buffer.Bytes() }
 
 func (b *boundedReportBuffer) Write(p []byte) (int, error) {
 	if len(p) > 128<<10-b.Len() {
 		return 0, errors.New("pending report exceeds bound")
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
+}
+
+// Claim: copying into the report writer accepts its exact bound and rejects
+// overflow without retaining more than the bound, including io.Copy dispatch.
+func TestBoundedReportBufferCopy(t *testing.T) {
+	for _, size := range []int{128 << 10, 128<<10 + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			var output boundedReportBuffer
+			input := struct{ io.Reader }{bytes.NewReader(make([]byte, size))}
+			n, err := io.Copy(&output, input)
+			if size > 128<<10 {
+				if err == nil || err.Error() != "pending report exceeds bound" || n > 128<<10 || output.Len() > 128<<10 {
+					t.Fatal("report copy overflow was not refused within bound", n, output.Len(), err)
+				}
+			} else if err != nil || n != int64(size) || output.Len() != size {
+				t.Fatal("bounded report copy refused", n, output.Len(), err)
+			}
+		})
+	}
 }
 
 // Claim: the public pending path with a non-executable synthetic candidate

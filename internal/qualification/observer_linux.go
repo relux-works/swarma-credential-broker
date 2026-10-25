@@ -145,16 +145,8 @@ func (o NativeObserver) Platform(ctx context.Context) (Measurement, error) {
 	}
 	command := exec.CommandContext(ctx, "/usr/bin/systemctl", "--version")
 	command.Env = []string{"PATH=/usr/bin:/bin", "LANG=C.UTF-8"}
-	var output cappedOutput
-	command.Stdout = &output
-	command.Stderr = io.Discard
-	command.WaitDelay = 100 * time.Millisecond
-	e = command.Run()
+	line, e := platformSystemdVersion(command)
 	if e != nil {
-		return Measurement{}, ErrUnavailable
-	}
-	line, _, _ := strings.Cut(output.String(), "\n")
-	if !strings.HasPrefix(line, "systemd ") {
 		return Measurement{}, ErrUnavailable
 	}
 	b, e := wire.Encode(map[string]any{"os_id": values["ID"], "os_version": values["VERSION_ID"], "kernel_release": unix.ByteSliceToString(u.Release[:]), "kernel_version": unix.ByteSliceToString(u.Version[:]), "systemd": line, "architecture": runtime.GOARCH})
@@ -163,6 +155,22 @@ func (o NativeObserver) Platform(ctx context.Context) (Measurement, error) {
 	}
 	return measure("platform", b), nil
 }
+
+func platformSystemdVersion(command *exec.Cmd) (string, error) {
+	var output cappedOutput
+	command.Stdout = &output
+	command.Stderr = io.Discard
+	command.WaitDelay = 100 * time.Millisecond
+	if command.Run() != nil {
+		return "", ErrUnavailable
+	}
+	line, _, _ := strings.Cut(output.buffer.String(), "\n")
+	if !strings.HasPrefix(line, "systemd ") {
+		return "", ErrUnavailable
+	}
+	return line, nil
+}
+
 func (o NativeObserver) Configuration(ctx context.Context) (Measurement, error) {
 	fields, e := wire.Parse(o.StaticPolicy)
 	if e != nil || ctx.Err() != nil {
@@ -204,11 +212,11 @@ func Observe(ctx context.Context, o IdentityObserver) (Identity, Catalog, []stri
 }
 
 // cappedOutput bounds even a misbehaving tool's output before allocation grows.
-type cappedOutput struct{ bytes.Buffer }
+type cappedOutput struct{ buffer bytes.Buffer }
 
 func (b *cappedOutput) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > 65536 {
+	if len(p) > 65536-b.buffer.Len() {
 		return 0, ErrUnavailable
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }
