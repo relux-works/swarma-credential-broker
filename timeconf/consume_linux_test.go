@@ -8,7 +8,6 @@ import (
 	"errors"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -219,7 +218,8 @@ func (r *traceFixtureRunner) Run(ctx context.Context, path string, args []string
 }
 
 // Claim: the accepting fixture uses the real descriptor execution child and
-// fixed argv/output policy. Its known no-descendant test binary supplies fixture
+// fixed argv/output policy within the unchanged absolute deadline, including
+// race runs. Its known no-descendant synthetic helper supplies fixture
 // completion only; this does not qualify the native chronyc/daemon subtree.
 func TestConsumeExistingCollectorChild(t *testing.T) {
 	f := newSettlementFixture(t)
@@ -314,38 +314,6 @@ func TestConsumeForkedCollector(t *testing.T) {
 	f.collection.drained = false
 	raw, e := f.call(strings.Repeat("8", 32))
 	requireRefusal(t, raw, e)
-}
-
-// Invoked only by the synthetic descriptor-pinned executable fixture. It uses
-// no account, policy, environment selector or production qualification path.
-func qualifiedForkFixture() bool {
-	if len(os.Args) < 3 || os.Args[1] != "-c" {
-		return false
-	}
-	if os.Args[2] == "qualified-descendant" {
-		time.Sleep(time.Minute)
-		os.Exit(0)
-	}
-	// Descriptor execution reports /proc/self/fd/3 as argv[0]; /proc/self/exe is
-	// the pinned native fixture inode after the CollectorEntry exec.
-	path, _ := os.Executable()
-	scenario, _ := os.ReadFile(filepath.Join(filepath.Dir(path), "scenario"))
-	if string(bytes.TrimSpace(scenario)) != "qualified-fork" {
-		return false
-	}
-	cmd := exec.Command(path, "-c", "qualified-descendant")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if cmd.Start() != nil {
-		os.Exit(11)
-	}
-	if os.WriteFile(filepath.Join(filepath.Dir(path), "child.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0600) != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		os.Exit(12)
-	}
-	os.Exit(0)
-	return true
 }
 
 // Claim: provider-applicable paired vectors have executable negative/positive

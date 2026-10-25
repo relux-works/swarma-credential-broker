@@ -10,69 +10,72 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 const goodCSV = "C0000201,192.0.2.1,3,1893553444.000000000,0.001,0.001,0.001,1.0,0.1,0.1,0.002,0.001,10.0,Normal\n"
 const goodAuth = "192.0.2.1,NTS,1,15,256,60,0,0,8,100\n"
 
-// Only the test executable handles this fake chronyc argv. No vendor/system
-// clock command runs in normal tests; its behavior comes from a fresh fixture.
+// CollectorEntry must run before the test harness for descriptor execution.
+// Synthetic collector behavior lives in a separate, uninstrumented test helper.
 func TestMain(m *testing.M) {
 	CollectorEntry()
-	qualifiedForkFixture()
-	if len(os.Args) > 1 && os.Args[1] == "-c" {
-		executable, err := os.Executable()
-		if err != nil {
-			os.Exit(11)
+	code := m.Run()
+	if collectorFixture.root != "" {
+		if err := os.RemoveAll(collectorFixture.root); err != nil {
+			fmt.Fprintln(os.Stderr, "collector fixture cleanup failed")
+			code = 1
 		}
-		scenario, _ := os.ReadFile(filepath.Join(filepath.Dir(executable), "scenario"))
-		switch string(scenario) {
-		case "arguments":
-			fmt.Print(strings.Join(os.Args[1:], "|"))
-		case "descriptor":
-			_, err := unix.FcntlInt(200, unix.F_GETFD, 0)
-			if err == nil {
-				fmt.Print("present")
-			} else if err == unix.EBADF {
-				fmt.Print("closed")
-			} else {
-				os.Exit(9)
-			}
-		case "exit":
-			os.Exit(9)
-		case "timeout":
-			time.Sleep(time.Hour)
-		case "oversized":
-			fmt.Print(strings.Repeat("x", 70000))
-		case "stderr":
-			fmt.Fprintln(os.Stderr, "unrecognized diagnostic")
-		case "environment":
-			if !reflect.DeepEqual(os.Environ(), []string{"LC_ALL=C", "LANG=C", "TZ=UTC"}) {
-				os.Exit(10)
-			}
-			fmt.Print(goodCSV)
-		default:
-			fmt.Print(goodCSV)
-		}
-		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	os.Exit(code)
 }
+
+var collectorFixture struct {
+	once sync.Once
+	root string
+	path string
+	err  error
+}
+
+// Build once per test process, outside any consumption deadline. Explicitly
+// disable race instrumentation: its process-exit delay is not collector work.
+// The runner and provider remain race-instrumented in race test runs.
+func collectorFixtureExecutable(t *testing.T) string {
+	t.Helper()
+	collectorFixture.once.Do(func() {
+		collectorFixture.root, collectorFixture.err = os.MkdirTemp("", "collector-fixture-")
+		if collectorFixture.err != nil {
+			return
+		}
+		collectorFixture.path = filepath.Join(collectorFixture.root, "collector")
+		goTool := os.Getenv("GO")
+		if goTool == "" {
+			goTool = filepath.Join(runtime.GOROOT(), "bin", "go")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, goTool, "build", "-p=1", "-race=false", "-o", collectorFixture.path, "./testdata/collector")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			collectorFixture.err = fmt.Errorf("build collector fixture: %w: %s", err, out)
+		}
+	})
+	if collectorFixture.err != nil {
+		t.Fatal(collectorFixture.err)
+	}
+	return collectorFixture.path
+}
+
 func executableFixture(t *testing.T) string {
 	t.Helper()
 	dir := protectedTemp(t)
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	in, err := os.Open(exe)
+	in, err := os.Open(collectorFixtureExecutable(t))
 	if err != nil {
 		t.Fatal(err)
 	}
