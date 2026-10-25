@@ -1,9 +1,10 @@
 # Qualified-time local handoff
 
 Status: **approved contract decisions; production admission remains inactive**.
-This publication defines requirements and inactive interfaces. It supplies no
-handoff codec, preparer, `VerifyWindow`, `ConsumeIfUnused`, consumer adapter or
-new fixture. The unchanged eleven-fact `qualified-time/1` receipt and
+The [inactive Go API](time-handoff-api.md) supplies a structural codec, pure
+`VerifyWindow`, contract interfaces and tagged synthetic controls. There is no
+production preparer, witness backend, consumer adapter or use implementation.
+The unchanged eleven-fact `qualified-time/1` receipt and
 [provider settlement API](qualified-time-api.md) remain separate contracts.
 
 ## Decisions and trust domain
@@ -126,8 +127,9 @@ waiting for this provider, its journal or their retained lock holders.
 
 ## Durable one-use and crash behavior
 
-`ConsumeIfUnused` is a future consumer-owned serialized transition, not a shipped
-Go interface or provider store. Its contract takes a checked candidate plus
+`ConsumeIfUnused` is a consumer-owned serialized transition with a shipped
+contract interface, no production implementation and no provider use store. Its
+contract takes a checked candidate plus
 independently current logical key, exact predecessor revision, live ownership
 and unused slot. Under final exclusion, compare them together and durably
 serialize the burn with the owning act/intent. A pure check returns only a
@@ -236,7 +238,8 @@ shapes do not supply the [mandatory macOS implementation](time-handoff-macos.md)
 
 ## Named future controls
 
-**Specified, not executed or implemented here.** Every row needs the nearby
+**Native qualification remains pending.** The [inactive API controls](time-handoff-api.md#tagged-controls-and-limits)
+exercise only the documented codec/pure/reference subset. Every row needs the nearby
 valid control, intended refusal and exact provider/use/act post-state. All full
 positive controls below assume source uncertainty 500 ms, original pre-settled
 reserve 500 ms and total delta 1000 ms under a 1500 ms effective cap. The reserve
@@ -268,8 +271,9 @@ is not a killed control. Existing reviewer tests retain their names.
 | `HandoffMacParity` | Awake-only clock, mixed domain, conversion overflow, unsupported flush, unproved namespace recovery or sleep past D cannot qualify. | Same invariants on qualified native continuous-clock/boot/storage/fence target; substitute uptime or bypass parity gate and suspend/durability assertion must fail. |
 
 N1 before-burn and after-burn branches are deliberately separate. A provider
-time pass never overrides consumer burned state. No row is claimed green by
-this documentation or by the shipped closed-reader unit test. The arithmetic
+time pass never overrides consumer burned state. No native row is claimed
+qualified by this documentation, the closed-reader unit test or the synthetic API
+controls. The arithmetic
 examples below check only their declared numeric predicates.
 
 
