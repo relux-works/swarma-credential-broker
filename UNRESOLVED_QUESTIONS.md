@@ -111,3 +111,19 @@ Implementation integration questions:
   watermark and cannot prove the no-advance invariant. Its account, release and
   ended-lease evidence supplies no time-row credit; see
   [qualification](docs/qualification.md#fixture-row-dispatch-and-limits).
+
+- The approved [qualified-time handoff](docs/time-handoff.md) remains inactive.
+  Consumer-owned versioned use transitions, frozen-content/completion bridges,
+  independent currentness/custody and enforced read-to-durable-act mechanisms
+  still need review and qualification. Each consumer publishes its own
+  [window profile](docs/time-window-profile.md), including undefined budgets
+  rather than inferred universal limits. The shipped original reader and
+  witness both refuse; no codec, pure verifier or adapter is supplied here.
+- [Mandatory macOS parity](docs/time-handoff-macos.md) is unimplemented in
+  `timeconf` and the rest of the broker. It requires a reviewed receipt/platform
+  version, native continuous clock/timebase/boot mapping, source/collector,
+  reader/witness/settlement, protected storage, directory/rename durability,
+  process/service/exclusion/stop equivalents and native act/use timing proof.
+  Apple API documentation does not qualify APFS/device power-loss behavior,
+  directory full-sync semantics, restore custody or the post-read bound. Unknown
+  guarantees keep admission closed; Linux-only evidence cannot waive parity.

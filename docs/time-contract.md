@@ -412,23 +412,53 @@ executor's package exclusion F. Before the final window, collect and validate
 a new bound observation and obtain its provider durable acknowledgment, with
 none of those final locks held. Reserve the entire qualified handoff and final
 operation allowance in its interval before persisting the consumed upper bound.
-Then enter the final window through one bounded handoff; inside, use only
-bounded local checks and permitted local durability, never a relay, provider
-callback, helper query or cached "passed" verdict. Locally recheck the bound
-operation/challenge, boot, interval, exclusive authority, original deadline and
-consumer authority. Failure or unqualified handoff refuses; leave the final
-window before collecting anew. Do not renew the budget or reuse the receipt for
-another window. This is a required future adapter, not a claim that current
-consumer sampling-under-lock paths already satisfy it.
+Then enter the final window through one bounded handoff. The approved clock-rule
+amendment permits **exactly one fixed, qualified, suspend-aware monotonic read
+after admission under all final locks**, immediately before the pure local check:
+`CLOCK_BOOTTIME` on Linux. The read is outside `VerifyWindow`, which takes its
+value as data and reads no clock, callback, provider or ambient state. It is not
+an injected `Clock`, `time.Now()`, helper query, relay or cached "passed" verdict.
+Only bounded local checks and the profile's permitted durability follow it.
 
-The applicable original consumer budgets bind: at most 250 ms for the reader
-data/final handoff window, 1000 ms for the writer attempt/append/finish, and
-send-start + 2000 ms for the observation. Provider collection, preparation and
-handoff never restart those clocks. A provider ceiling of ten seconds grants
-no extension to any consumer deadline. Fit collection into the applicable
-remaining operation budget and the final local work into its narrower window;
-unknown latency or insufficient remaining time refuses. Emergency stop must
-remain independently reachable through these lock holders too.
+Preserve the original boot, start, exclusive deadline D and clock-domain mapping.
+Let s be the original receipt observation, c a retained pre-entry capture (if
+present, otherwise s), m the single admitted read, T the original qualified
+observation-to-completion allowance, f the enforced read-to-durable-endpoint
+bound, and epsilon the conservative rate/conversion/error allowance. Require
+checked same-boot nanoseconds, `m >= c >= s`, `f > 0`,
+`m - s + f + epsilon <= T` and **`m + f + epsilon < D`**. Equality at D refuses.
+Keep all original interval, reserve, current authority, challenge, floor and
+use-revision checks. D, T and the uncertainty reserve cannot grow or be spent
+twice; collection, retry, a new handoff or recovery never renews them.
+
+The endpoint is the **durable local commit of the window's act together with
+its use state**, not reservation, dispatch or acknowledgment. One-use is keyed
+by the original logical operation and window, independently of commitment H;
+any H for a burned window refuses. The owning consumer's reviewed versioned
+transition supplies this durability and recovery, preserving existing closed
+wire formats. A multi-file recoverable transition is not a cross-file atomic
+write. The [handoff contract](time-handoff.md) defines ordering and crash cuts.
+
+The admitted read detects pre-lock delay but cannot prevent a pause immediately
+after itself. The entire remaining segment through the act and its durability
+requires an enforced bound or a deadline-honoring act primitive. Context
+cancellation, post-sync lateness detection and withholding a reply cannot undo
+a late visible act. **Activation remains closed until this mechanism is
+qualified.** Leave all final locks before recollecting; a checked candidate
+cannot survive their release. Current sampling-under-lock paths do not satisfy
+this future adapter contract.
+
+Each consumer publishes its own [window profile](time-window-profile.md), with
+this amendment explicit in every applicable window and both platform bindings.
+Budgets are intersections of original applicable deadlines, not universal
+250/1000/2000 ms defaults. Where applicable, the reader data/final handoff cap
+is 250 ms, writer attempt/append/finish cap 1000 ms and observation deadline
+send-start + 2000 ms, each from its original start. A provider ceiling of ten
+seconds extends none of them. Undefined budgets or unknown remaining latency
+are qualification gaps and refuse admission. Fit final work into its narrower
+window without reallocating reserve. Emergency stop must remain independently
+reachable through these lock holders too. The [macOS parity requirements](time-handoff-macos.md)
+are mandatory; the current implementation remains Linux-only.
 
 For a 600-second enrollment approval, issue interval `[99,101]` permits only
 an exclusive deadline `D ≤ 99+600 = 699`. Require fresh current `U < D`, the
