@@ -4,7 +4,6 @@ package qualify
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -81,15 +80,16 @@ func ownerDiagnosticWait(ctx context.Context, wait string) func(error) {
 	}
 	start := time.Now()
 	return func(err error) {
-		if errors.Is(err, errOwnerHeld) {
-			return
-		}
 		if err == nil {
 			s.phase = wait + " completed"
 			return
 		}
+		chain, held := ownerDiagnosticInspect(err)
+		if held {
+			return
+		}
 		if s.failed == "" {
-			s.failed = fmt.Sprintf("last=%q pending=%q wait_elapsed=%s work_elapsed=%s work_budget=%s cause=%s", s.phase, wait, time.Since(start), time.Since(s.start), s.deadline.Sub(s.start), ownerDiagnosticError(err))
+			s.failed = fmt.Sprintf("last=%q pending=%q wait_elapsed=%s work_elapsed=%s work_budget=%s cause=%s", s.phase, wait, time.Since(start), time.Since(s.start), s.deadline.Sub(s.start), chain)
 		}
 	}
 }
@@ -97,17 +97,35 @@ func ownerDiagnosticWait(ctx context.Context, wait string) func(error) {
 // Preserve the chain structure and standard causes without formatting arbitrary
 // errors (PathError, peer errors, and wrapper text can carry paths or material).
 func ownerDiagnosticError(err error) string {
+	chain, _ := ownerDiagnosticInspect(err)
+	return chain
+}
+
+const ownerDiagnosticBudget = 8
+
+// Classification shares the formatter's walk: no custom Is/As/Error methods
+// run. Nil joined children also consume steps, so wide fanout cannot evade the
+// bound. An exhausted walk is unknown, even if another branch contained Held.
+// The bound limits traversal calls, not arbitrary work inside an Unwrap method.
+func ownerDiagnosticInspect(err error) (chain string, held bool) {
 	var b strings.Builder
-	var visit func(error, int)
-	nodes := 0
-	visit = func(e error, depth int) {
-		if e == nil || nodes >= 8 || depth >= 8 {
+	var visit func(error)
+	steps, nodes := 0, 0
+	truncated := false
+	visit = func(e error) {
+		if steps >= ownerDiagnosticBudget {
+			truncated = true
+			return
+		}
+		steps++
+		if e == nil {
 			return
 		}
 		if nodes > 0 {
 			b.WriteString(" -> ")
 		}
 		nodes++
+		held = held || e == errOwnerHeld
 		label := "text-redacted"
 		switch e {
 		case context.DeadlineExceeded:
@@ -125,15 +143,31 @@ func ownerDiagnosticError(err error) string {
 		}
 		fmt.Fprintf(&b, "%T(%s)", e, label)
 		if joined, ok := e.(interface{ Unwrap() []error }); ok {
-			for _, child := range joined.Unwrap() {
-				visit(child, depth+1)
+			if steps == ownerDiagnosticBudget {
+				truncated = true
+				return
 			}
-		} else {
-			visit(errors.Unwrap(e), depth+1)
+			for _, child := range joined.Unwrap() {
+				if steps == ownerDiagnosticBudget {
+					truncated = true
+					break
+				}
+				visit(child)
+			}
+		} else if single, ok := e.(interface{ Unwrap() error }); ok {
+			if steps == ownerDiagnosticBudget {
+				truncated = true
+				return
+			}
+			visit(single.Unwrap())
 		}
 	}
-	visit(err, 0)
-	return b.String()
+	visit(err)
+	if truncated {
+		b.WriteString(" -> truncated")
+		held = false
+	}
+	return b.String(), held
 }
 
 func ownerDiagnosticFailure(ctx context.Context, err error) {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -98,6 +99,117 @@ type ownerDiagnosticCycle struct{}
 
 func (*ownerDiagnosticCycle) Error() string   { return "synthetic-private-marker" }
 func (e *ownerDiagnosticCycle) Unwrap() error { return e }
+
+type ownerDiagnosticCounted struct {
+	next  error
+	steps *atomic.Int32
+	cycle bool
+}
+
+func (*ownerDiagnosticCounted) Error() string { return "generated counted error" }
+func (e *ownerDiagnosticCounted) Unwrap() error {
+	// The fixture terminates even under an unbounded-classification mutant.
+	if e.steps.Add(1) >= 64 {
+		return context.Canceled
+	}
+	if e.cycle {
+		return e
+	}
+	return e.next
+}
+
+type ownerDiagnosticJoined struct {
+	children []error
+	steps    *atomic.Int32
+}
+
+func (*ownerDiagnosticJoined) Error() string { return "generated joined error" }
+func (e *ownerDiagnosticJoined) Unwrap() []error {
+	e.steps.Add(1)
+	return e.children
+}
+
+// Claim: the real instrumented mux wait shares one eight-step walk between
+// held classification and formatting. Oversized/cyclic chains and wide nil
+// fanout become truncated/unknown; in-budget Held remains expected. The cycle
+// has a separate fixture step cap and timeout guard. Without a sink the wait
+// returns the identical error without any walk. Unwrap method internals are
+// outside the traversal-call bound.
+func TestOwnerDiagnosticWaitTraversalBudget(t *testing.T) {
+	for _, test := range []struct {
+		name                 string
+		enabled, held, cycle bool
+		wrappers             int
+		joined               bool
+		wantHeld, truncated  bool
+	}{
+		{name: "no-sink", wrappers: 32},
+		{name: "over-budget", enabled: true, wrappers: 32, truncated: true},
+		{name: "held-within-budget", enabled: true, held: true, wrappers: 7, wantHeld: true},
+		{name: "held-beyond-budget", enabled: true, held: true, wrappers: 8, truncated: true},
+		{name: "cycle", enabled: true, cycle: true, truncated: true},
+		{name: "nil-fanout", enabled: true, joined: true, truncated: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var steps atomic.Int32
+			var failure error = context.DeadlineExceeded
+			if test.held {
+				failure = errOwnerHeld
+			}
+			for i := 0; i < test.wrappers; i++ {
+				failure = &ownerDiagnosticCounted{next: failure, steps: &steps}
+			}
+			if test.cycle {
+				failure = &ownerDiagnosticCounted{steps: &steps, cycle: true}
+			}
+			if test.joined {
+				children := make([]error, 32)
+				children[len(children)-1] = errOwnerHeld
+				failure = &ownerDiagnosticJoined{children: children, steps: &steps}
+			}
+			ctx := context.Background()
+			if test.enabled {
+				ctx = withOwnerDiagnostics(ctx, func(string) { t.Error("wait emitted a report") })
+				ownerDiagnosticScenario(ctx, "contention-unresolved-a")
+				ownerDiagnosticPhase(ctx, "before wait")
+			}
+			done := make(chan struct{})
+			close(done)
+			mux := &parallelMux{ctx: ctx, events: make(chan parallelFrame), done: done, err: failure}
+			h := &parallelHarness{ctx: ctx}
+			result := make(chan error, 1)
+			go func() {
+				_, err := h.take(&parallelSession{mux: mux, member: "A"}, func(parallelFrame) bool { return false })
+				result <- err
+			}()
+			select {
+			case err := <-result:
+				if err != failure {
+					t.Fatal("wait changed returned error")
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("bounded fixture wait did not terminate")
+			}
+			if !test.enabled {
+				if steps.Load() != 0 {
+					t.Fatal("nil sink walked error", steps.Load())
+				}
+				return
+			}
+			if steps.Load() > 8 {
+				t.Fatal("diagnostic wait exceeded traversal budget", steps.Load())
+			}
+			s := ownerDiagnostics(ctx)
+			if test.wantHeld {
+				if s.failed != "" || s.phase != "before wait" {
+					t.Fatal("in-budget held error recorded as failed", s.failed, s.phase)
+				}
+			} else if !strings.Contains(s.failed, "pending=\"mux.nextFrame/A\"") || strings.Contains(s.failed, "truncated") != test.truncated {
+				t.Fatal("unknown error lost wait/truncation", s.failed)
+			}
+		})
+	}
+}
 
 // Claim: the changed existing row collector retains the original pending
 // Control bytes and no artifact after an expired work context, with or without
