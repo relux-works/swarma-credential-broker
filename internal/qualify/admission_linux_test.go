@@ -109,7 +109,8 @@ func TestAdmissionPublicationFence(t *testing.T) {
 		}
 	}
 	cases := qualification.Pending(qualification.Identity{}).Cases
-	d := driver{rowExecutable: worker}
+	// Match the configuration path bound by Command.
+	d := driver{path: path, rowExecutable: worker}
 	d.runRows(context.Background(), config, c.Policy, root, cases)
 	for _, row := range cases {
 		if admissionRow(row.ID) && (row.Positive.Verdict != "passed" || row.Negative.Verdict != "passed") {
