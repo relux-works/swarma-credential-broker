@@ -75,7 +75,7 @@ func TestPositiveReceipt(t *testing.T) {
 				}
 				return out
 			}
-			for _, tag := range []string{"", "timeconf_fixture"} {
+			for _, tag := range []string{"", "swarma_timeconf_fixture"} {
 				out := run("list", "-mod=mod", "-tags="+tag, "-deps", "-compiled", "-f={{.ImportPath}}", "./...")
 				violation := strings.Contains("\n"+string(out), "\n"+module+"/timeconftest\n")
 				if violation != plant {
@@ -83,7 +83,7 @@ func TestPositiveReceipt(t *testing.T) {
 				}
 			}
 			if !plant {
-				run("test", "-mod=mod", "-tags=timeconf_fixture", "-count=1", ".")
+				run("test", "-mod=mod", "-tags=swarma_timeconf_fixture", "-count=1", ".")
 			}
 		})
 	}

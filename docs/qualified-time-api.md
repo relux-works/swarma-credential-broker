@@ -141,6 +141,12 @@ store/witness operations, retention, drain and teardown. The fixture reservation
 adds its entire qualified storage/return/handoff allowance to conservative source
 uncertainty before W is committed. Missing or excessive allowance refuses.
 
+Preserving the original absolute deadline is the caller's duty. A future request
+deadline under an expired original context refuses. Extending an already
+consumed challenge refuses as replay. Replacing both the expired deadline and
+context of an unconsumed request is accepted; the consumer cannot recover a
+discarded caller deadline.
+
 A deadline always returns refusal, even if a storage operation or fixture child
 remains blocked. The instance remains fenced until resolution; an unresolved
 begin prevents collection after restart. No worker sends a later success or
@@ -167,15 +173,19 @@ is accessed. Build/test outputs belong in private scratch outside the repository
 ## Consumer test fixtures
 
 On Linux, import `github.com/relux-works/swarma-credential-broker/timeconftest`
-only from `_test.go` files with `//go:build timeconf_fixture`. Run these tests
-with `go test -tags=timeconf_fixture ./...`; keep approved application builds
+only from `_test.go` files with `//go:build swarma_timeconf_fixture`. Run these tests
+with `go test -tags=swarma_timeconf_fixture ./...`; keep approved application builds
 on default tags. The default import is a refusing stub, not an activation path.
 The standalone `timeconf` and broker default compiled graphs exclude the tagged
 implementation and fixture package. The compiled graph guard has a planted
-fixture-symbol control.
+fixture-symbol control. The tag compiles the exported bridge into `timeconf`
+even when `timeconftest` is not imported. The package-import check alone does not
+exclude that bridge from a tagged application. Approved release builds must use
+the default tag set; consumers may additionally inspect selected source files or
+symbols to reject the bridge.
 
 ```go
-//go:build timeconf_fixture
+//go:build swarma_timeconf_fixture
 
 package example_test
 
@@ -211,8 +221,21 @@ resets existing history. `FixtureConsumer` uses the unchanged consumption and
 settlement engine, a fixed synthetic clock initially at Unix second 211,
 one-second reserved uncertainty, W initially 140 seconds, and an in-memory
 witness. `Advance(d)` moves its wall/elapsed observation together (0 < d ≤ 1h).
+`SetNextSample(O, delta)` selects an explicit observation, including below W;
+O must be nonnegative and representable as Unix nanoseconds, and total delta must
+be between one second (the reservation) and the platform uncertainty cap. Each
+explicit sample uses a distinct synthetic qualified boot so a backward O reaches
+the interval gate instead of creating a clock-step hold. This models only the
+fixture's qualified reboot path. It does not qualify a production boot transition.
+The setter changes no settlement, witness, W, journal input or existing hold.
+The mandatory J=140, O=200, delta=1 vector settles W=201; [170,172] then refuses
+without a receipt or W advancement, and [210,212] passes.
 `LoseNextReply` suppresses a successful reply after settlement; `HighWater`
 reads the settled bound. `Policy` and `Enrollment` return the fixture bindings.
+For nil or zero-value receivers, error-returning methods return
+`ActivationRefusal{Reason: "fixture_unselected"}`; `HighWater` also returns the
+zero value (`""`). `Policy` and `Enrollment` return zero values, and
+`LoseNextReply` is a no-op. The explicit sample setter exists only under the tag.
 The dedicated `timeconf-fixture-only` authority and root are synthetic, public
 identities, not credentials or production trust anchors.
 
@@ -226,7 +249,7 @@ consumer adapter; never install the fixture root as production authority.
 
 Every consuming repository must have an executable dependency check: run
 `go list -deps -compiled -f '{{.ImportPath}}' -tags= ./...` and again with
-`-tags=timeconf_fixture`, without `-test`, and fail if either graph includes
+`-tags=swarma_timeconf_fixture`, without `-test`, and fail if either graph includes
 `github.com/relux-works/swarma-credential-broker/timeconftest`. Pair the check
 with a temporary non-test `.go` import of that package and require the intended
 fixture-dependency violation; the identical import in `_test.go` must pass.
@@ -238,4 +261,8 @@ Mirror `TestFixtureReceiptCodecPositive`, `TestFixtureReplayRefused`,
 `TestFixtureDeadlineRefused` and `TestFixtureLostReplyBurnsUpperBound` when testing
 consumer adapters. The published contract vectors complement these controls;
 they do not replace durable settlement, reboot, receipt authentication or
-bounded handoff/integration testing. Native collector qualification stays closed.
+bounded handoff/integration testing. `TestFixtureDeadlineReplacementBoundaries`
+checks the caller deadline distinction above. `TestFixtureExternalCompileBoundaries`
+builds external positive and forbidden source fixtures, checking the named
+compiler errors for private fields, witness arguments and private path injection.
+Native collector qualification stays closed.

@@ -1,4 +1,4 @@
-//go:build linux && timeconf_fixture
+//go:build linux && swarma_timeconf_fixture
 
 // Package timeconftest supplies codec and settlement controls for consumer tests.
 // Import it only from tagged _test.go files, never from application code.

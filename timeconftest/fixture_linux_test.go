@@ -1,4 +1,4 @@
-//go:build linux && timeconf_fixture
+//go:build linux && swarma_timeconf_fixture
 
 package timeconftest_test
 
