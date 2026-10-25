@@ -33,6 +33,9 @@ func admissionRow(id string) bool {
 	return runnerRow(id)
 }
 func rowPositive(id string) string {
+	if leaseProtocolRow(id) {
+		return "lease"
+	}
 	if runnerRow(id) {
 		return "external-login"
 	}

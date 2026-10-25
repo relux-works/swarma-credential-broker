@@ -101,6 +101,9 @@ func validRowEnvelope(f rowEnvelope, id, side string, generation uint64) bool {
 }
 
 func validRowEnvelopes(o rowObservation, generation uint64) bool {
+	if leaseProtocolRow(o.ID) {
+		return validLeaseProtocolEnvelopes(o, generation)
+	}
 	if runnerRow(o.ID) {
 		return len(o.Envelopes) == 0 && validRunnerEffects(o)
 	}

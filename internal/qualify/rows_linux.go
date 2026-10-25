@@ -139,7 +139,7 @@ func validateRow(root, digest string, generation uint64, c qualification.Case, p
 				want = rowRefusal(c.ID)
 			}
 			o := a.Observation
-			if x.ExitCode != 0 || !rowIsolated(a) || o.ID != c.ID || o.Side != side || o.Candidate != digest || !o.NoEffects || !validRowEnvelopes(o, generation) || !validAdmissionEffects(o) || o.Refusal != want || o.ProbeFault != (c.ID == "peer-identity-unavailable" && side == "negative") {
+			if x.ExitCode != 0 || !rowIsolated(a) || o.ID != c.ID || o.Side != side || o.Candidate != digest || !o.NoEffects || !validRowEnvelopes(o, generation) || !validAdmissionEffects(o) || (leaseProtocolRow(o.ID) && !validLeaseProtocolEffects(o)) || (!leaseProtocolRow(o.ID) && o.LeaseProtocol != nil) || o.Refusal != want || o.ProbeFault != (c.ID == "peer-identity-unavailable" && side == "negative") {
 				return qualification.ErrUnavailable
 			}
 		} else if x.Verdict != "failed" {
@@ -288,9 +288,13 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	var closeRow func() bool
 	var phaseFiles []*os.File
 	var effects admissionEffects
+	var leaseEffects leaseRowEffects
 	var runnerFixture *runnerRowFixture
 	var runnerFile *os.File
-	if admissionRow(id) {
+	if leaseProtocolRow(id) {
+		inputValue = leaseProtocolInput(inputValue)
+		socket, closeRow, phaseFiles, e = startLeaseProtocolRow(ctx, scratch, inputValue, &pid, &leaseEffects, origins...)
+	} else if admissionRow(id) {
 		inputValue = admissionInput(inputValue)
 		serviceRoot := scratch
 		if runnerRow(id) {
@@ -386,7 +390,11 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 		}
 		ch <- capture{b, e}
 	}
-	go collect(outR, 8192, output)
+	outputLimit := 8192
+	if leaseProtocolRow(id) {
+		outputLimit = 128 << 10
+	}
+	go collect(outR, outputLimit, output)
 	go collect(errR, 16384, diagnostic)
 	command := qualification.CaseCommand(id, side)
 	start := time.Now()
@@ -467,6 +475,9 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	// Only the parent can attest that the injected server probe actually fired.
 	if passed && id == "peer-identity-unavailable" && side == "negative" {
 		observation.ProbeFault = true
+	}
+	if leaseProtocolRow(id) {
+		observation.LeaseProtocol = &leaseEffects
 	}
 	if admissionRow(id) {
 		observation.Admission = &effects

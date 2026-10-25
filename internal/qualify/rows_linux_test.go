@@ -43,7 +43,7 @@ func rowConfiguration(t *testing.T, p policy.Policy, root string) string {
 	return path
 }
 
-// Claim: ten attested transport/admission pairs run; peer, runner and missing
+// Claim: thirteen attested transport/admission/lease pairs run; peer, runner and missing
 // bodies remain pending. None of these synthetic cases runs the candidate.
 func TestRowsHarness(t *testing.T) {
 	worker := rowTool(t, "../../cmd/swarma-credential-broker")
@@ -73,7 +73,7 @@ func TestRowsHarness(t *testing.T) {
 			assertOriginPending(t, root, row.ID, row.Negative)
 		}
 	}
-	if credited != 10 {
+	if credited != 13 {
 		t.Fatal("transport/admission count", credited)
 	}
 	for _, record := range r.Executions {

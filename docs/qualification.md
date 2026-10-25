@@ -313,8 +313,9 @@ same listener. Only role-verification booleans leave the private handshake.
 
 ### Execution evidence origin
 
-This section is normative. With protected fixtures on Linux/amd64, six transport
-and four admission rows have execution credit. Peer and runner remain **UNRUN**;
+This section is normative. With protected fixtures on Linux/amd64, six transport,
+four single-lease admission and three bounded lease-protocol rows have execution
+credit. Peer and runner remain **UNRUN**;
 all unavailable paths emit `executed=false`, `exit_code=-1`, no artifact, and
 suppress the neighbouring control. No approved candidate runs in these cases.
 
@@ -387,7 +388,8 @@ that requires a separate bounded durable-owner enrollment/restart fixture with
 the real time provider and adapter. The test-only confidence constructor is not
 linked into the release worker. No time-row pass credit is granted here.
 
-For the ten attested transport and admission rows, the artifact schema records
+For the thirteen attested transport, admission and lease-protocol rows, the
+artifact schema records
 argv, exit, monotonic duration and bound for each credited control in a pair.
 Peer and runner remain UNRUN pending their documented owner decisions in
 [Execution evidence origin](#execution-evidence-origin). Owned 0600 `row-<id>-<side>.json` files contain closed
@@ -421,6 +423,63 @@ it is not foreign-UID evidence. No implemented row launches Codex, so tagged
 real-candidate row execution is inapplicable to this slice; the existing tagged
 observer checks remain the separate candidate measurement procedure.
 
+### Bounded lease-protocol authority
+
+Three additional rows use a separate `NewQualificationLeaseRow` constructor.
+It has no CLI, environment or build-tag selector. It leaves the original
+single-lease constructor, owner, listener and exchange script unchanged. The
+production manager/server defaults and the egress boundary are unchanged.
+Only a protected fixture policy can reach these scripts; the parent generates
+all synthetic material in memory. There is no network endpoint, token socket,
+OAuth exchange, vendor store or approved candidate execution.
+
+| Row/control | Leases and initial requests | Total lease methods ceiling | Pending operations | Wall deadline |
+| --- | ---: | ---: | ---: | ---: |
+| renew-unknown-digest, either side | 1 | 3 | 1 | 30 seconds |
+| renew-contention, positive / negative | 1 / 8 (ceiling 8) | 24 | 1 / 8 | 30 seconds |
+| queue-full, either side | 65 | 195 | 64 plus one attempted excess | 30 seconds |
+
+The queue positive uses 194 methods: 65 grants, 64 renewals and 65 releases.
+The negative uses 195, including the refused 65th renewal. Contention uses
+3 or 24 methods; history uses 3. The row listener counts accepted requests,
+accepted lease methods and refused excess/unknown methods across connections;
+ceiling violations close the connection. Hello negotiation is separate from
+lease methods. The manager instance uses existing options: MaxWaiters=1,
+MaxActive equal to the row's actual lease count, and MaxPending 1, 8 or 64.
+No production limit is raised. Leases have a fixed 30-second authorization
+ceiling and cannot be extended by renewal. All rows run serially and once per
+control in each test; this is bounded functional queue construction.
+
+Each worker follows the canonical descriptor dispatch under the same attested
+transport/admission origin. One Unix connection correlates at most 65 pending
+calls. Parent-only phase gates hold Refresh until actual Manager.Stats counts
+establish 1/8 pending contention operations, or 63 then 64 queue operations.
+The full-queue negative observes the excess operation's manager completion
+while the first refresh remains held. Before releasing that gate, the parent
+compares the unchanged protected synthetic records/tree and owner generation.
+It also detects an admitted 65th operation and drains that violation so the
+queue assertion fails without relying on a timeout.
+
+The history positive advances the parent snapshot after a real grant, then
+renews using that lease's superseded delivered digest. The negative uses a
+never-delivered digest and checks the exact unchanged tree, records, generation
+and Snapshot/Refresh counters before release. The parent owns refresh count,
+maximum simultaneous writers and generation. The pending peak records only
+observations at the held phase gates; history has no held-refresh phase.
+No worker-supplied counter is
+accepted. Final checks require all real leases released, exact record revisions,
+unchanged authorization bounds, one refresh/generation for contention/queue,
+and no refresh for history. The live contention half remains pending.
+
+Each pair retains every validated, correlated hello/grant/renew/refusal/release
+shape with sanitized lease IDs and timestamps, never material or its digest.
+The new scripts alone have a 128 KiB observation limit. Parent counters are
+attached after join and bound to the exact artifact bytes by the private
+completion proof. `TestLeaseProtocolRows` exercises each pair and rejects
+hash-consistent envelope/counter changes or missing private proof;
+`TestLeaseRowAuthorityBudget` exercises request/method ceilings and rejection
+counts. Existing credited rows retain their original limits and artifact shape.
+
 ## Required row classification
 
 The registry below has all 46 required IDs. “Next slice” means unexecuted,
@@ -450,10 +509,10 @@ fixture result cannot satisfy the live part of a combined row.
 | release-unqualified | fake-now + live-later; P9, P8.2 steps 2/4 | Exact approved fake tuple leases; later real tuple | Unqualified digest gets lease_harness_unqualified, no child | Executed with attested paired artifacts; fake tuple; no production publication; P8.2:749–788, P9:803, B9.6:575–587 |
 | source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | UNRUN: execution origin unavailable; empty reserved-variable pair; P6:493–507, P9:804 |
 | home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | UNRUN: execution origin unavailable; synthetic-file pair; retained runner link regression; P6:499–502, P9:805 |
-| renew-unknown-digest | fake-only; P9 | Superseded delivered token returns current payload without refresh | Unknown digest gets renew_not_current, generation unchanged | Next slice |
-| renew-contention | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | One rejection causes one refresh | Eight same-token rejecters share exactly one refresh/generation | Next slice |
+| renew-unknown-digest | fake-only; P9 | Superseded delivered token returns current payload without refresh | Unknown digest gets renew_not_current, generation unchanged | Attested synthetic pair; parent verifies history refusal and unchanged state |
+| renew-contention | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | One rejection causes one refresh | Eight same-token rejecters share exactly one refresh/generation | Attested fake pair only; live half pending |
 | renew-late | fake-now + live-later; P9, P8.2 steps 2/4 | In-budget result answers once | After-eight-second result gets renew_timeout, no late callback | Next slice |
-| queue-full | fake-only; P9 | Free slot admits same-attempt waiter | Sixty-four queued operations refuse excess, no extra writer | Next slice |
+| queue-full | fake-only; P9 | Free slot admits same-attempt waiter | Sixty-four queued operations refuse excess, no extra writer | Attested synthetic pair; parent holds and verifies the full queue |
 | daemon-death | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Complete stop and committed outcome permit successor | Surviving child prevents second writer until subtree absence proven | Next slice |
 | replacement-contention | fake-only; P9, P9.1, B9.6 | Resolved attempt permits one successor | Replacement and rejecters retain one attempt and writer | Next slice |
 | rotation-crash | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Durable store and correlated success activate once | Crash after rotation before checkpoint closes admission, zero retry | Next slice |
@@ -464,10 +523,10 @@ fixture result cannot satisfy the live part of a combined row.
 | transient-ambiguous | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Proven non-rotation, absence and reload permit bounded retry | Ambiguous vendor error permits no retry | Next slice |
 | reenrol-unresolved | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Confirmed absence then fresh-home enrolment | Unknown prior writer prevents enrolment child | Next slice |
 | duplicate-account | fake-now + live-later; P9, P8.2 steps 2/4 | Distinct vendor ID activates independently | Repeated vendor ID gets account_duplicate, no second mapping | Next slice |
-| owner-mismatch | fake-only; P9 | Same UID/context renews/releases | Other UID gets lease_not_owner, lease unchanged | Next slice |
+| owner-mismatch | fake-only; P9 | Same UID/context renews/releases | Other UID gets lease_not_owner, lease unchanged | Pending: foreign-UID admission and independently observed peer origin require an owner decision |
 | lease-ended | fake-only; P9 | Before-limit renewal and idempotent release | Released/expired renewal gets lease_not_active, no extension/writer | Executed with attested paired artifacts; release pair + independent expiry unit; P7:624–630, P9:821 |
 | time-untrusted | fake-only; P9 | Trusted current evidence permits bounded lease | Missing freshness after restart gets lease_owner_unavailable, no advance | Unrun; needs real retained-watermark integration; P9:822 |
-| init-without-capability | fake-only; P9, P8.2 step 2 | Experimental initialize then external login | Missing capability gets external_token_init_failed, stop/release | Next slice |
+| init-without-capability | fake-only; P9, P8.2 step 2 | Experimental initialize then external login | Missing capability gets external_token_init_failed, stop/release | Pending: independent runner initialization and teardown origin requires an owner decision |
 | resume-conflict | fake-now + live-later; P9, P8.2 step 4 optional resume | Fresh lease/login for qualified same-account resume | Drift/native file refuses before inference, no old lease reuse | Next slice; live resume optional |
 | frame-oversized | fake-only; P9 | Canonical hello echoes validated ID | Header 65537 gets null-ID frame_too_large then EOF; no records/owner calls | Executed with attested paired artifacts; no Codex launch |
 | frame-zero-length | fake-only; P9 | Canonical hello echoes validated ID | Zero header closes without response/effects | Executed with attested paired artifacts; no Codex launch |
