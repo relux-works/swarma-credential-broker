@@ -32,6 +32,7 @@ type ownerContext struct {
 	Root, HomeID, Candidate, Scenario, Image string
 	Now                                      time.Time
 	Epoch, Parent                            int
+	Member                                   string
 }
 type ownerMessage struct {
 	ID    int
@@ -40,6 +41,8 @@ type ownerMessage struct {
 	Error string
 }
 type ownerChannel struct {
+	rpc           func(string, any, any) error
+	reply         func(string, any, error) error
 	r, w          *os.File
 	mu            sync.Mutex
 	reads, writes int
@@ -53,6 +56,9 @@ func (c *ownerChannel) bound() int {
 	return 256
 }
 func (c *ownerChannel) send(op string, value any, err error) error {
+	if c.reply != nil {
+		return c.reply(op, value, err)
+	}
 	m := ownerMessage{ID: c.writes + 1, Op: op}
 	if err != nil {
 		m.Error = err.Error()
@@ -97,6 +103,9 @@ func (c *ownerChannel) read() (m ownerMessage, e error) {
 	return
 }
 func (c *ownerChannel) call(op string, value, result any) error {
+	if c.rpc != nil {
+		return c.rpc(op, value, result)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e := c.send(op, value, nil); e != nil {
@@ -175,6 +184,9 @@ func ownerMain(args []string) int {
 // ownerCompose is synthetic qualification authority, entered only after the
 // protected descriptor/context and role barrier. Recovery never initializes.
 func ownerCompose(c ownerContext, ch *ownerChannel) int {
+	if parallelScenario(c.Scenario) {
+		return parallelCompose(c, ch)
+	}
 	stage := "store"
 	fail := func() int {
 		if ch.send("startup", stage, errors.New("owner_startup_refused")) != nil {

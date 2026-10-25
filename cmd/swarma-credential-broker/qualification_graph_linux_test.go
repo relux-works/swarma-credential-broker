@@ -366,3 +366,51 @@ func TestQualificationContainmentTerminationFactories(t *testing.T) {
 		}
 	}
 }
+
+// Claim: each dispatcher family propagates through aliases and wrappers in a
+// compiled fixture. Qualification-only storage is valid; ordinary reachability
+// and eager initialization are rejected. Cross-package aliases have separate
+// imported-wrapper coverage above.
+func TestQualificationContainmentParallelFactories(t *testing.T) {
+	for _, family := range []string{"parallelCompose", "parallelMux", "parallelService", "parallelHarness", "parallelRun"} {
+		for _, mode := range []string{"qualified", "daemon", "init"} {
+			t.Run(family+"/"+mode, func(t *testing.T) {
+				root, _ := containmentWrapperFixture(t, "testdata", false)
+				decl := "func " + family + "(){};func Witness(){" + family + "()}"
+				if family != "parallelCompose" && family != "parallelRun" {
+					decl = "type " + family + " struct{};func Witness(){_ = &" + family + "{}}"
+				}
+				text := "package qualify;" + decl + ";var Alias=Witness;func Wrapper(){Alias()}"
+				if mode == "init" {
+					text += ";func init(){Alias()}"
+				}
+				if e := os.WriteFile(filepath.Join(root, "internal/qualify/parallel.go"), []byte(text), 0600); e != nil {
+					t.Fatal(e)
+				}
+				if mode == "daemon" {
+					path := filepath.Join(root, "cmd/swarma-credential-broker/main.go")
+					b, e := os.ReadFile(path)
+					if e != nil || os.WriteFile(path, []byte(strings.Replace(string(b), "_ = server.New;", "_ = server.New; qualify.Wrapper();", 1)), 0600) != nil {
+						t.Fatal("ordinary wrapper plant unavailable")
+					}
+				}
+				graph, e := containmentProductionGraph(t, root)
+				if e != nil {
+					t.Fatal(e)
+				}
+				build := containmentGo(t, root, "build", "-p=1", "-o", filepath.Join(t.TempDir(), "fixture"), "./cmd/swarma-credential-broker")
+				if out, e := build.CombinedOutput(); e != nil {
+					t.Fatalf("parallel plant does not compile: %v %s", e, out)
+				}
+				issues, e := containmentCheck(root, graph)
+				expected := "owner authority outside qualification"
+				if mode == "init" {
+					expected = "owner authority during package initialization"
+				}
+				if e != nil || mode == "qualified" && len(issues) != 0 || mode != "qualified" && !strings.Contains(strings.Join(issues, "\n"), expected) {
+					t.Fatal("parallel authority containment", issues, e)
+				}
+			})
+		}
+	}
+}

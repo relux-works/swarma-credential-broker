@@ -23,6 +23,9 @@ import (
 )
 
 func lifecycleScenario(s string) bool {
+	if parallelScenario(s) {
+		return true
+	}
 	switch s {
 	case "safe-safe-committed", "ambiguous-old", "ambiguous-new", "rotation-no-store", "rotation-no-proof", "rotation-committed", "cleanup-incomplete", "cleanup-complete":
 		return true
@@ -111,7 +114,11 @@ func writerCompose(c ownerContext, ch *ownerChannel, native []byte) int {
 		return 1
 	}
 	persisted := false
-	for i := 0; i < 4; i++ {
+	limit := 4
+	if c.Member != "" {
+		limit = 6
+	} // Additional fresh challenges for the retained live singleton.
+	for i := 0; i < limit; i++ {
 		m, e := ch.read()
 		if e != nil {
 			return 1

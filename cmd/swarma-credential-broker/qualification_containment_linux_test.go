@@ -467,7 +467,7 @@ func TestQualificationAuthorityCLIContainment(t *testing.T) {
 func containmentOwnerAuthority(sources []containmentSource, graph containmentGraph, ordinary, qualification map[string]bool) []string {
 	names := map[string]map[string]bool{
 		containmentModule + "/internal/egress": {"NewOwnerOrigin": true, "EnterOwnerRole": true, "NewCrashOwnerOrigin": true, "NewWriterOrigin": true, "EnterWriterRole": true},
-		containmentDriver:                      {"ownerCompose": true, "ownerSeed": true, "ownerPolicy": true, "ownerAdapter": true, "ownerModel": true, "ownerMain": true, "startOwner": true, "startOwnedRole": true, "writerMain": true, "writerCompose": true, "writerPersist": true, "startWriter": true, "writerPeak": true, "lifecycleClassifier": true, "lifecycleClock": true, "lifecycleModel": true, "lifecycleAudit": true, "lifecycleRun": true},
+		containmentDriver:                      {"ownerCompose": true, "ownerSeed": true, "ownerPolicy": true, "ownerAdapter": true, "ownerModel": true, "ownerMain": true, "startOwner": true, "startOwnedRole": true, "writerMain": true, "writerCompose": true, "writerPersist": true, "startWriter": true, "writerPeak": true, "lifecycleClassifier": true, "lifecycleClock": true, "lifecycleModel": true, "lifecycleAudit": true, "lifecycleRun": true, "parallelCompose": true, "parallelMux": true, "parallelService": true, "parallelHarness": true, "parallelRun": true},
 	}
 	mainGates := map[string]bool{}
 	for _, text := range []string{`if handled, code := qualify.CaseMain(os.Args[1:]); handled { os.Exit(code) }`, `if len(os.Args)>1 && os.Args[1]=="qualify-codex" {os.Exit(qualify.Command(ctx,os.Args[2:],runner.DefaultPolicyPath,os.Environ(),os.Stdout))}`} {

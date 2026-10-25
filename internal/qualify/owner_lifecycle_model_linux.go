@@ -65,7 +65,11 @@ func (m *lifecycleModel) prefix() (string, error) {
 }
 func (m *lifecycleModel) phase(phase string) bool {
 	cp, is, es, e := m.records()
-	if e != nil || len(is) != 1 || cp.PendingAttempt != is[0].Attempt || cp.TokenGeneration != 1 || cp.StoreGeneration != 1 || cp.State != "owner_unavailable" || m.starts != 1 || m.native != 3 || m.writer == nil {
+	nativeCount, endpointCount := 3, 1
+	if phase == "running" {
+		nativeCount, endpointCount = 0, 0
+	}
+	if e != nil || len(is) != 1 || cp.PendingAttempt != is[0].Attempt || cp.TokenGeneration != 1 || cp.StoreGeneration != 1 || cp.State != "owner_unavailable" || m.starts != 1 || m.native != nativeCount || m.writer == nil {
 		return false
 	}
 	want := 2
@@ -85,10 +89,10 @@ func (m *lifecycleModel) phase(phase string) bool {
 	old, _ := ownerMaterial(m.initial, "initial")
 	next, _ := ownerMaterial(m.initial, "replacement")
 	expected := next
-	if phase == "rotation-no-store" {
+	if phase == "rotation-no-store" || phase == "running" {
 		expected = old
 	}
-	return qualificationHash(native) == qualificationHash(expected) && cp.StoreDigest == qualificationHash(old) && len(m.endpoint) == 1
+	return qualificationHash(native) == qualificationHash(expected) && cp.StoreDigest == qualificationHash(old) && len(m.endpoint) == endpointCount
 }
 func (m *lifecycleModel) hold(req ownerMessage, phase string) error {
 	if m.held != nil || m.gate != nil || !m.phase(phase) {
@@ -158,8 +162,18 @@ func (m *lifecycleModel) serve(ch *ownerChannel, req ownerMessage) error {
 			Generation  uint64
 			Lower       time.Time
 		}
-		if wire.Decode(req.Data, &q) != nil || q.Label != ownerLabel || q.Home != m.c.HomeID || q.Generation < 1 || q.Generation > 2 || q.Lower.After(m.c.Now) {
+		generationLimit := uint64(2)
+		if parallelScenario(m.c.Scenario) {
+			generationLimit = 3
+		}
+		if wire.Decode(req.Data, &q) != nil || q.Label != ownerLabel || q.Home != m.c.HomeID || q.Generation < 1 || q.Generation > generationLimit || q.Lower.After(m.c.Now) {
 			return errors.New("lifecycle confidence binding")
+		}
+		if m.c.Epoch == 1 && parallelUnresolved(m.c.Scenario) && m.phase("running") {
+			if e := m.writer.challenge(); e != nil {
+				return e
+			}
+			return m.hold(req, "running")
 		}
 		if m.c.Epoch == 1 && m.native == 3 && (m.c.Scenario == "rotation-no-store" || m.c.Scenario == "rotation-no-proof") {
 			return m.hold(req, m.c.Scenario)
@@ -167,6 +181,9 @@ func (m *lifecycleModel) serve(ch *ownerChannel, req ownerMessage) error {
 		result = authowner.TimeEvidence{Now: m.c.Now, AuthorityUntil: m.c.Now.Add(time.Minute), Trusted: true, Fresh: true}
 	case "start":
 		cap := 1
+		if parallelScenario(m.c.Scenario) && !parallelUnresolved(m.c.Scenario) {
+			cap = 2
+		}
 		if m.c.Scenario == "safe-safe-committed" {
 			cap = 3
 		}
@@ -178,7 +195,7 @@ func (m *lifecycleModel) serve(ch *ownerChannel, req ownerMessage) error {
 			Args, Environment                      []string
 			Runtime                                time.Duration
 		}
-		cp, is, _, e := m.records()
+		cp, is, es, e := m.records()
 		sort.Slice(is, func(i, j int) bool { return is[i].Sequence < is[j].Sequence })
 		if e != nil || len(is) != m.starts || wire.Decode(req.Data, &spec) != nil {
 			return errors.New("lifecycle start records")
@@ -187,7 +204,16 @@ func (m *lifecycleModel) serve(ch *ownerChannel, req ownerMessage) error {
 		if cp.PendingAttempt != intent.Attempt || cp.State != "owner_unavailable" || spec.Name != intent.Unit || spec.Daemon != "synthetic-owner.service" || spec.Executable != "/proc/self/fd/6" || spec.Home != filepath.Join(m.c.Root, "home") || spec.Digest != m.c.Candidate || strings.Join(spec.Args, " ") != "app-server" || spec.Runtime != 120*time.Second || strings.Join(spec.Environment, "\x00") != strings.Join([]string{"HOME=" + spec.Home, "CODEX_HOME=" + spec.Home, "LANG=C.UTF-8", "PATH=/usr/bin:/bin"}, "\x00") {
 			return errors.New("lifecycle start binding")
 		}
-		native, _ := ownerMaterial(m.initial, "replacement")
+		if parallelScenario(m.c.Scenario) && m.starts > 1 {
+			if e := m.successorOrder(cp, is, es); e != nil {
+				return e
+			}
+		}
+		which := "replacement"
+		if parallelScenario(m.c.Scenario) && m.starts > 1 {
+			which = "successor"
+		}
+		native, _ := ownerMaterial(m.initial, which)
 		w, e := startWriter(m.ctx, m.c, m.broker, intent.Attempt, native)
 		if w != nil {
 			m.writers = append(m.writers, w)
@@ -268,6 +294,19 @@ func (m *lifecycleModel) serve(ch *ownerChannel, req ownerMessage) error {
 		var before authowner.Observation
 		if wire.Decode(req.Data, &before) != nil || before != m.before || m.writer == nil || m.stops > 4 {
 			return errors.New("lifecycle stop binding")
+		}
+		if m.c.Epoch == 2 && parallelPartial(m.c.Scenario) {
+			if e := m.writer.challenge(); e != nil {
+				return e
+			}
+			after := before
+			after.Complete = false
+			after.StopCompleted = false
+			after.Empty = false
+			after.PopulatedZero = false
+			m.inputs = append(m.inputs, ownerStopFact{Before: before, After: after})
+			result = after
+			break
 		}
 		if !m.writer.fact.Stop.Valid() {
 			if e := m.writer.stop(m.ctx, fmt.Sprint(req.ID)); e != nil {
