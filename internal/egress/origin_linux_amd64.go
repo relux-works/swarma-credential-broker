@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -41,13 +43,41 @@ func NewCaseOrigin(image *os.File, ready func() error) (*CaseOrigin, error) {
 	return o, nil
 }
 
+// NewOwnerOrigin binds the private owner dispatcher to a canonical context hash.
+// It adds no executable, descriptor or network permission to Run.
+func NewOwnerOrigin(image *os.File, digest string) (*CaseOrigin, error) {
+	b, err := hex.DecodeString(digest)
+	if err != nil || len(b) != 32 || hex.EncodeToString(b) != digest {
+		return nil, ErrUnavailable
+	}
+	o, err := NewCaseOrigin(image, func() error { return nil })
+	if err == nil {
+		o.ownerContext = digest
+	}
+	return o, err
+}
+func ownerResponse(challenge []byte, digest string) []byte {
+	h := sha256.New()
+	h.Write([]byte("qualification-owner/1\x00" + digest + "\x00"))
+	h.Write(challenge)
+	return h.Sum(nil)
+}
+
+// EnterOwnerRole accepts only the fixed supervisor endpoint, and answers in a
+// separate domain from generic case entry. Construction follows this barrier.
+func EnterOwnerRole(digest string) error { return enterOrigin(digest) }
+
 // EnterCase accepts no caller-selected descriptor, path or authority. The final
 // acknowledgement prevents an exchange racing the parent's live-origin gate.
-func EnterCase() error {
+func EnterCase() error { return enterOrigin("") }
+func enterOrigin(digest string) error {
 	unix.CloseOnExec(9)
 	b := make([]byte, 32)
 	if n, e := unix.Read(9, b); e != nil || n != len(b) {
 		return ErrUnavailable
+	}
+	if digest != "" {
+		b = ownerResponse(b, digest)
 	}
 	if n, e := unix.Write(9, b); e != nil || n != len(b) {
 		return ErrUnavailable
@@ -86,6 +116,7 @@ func originIdentity(pid int, image *os.File, argv []string) error {
 type originOwner struct {
 	pid, fd int
 	tasks   map[int]bool
+	strict  bool
 }
 
 func (w *originOwner) next() (tid int, status unix.WaitStatus, terminal bool, err error) {
@@ -159,6 +190,12 @@ func (w *originOwner) resume(tid int, status unix.WaitStatus) error {
 			return e
 		}
 		w.tasks[int(p)] = w.tasks[tid] && cause == unix.PTRACE_EVENT_CLONE
+		if w.strict {
+			w.tasks[int(p)] = originThread(int(p), w.pid)
+			if !w.tasks[int(p)] {
+				return ErrUnavailable
+			}
+		}
 	}
 	sig := 0
 	if status.StopSignal() != unix.SIGTRAP && status.StopSignal() != unix.SIGSTOP {
@@ -253,6 +290,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	o := c.Origin
 	defer func() {
 		if err != nil {
+			if o.ownerContext != "" {
+				o.invalid.Store(true)
+			}
 			report.Incomplete = true
 		}
 		if !o.joined.Load() || !o.entered.Load() {
@@ -264,6 +304,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	}
 	if err = validate(c); err != nil {
 		return
+	}
+	if o.ownerContext != "" && (c.Executable != "/proc/self/fd/4" || strings.Join(c.Args, "\x00") != "qualification-owner\x00"+o.ownerContext) {
+		return report, ErrUnavailable
 	}
 	if len(c.ExtraFiles) != 5 || o.parent == nil || o.child == nil || o.image == nil || o.invalid.Load() || !o.used.CompareAndSwap(false, true) {
 		return report, ErrUnavailable
@@ -317,7 +360,7 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 		}
 		return report, ErrUnavailable
 	}
-	w := originOwner{cmd.Process.Pid, fd, map[int]bool{cmd.Process.Pid: true}}
+	w := originOwner{pid: cmd.Process.Pid, fd: fd, tasks: map[int]bool{cmd.Process.Pid: true}, strict: o.ownerContext != ""}
 	defer unix.Close(fd)
 	terminal := false
 	defer func() {
@@ -387,6 +430,8 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	birth := false
 	challenge := make([]byte, 32)
 	start := time.Now()
+	expected := challenge
+	traceEvents := 0
 	for !terminal {
 		if err = ctx.Err(); err != nil {
 			return
@@ -421,7 +466,7 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 			}
 		}
 		if o.verified.Load() {
-			if err = o.entry(challenge); err != nil {
+			if err = o.entry(expected); err != nil {
 				o.invalid.Store(true)
 				return
 			}
@@ -434,7 +479,7 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 		if terminal {
 			o.terminal.Store(true)
 			if o.verified.Load() {
-				err = o.entry(challenge)
+				err = o.entry(expected)
 				if err != nil {
 					o.invalid.Store(true)
 				}
@@ -480,8 +525,24 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 			if _, err = rand.Read(challenge); err != nil {
 				return
 			}
+			if o.ownerContext != "" {
+				expected = ownerResponse(challenge, o.ownerContext)
+			}
 			if _, err = unix.Write(int(o.parent.Fd()), challenge); err != nil {
 				return
+			}
+		}
+		if o.ownerContext != "" {
+			traceEvents++
+			if traceEvents > 4096 {
+				return report, ErrEvidenceLimit
+			}
+			if tid != w.pid && !status.Exited() && !status.Signaled() {
+				if !originThread(tid, w.pid) {
+					o.invalid.Store(true)
+					return report, ErrUnavailable
+				}
+				w.tasks[tid] = true
 			}
 		}
 		if err = w.resume(tid, status); err != nil {
@@ -489,4 +550,19 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 		}
 	}
 	return
+}
+
+// Check the stopped task's actual thread group; CLONE alone also creates processes.
+func originThread(tid, leader int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", tid))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "Tgid:" {
+			return fields[1] == strconv.Itoa(leader)
+		}
+	}
+	return false
 }

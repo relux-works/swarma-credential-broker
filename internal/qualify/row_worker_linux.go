@@ -71,6 +71,9 @@ func descriptorDigest(f *os.File) (string, error) {
 // context. The approved Codex descriptor is measured at FD6, never executed by
 // these transport rows. No path, shell or inherited account context is accepted.
 func CaseMain(args []string) (bool, int) {
+	if len(args) > 0 && args[0] == "qualification-owner" {
+		return true, ownerMain(args)
+	}
 	if len(args) == 0 || args[0] != "qualification-case" {
 		return false, 0
 	}

@@ -4,10 +4,13 @@ package egress
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -58,6 +61,13 @@ func originFixture(t *testing.T, mode string, code int, ready func()) (OriginFac
 	if e != nil {
 		t.Fatal(e)
 	}
+	if strings.HasPrefix(mode, "owner-") {
+		o.Close()
+		o, e = NewOwnerOrigin(image, fmt.Sprintf("%x", sha256.Sum256([]byte(mode))))
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
 	defer o.Close()
 	if mode == "missing-credentials" {
 		if e = unix.SetsockoptInt(int(o.parent.Fd()), unix.SOL_SOCKET, unix.SO_PASSCRED, 0); e != nil {
@@ -98,6 +108,11 @@ func originFixture(t *testing.T, mode string, code int, ready func()) (OriginFac
 			t.Error("wait callback lost case owner/state")
 		}
 	}}
+	if strings.HasPrefix(mode, "owner-") {
+		digest := fmt.Sprintf("%x", sha256.Sum256([]byte(mode)))
+		cfg.Args = []string{"qualification-owner", digest}
+		cfg.Env = append(cfg.Env, "OWNER_MODE="+mode, "OWNER_DIGEST="+digest)
+	}
 	report, err := Run(ctx, cfg)
 	_ = unix.Shutdown(senderFD, unix.SHUT_RDWR)
 	<-senderDone
@@ -219,5 +234,26 @@ func TestOriginCloneCancellation(t *testing.T) {
 		if e == nil || f.Entered || !f.Joined || s == nil || s.ExitCode() != -1 || n != 1 {
 			t.Fatal("clone cancellation lost actual join", f, s, n, e)
 		}
+	}
+}
+
+// Claim: owner-domain entry accepts runtime threads but rejects generic entry,
+// wrong context, a second exec, and a CLONE-created process. The sole consuming
+// wait remains on Start's locked thread in every path.
+func TestOwnerRoleOrigin(t *testing.T) {
+	for _, mode := range []string{"owner-valid", "owner-case", "owner-context", "owner-exec", "owner-process", "owner-noop"} {
+		t.Run(mode, func(t *testing.T) {
+			f, _, s, n, e := originFixture(t, mode, 0, nil)
+			if !f.Joined || s == nil || n != 1 {
+				t.Fatal("owner sole wait missing", f, s, n)
+			}
+			if mode == "owner-valid" {
+				if e != nil || !f.Verified || !f.Entered {
+					t.Fatal("owner role rejected", f, e)
+				}
+			} else if e == nil && f.Verified && f.Entered {
+				t.Fatal("owner role authority escaped", mode)
+			}
+		})
 	}
 }

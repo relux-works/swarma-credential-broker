@@ -13,3 +13,6 @@ func Bootstrap() error                            { return ErrUnavailable }
 
 func NewCaseOrigin(*os.File, func() error) (*CaseOrigin, error) { return nil, ErrUnavailable }
 func EnterCase() error                                          { return ErrUnavailable }
+
+func NewOwnerOrigin(*os.File, string) (*CaseOrigin, error) { return nil, ErrUnavailable }
+func EnterOwnerRole(string) error                          { return ErrUnavailable }

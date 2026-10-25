@@ -15,10 +15,13 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 4 {
+	if len(os.Args) < 3 {
 		os.Exit(125)
 	}
-	mode, status := os.Args[2], os.Args[3]
+	mode, status := os.Args[2], "0"
+	if len(os.Args) > 3 {
+		status = os.Args[3]
+	}
 	if os.Args[1] == "bootstrap" {
 		if mode == "pre-exec" {
 			if _, err := unix.Write(9, make([]byte, 32)); err != nil {
@@ -36,6 +39,9 @@ func main() {
 				os.Exit(125)
 			}
 			argv := []string{os.Args[0], "/proc/self/fd/4", "case", mode, status}
+			if strings.HasPrefix(mode, "owner-") {
+				argv = []string{os.Args[0], "/proc/self/fd/4", "qualification-owner", os.Getenv("OWNER_DIGEST")}
+			}
 			if mode == "unexpected-exec" {
 				argv[1] = "/proc/self/fd/7"
 			}
@@ -52,6 +58,40 @@ func main() {
 			os.Exit(125)
 		}()
 		select {}
+	}
+	if os.Args[1] == "qualification-owner" {
+		mode = os.Getenv("OWNER_MODE")
+		digest := os.Getenv("OWNER_DIGEST")
+		if mode == "owner-noop" {
+			os.Exit(0)
+		}
+		if mode == "owner-context" {
+			digest = strings.Repeat("0", 64)
+		}
+		var err error
+		if mode == "owner-case" {
+			err = egress.EnterCase()
+		} else {
+			err = egress.EnterOwnerRole(digest)
+		}
+		if err != nil {
+			os.Exit(125)
+		}
+		if mode == "owner-exec" {
+			_ = unix.Exec("/proc/self/fd/7", []string{"/proc/self/fd/7"}, []string{})
+		}
+		if mode == "owner-process" {
+			pid, _, errno := unix.RawSyscall(unix.SYS_CLONE, uintptr(unix.SIGCHLD), 0, 0)
+			if errno != 0 {
+				os.Exit(125)
+			}
+			if pid == 0 {
+				for {
+					unix.RawSyscall(unix.SYS_PAUSE, 0, 0, 0)
+				}
+			}
+		}
+		os.Exit(0)
 	}
 	if os.Args[1] != "case" || len(os.Args) != 4 {
 		os.Exit(125)
