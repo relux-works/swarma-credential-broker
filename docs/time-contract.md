@@ -114,8 +114,10 @@ negative/unbounded uncertainty or any mismatch refuses, without falling back to
 wall time. `CollectorEntry()` must run first in the embedding `main`; a matching
 revision string alone does not prove this execution path or its provenance.
 
-A successful receipt is usable only immediately before its bound operation and
-while the consumer retains its exclusions and same-boot monotonic deadline.
+A successful receipt is usable only immediately before its bound operation,
+within the consumer's reviewed exclusion/handoff pattern and original same-boot
+monotonic deadline; the final-window pattern below requires collection before
+those final locks, not a provider call inside them.
 The qualified δ must cover source error, rate growth and the bounded remaining
 storage/return/pin delay; reserve that entire interval before persisting `U`.
 If it cannot fit within the effective uncertainty cap or the operation exceeds
@@ -135,6 +137,45 @@ evidence. An act valid for at most 60 seconds uses an exclusive deadline
 of at most 60 seconds. Other consumer checks, including its durable watermark
 and release validity, still apply. A consumer may narrow these rules, never
 widen them; a time-control pass is not acceptance of the enclosing operation.
+
+### Native consumer operation and challenge binding
+
+Issuance, enrollment and registration adapters use the same provider-owned
+settlement without borrowing the executor Scope codec. Protected enrollment
+selects one versioned identity profile `P` (1–128 ASCII bytes in the enrolled-ID
+alphabet), its exact owning codec and purpose. Let `B` be that codec's canonical
+public operation-identity bytes, at most 65536 bytes. For these profiles,
+`scope.operation_digest` is `sha256:` plus lowercase hex SHA-256 of ASCII
+`qualified-time/consumer-operation/1`, a zero byte, then the unsigned 32-bit
+big-endian byte length of `P`, `P`, the unsigned 32-bit big-endian byte length
+of `B`, and `B`, in that order. The protected profile specifies every identity
+member and original argument digest; unknown/incomplete profiles refuse.
+Caller-selected profiles, ambiguous encodings or identity truncation refuse.
+Only public identities/challenges enter this binding, never secret material.
+
+For a native mutation/registration, the profile binds the existing
+`(caller_uid,caller_generation,request_id)` and original canonical argument
+digest, plus the existing immutable authority-transaction identity when that
+operation has one. For enrollment it binds the complete existing public
+challenge or approval/ledger identities and their immutable state/configuration
+bindings in the owning codec. A 64-hex enrollment challenge stays 64 hex;
+it is not truncated to the provider's 32-hex `sample.challenge`. Registration's
+signed-body nonce is also distinct from its native request ID. These mappings
+add no members to consumer requests, state, reports or frozen journal objects;
+the complete profile/codec must be jointly reviewed before activation.
+
+Example: keep operation tuple `(u,g,r)` and its argument digest unchanged,
+or keep the original public enrollment challenge `c` unchanged. The provider
+settles a receipt for that profile's operation digest and a fresh provider
+challenge `q`, observation 200 with δ=1, new sample ID and generation. Its
+history durably associates those bindings with `W=201` before reply. A later
+consumer refusal or crash leaves that association intact, without editing the
+consumer journal frozen at 140. Another `r`, `g`, argument digest, profile or
+native challenge refuses against that receipt; a fresh `q` on retry creates
+another consumption, never a replacement for the old record. Enrollment state
+and `Plan.Watermark` are additional local checks. **Every consumed W, in-flight
+observation and hold, including failed operations, belongs to the provider**;
+none of those consumer marks can replace its protected history.
 
 ### Interval-preserving consumer projections
 
@@ -289,8 +330,9 @@ repaired by sleeping, an ordinary good report or the journal's older floor.
 
 ## Bounded sample immediately before the pin
 
-The planned `ConsumeBeforePin(deadline, expected identities, challenge, J)` API
-includes the enrolled scope and independently derived operation digest in
+For the executor, the planned
+`ConsumeBeforePin(deadline, expected identities, challenge, J)` API includes the
+enrolled scope and independently derived operation digest in
 `expected identities`. It runs while the executor retains its
 external exclusions F, B, W, root-writer exclusion and exclusive D, immediately
 before the pin. Here W names the worker exclusion, not the time high-water.
@@ -359,6 +401,41 @@ expiry. Consumer integration must also keep stop runnable while a pre-pin call
 retains its exclusions; no lock holder waiting on time may indirectly gate stop.
 Existing stop authority still applies; time failure grants no new powers.
 
+### Final issuance, enrollment and registration windows
+
+The executor's reviewed external exclusions above do not permit a call under
+another consumer's final locks. **No provider call is allowed inside final C,
+F, generation, store or journal locks.** Terminal consumer F is not the
+executor's package exclusion F. Before the final window, collect and validate
+a new bound observation and obtain its provider durable acknowledgment, with
+none of those final locks held. Reserve the entire qualified handoff and final
+operation allowance in its interval before persisting the consumed upper bound.
+Then enter the final window through one bounded handoff; inside, use only
+bounded local checks and permitted local durability, never a relay, provider
+callback, helper query or cached "passed" verdict. Locally recheck the bound
+operation/challenge, boot, interval, exclusive authority, original deadline and
+consumer authority. Failure or unqualified handoff refuses; leave the final
+window before collecting anew. Do not renew the budget or reuse the receipt for
+another window. This is a required future adapter, not a claim that current
+consumer sampling-under-lock paths already satisfy it.
+
+The applicable original consumer budgets bind: at most 250 ms for the reader
+data/final handoff window, 1000 ms for the writer attempt/append/finish, and
+send-start + 2000 ms for the observation. Provider collection, preparation and
+handoff never restart those clocks. A provider ceiling of ten seconds grants
+no extension to any consumer deadline. Fit collection into the applicable
+remaining operation budget and the final local work into its narrower window;
+unknown latency or insufficient remaining time refuses. Emergency stop must
+remain independently reachable through these lock holders too.
+
+For a 600-second enrollment approval, issue interval `[99,101]` permits only
+an exclusive deadline `D ≤ 99+600 = 699`. Require fresh current `U < D`, the
+same boot and `CLOCK_BOOTTIME` age strictly less than 600 seconds; all interval,
+continuity and local authority checks still apply. With `D=699`, `U=699`
+refuses; `U=698.999999999` passes this time predicate only, with sufficient
+sample authority and the other checks satisfied. Neither the upper issue
+bound 101 nor a new receipt can extend the original approval deadline.
+
 ## Consumer vectors
 
 All intervals below use arbitrary UTC seconds, with exact nanosecond arithmetic
@@ -397,6 +474,11 @@ covers the qualified delivery/pin delay. A pass is a
 | Receipt codec and authority mapping | Request-asserted availability, unknown version/root/validator, overlong identifier, excess receipt/evidence bounds, noncanonical integer/generation, or unavailable original evidence refuses; an inline hash cannot stand in for retained `Ref`. | Confirmed protected continuity, enrolled version/root and canonical bounded owner receipt plus original evidence authenticate; its exact retained bytes map to the existing logical `Evidence` Ref without changing frozen journal objects. |
 | Qualified full call and completion | Missing any CallContract field, unknown init/daemon/store/witness dependency, consumer-lock back edge, per-command-only deadline, or direct-child-only completion refuses. | Exact installed closure and all fifteen fields qualified, stated inner locks released, whole-subtree terminal evidence and bounded drain/fencing complete within one absolute deadline; independently reachable stop remains required. |
 | Conservative coarse projection | With `W=200.2`, `[L,U]=[200.1,200.3]`, `A=230.9`, exact `L>W` fails. Ceil-L/floor-W would falsely give `201>200`; refuse. Required floor-L/ceil-W gives `200>201`, also refusing. | With the same `W`, fresh `[202.1,202.3]`, `A=230.9` and `J=140`, exact predicates pass; coarse lower 202, upper 203, floor 201 and exclusive authority 230 also pass. Retain and check both representations. |
+| Native identity and frozen binding | Present the receipt for `(u,g,r)` with another request/generation/argument digest/profile, or truncate/change its native 64-hex enrollment challenge: refuse even if the provider challenge matches. | Same original operation or complete enrollment challenge and protected profile, fresh provider challenge, and durable provider association for consumed `W=201` pass binding checks without changing journal floor 140. |
+| Final locks | A direct or relayed provider call while holding final C/F/generation/store/journal, or reuse of a cached "passed" verdict, refuses; executor lease permission is no exemption. | A newly collected, durably acknowledged receipt before the window, followed by one qualified bounded handoff and only local interval/authority checks under final locks, may pass. |
+| Original consumer budgets | Renewing a deadline on handoff/retry, using the provider's ten seconds to exceed the 250 ms reader, 1000 ms writer or send-start + 2000 ms observation bound, or unknown remaining latency refuses. | Collection and the one handoff fit the original applicable deadlines, final local work fits its narrower window, and interval/authority cover the reserved delay; no budget is renewed. |
+| Enrollment 600-second boundary | Starting with `W=J=0`, consume issue `[99,101]`, retaining provider `W=101`; choose latest `D=699`. A current `U=699` refuses even with `A>699`; another boot or BOOTTIME age 600 also refuses. | Same boot, BOOTTIME age less than 600, current `U=698.999999999`, `L>101`, `A>699` and all other checks pass only the time predicate; keep `D=699`. |
+| Provider history ownership | Enrollment state or `Plan.Watermark` alone cannot replace missing provider W/in-flight/hold history, including a failed operation's consumed 201: refuse. | Confirmed provider history retains all consumed upper bounds, in-flight/hold state and native operation/challenge association; additional consumer marks and fresh interval checks may then pass. |
 
 ## Existing code and implementation slice
 

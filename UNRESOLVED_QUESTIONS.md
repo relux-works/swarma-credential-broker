@@ -90,8 +90,17 @@ Implementation integration questions:
   stream), fresh authenticated reads, and durable begin and end records. Its
   off-node acknowledgment round trips conflict with the current local-CAS
   assumption and a registry consumer's five-second decision budget until a
-  bounded, lock-compatible protocol is qualified. The time-provider and platform
-  owners must resolve that latency/authority decision before activation; no
+  bounded, lock-compatible protocol is qualified. Further prerequisites are an
+  approved consumer profile; versioned record and domain schemas for begin,
+  settle and recovery; exact generation/challenge mapping; provisioning, ACLs,
+  rotation and administration. Each confirmed head needs independent protected
+  custody that cannot roll back when either the provider or witness, or both,
+  are restored. Keeping only the signing key separately is insufficient. Require
+  exclusion of the old instance and fresh authenticated reads. Mutual-TLS and
+  custodian acknowledgment round trips count against the original consumer
+  budgets, including the 250, 1000 and 2000 ms paths; clock bootstrap dependencies
+  must also be resolved. The time-provider and platform owners must resolve that
+  latency/authority decision before activation; no
   remote-to-local adapter is assumed. The bounded pre-pin API and consumer review
   are also pending. Broker backward tolerance is zero.
 
