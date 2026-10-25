@@ -41,6 +41,9 @@ func lifecycleTest(t *testing.T, scenarios ...string) []lifecycleFact {
 		start := time.Now()
 		f, x, _, e := lifecycleRun(ctx, broker, candidate, digest, scenario)
 		if e != nil || !x.credit(false) || x.CaseExit != 0 || !validLifecycleFact(f) {
+			if f.Parallel != nil {
+				t.Logf("parallel effects: %+v", f.Parallel)
+			}
 			t.Fatalf("lifecycle %s invariant: %v; %+v", scenario, e, f)
 		}
 		t.Logf("%s joined in %s; frames=%v; filesystem events=%d", scenario, time.Since(start), f.Frames, f.Events)

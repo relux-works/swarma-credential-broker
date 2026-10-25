@@ -510,7 +510,7 @@ counts. Existing credited rows retain their original limits and artifact shape.
 The registry below has all 46 required IDs. “Next slice” means unexecuted,
 never a skipped pass. This implementation covers the harness, framing,
 peer-probe, genuine peer denial, account, release qualification, runner source
-and ended-lease fixture implementations. Thirteen transport/admission/lease rows and five fake owner-core rows execute with attested origin and paired artifacts.
+and ended-lease fixture implementations. Thirteen transport/admission/lease rows and seven fake owner-core rows execute with attested origin and paired artifacts.
 The peer row and two runner rows remain UNRUN even with usable fixtures.
 Other bodies remain pending; the time row
 requires the durable owner integration described above.
@@ -538,8 +538,8 @@ fixture result cannot satisfy the live part of a combined row.
 | renew-contention | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | One rejection causes one refresh | Eight same-token rejecters share exactly one refresh/generation | Attested fake pair only; live half pending |
 | renew-late | fake-now + live-later; P9, P8.2 steps 2/4 | In-budget result answers once | After-eight-second result gets renew_timeout, no late callback | Next slice |
 | queue-full | fake-only; P9 | Free slot admits same-attempt waiter | Sixty-four queued operations refuse excess, no extra writer | Attested synthetic pair; parent holds and verifies the full queue |
-| daemon-death | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Complete stop and committed outcome permit successor | Surviving child prevents second writer until subtree absence proven | Next slice |
-| replacement-contention | fake-only; P9, P9.1, B9.6 | Resolved attempt permits one successor | Replacement and rejecters retain one attempt and writer | Next slice |
+| daemon-death | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Complete stop and committed outcome permit successor | Live singleton or Unknown RPC prevents successor | Attested fake owner-core pair; live vendor half pending |
+| replacement-contention | fake-only; P9, P9.1, B9.6 | Resolved attempt permits one successor | Replacement and rejecters retain one attempt and writer | Fake owner-core pair |
 | rotation-crash | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | Durable store and correlated success activate once | Missing durable RPC proof refuses after complete singleton Stop, zero retry | Attested fake owner-core pair; actual owner SIGKILL, independent synthetic writer; live vendor half pending |
 | cleanup-interrupted | fake-only; P9, P9.1, B9.6 | Complete correlated absence and reconciliation reopen | Crash before absence record plus partial constructor input keeps admission closed | Attested fake owner-core pair; complete independent constructor reconciles the same attempt |
 | absence-unreadable | fake-only owner-core; P9, P9.1, B9.6 | Complete correlated model input resolves the retained attempt | Eight partial/denied/conflicting inputs refuse admission; separate constructor recovery | Attested core pair; model premises only, no platform absence or enrolment credit |
@@ -693,8 +693,8 @@ run in default Linux/amd64 tests. Capability skips follow actual pidfd, ptrace
 or seccomp listener probe failures and earn no executed-row credit. No systemd,
 chrony, root, additional UID, real login or real endpoint is needed.
 
-The `daemon-death` and `replacement-contention` rows remain pending. So do
-`time-untrusted`, peer and runner. `reenrol-unresolved` and `duplicate-account`
+The `time-untrusted`, peer and runner rows remain pending.
+`reenrol-unresolved` and `duplicate-account`
 need the administrative fresh-home enrolment and publication mechanism (separate
 decision). `store-rollback` needs independent CAS witness and broker restore
 reconciliation. The frozen fake time premise supplies none of those authorities.
@@ -752,6 +752,58 @@ Pure classifier, pending-state, clock, certificate and observer checks run in
 default CI. Integrated pairs require only generated fixtures and actual minimal
 seccomp/pidfd/ptrace capability; missing capability follows `hosttest.Require`,
 never an assertion-based skip. Process-overlap and no-op-persist controls test
-actual launches and file effects. Daemon death, competing replacements, store
-rollback, reenrolment, duplicate publication, contracted time, peer/runner origin
+actual launches and file effects. Store rollback, reenrolment, duplicate
+publication, contracted time, peer/runner origin
 and real manager/vendor qualification remain deferred.
+
+### Daemon death and competing replacements
+
+`daemon-death` holds the real owner at durable submitted/running evidence before
+any native exchange. A planned SIGKILL joins that owner; its independent writer
+must answer a fresh challenge afterward. Independent replacement constructors
+receive either partial Stop while that writer remains live, or complete Stop
+with actual joined singleton termination. Both retain Unknown, generation 1 and
+one pending intent without a successor. Later forced cleanup is recorded
+separately and supplies no absence authority. The independent normal-stop
+positive first commits A1, then permits one successor committing A2.
+
+`replacement-contention` runs both A-first and B-first schedules. Two measured
+replacement candidates enter before either opens the real store. The winner
+holds the store lock before its first Ready; a non-consuming lock probe on the
+pinned generated lock inode confirms it. The loser must fail at store startup,
+join and serve zero calls. Each process has immutable context and correlated
+bounded messages; a held callback does not block another caller's arrival.
+
+In the unresolved script, two retained valid A0 leases reject A0. L1 is held at
+its actual dequeue before Snapshot; L2's actual arrival is observed before L1
+resumes. Both renewals, a repeat and two fresh requests after both releases give
+exact `lease_owner_unavailable`. In the resolved script, two fresh A1 leases
+renew through overlapping Calls and publish A2; both repeated superseded A1
+rejections publish A2 without another Start. An existing response callback holds
+one caller until its neighbor has called and published, preventing publication
+from racing the neighbor's nonblocking owner Snapshot. This schedule establishes
+Call overlap, not concurrent publication or a count of already queued waiters.
+
+For each admitted renewal the parent reads checkpoint `TokenGeneration=3` and
+that lease's `OfferedGeneration=3`. `Outcome.Generation=1` is policy generation;
+`ObservedGeneration=2` correctly identifies the rejected A1. Retained prior
+attempt records must remain byte-identical, and actual complete Stop plus the
+old committed history precede successor Start.
+
+| Script | O1 Q/R/L | Serving replacement Q/R/L | Starts |
+| --- | --- | --- | --- |
+| Death, each live-partial / complete-Unknown variant | 1/1 interrupted/0 | 2/1/1 | 1 |
+| Normal stop and successor | 1/1/1 | 1/2/1 | 2 |
+| Contention unresolved, each lock order | 2/1 interrupted/0 | 2/3/2 | 1 |
+| Contention resolved, each lock order | 1/1/1 | 2/4/2 | 2 |
+
+The loser has zero calls. Clock steps are zero. Engine MaxAttempts is 4;
+MaxActive, MaxPending and MaxWaiters are each 2, with at most two concurrent
+Calls, three simultaneous parent children and one live writer. All variants and
+joined cleanup share the unchanged 30s row-side bound. These scripts keep the
+512-frame, 64 model/gate-entry and existing observation limits; the distinct
+bounded Call callback ledger has at most 64 entries. Tests and controls run via
+`go test ./internal/qualify -run 'TestOwner(DaemonDeathPair|ReplacementContentionPair|Parallel)'`;
+normal test logs are caller-selected and protected qualification artifacts use
+the evidence directory. Real manager/vendor and descendant-tree qualification
+remain outside this synthetic singleton evidence.

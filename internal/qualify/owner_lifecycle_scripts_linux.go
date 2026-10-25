@@ -19,6 +19,7 @@ import (
 )
 
 type lifecycleFact struct {
+	Parallel              *parallelFacts `json:"parallel,omitempty"`
 	Scenario              string
 	Origins               []ownerEpochFact
 	Crashes               []egress.TerminationFacts
@@ -56,6 +57,9 @@ func lifecyclePending(cp authowner.Checkpoint, intents []authowner.Intent, event
 	return nil
 }
 func lifecycleRun(ctx context.Context, broker, candidate *os.File, digest, scenario string) (fact lifecycleFact, execution rowExecution, network map[string]egress.Counts, err error) {
+	if parallelScenario(scenario) {
+		return parallelRun(ctx, broker, candidate, digest, scenario)
+	}
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		err = errors.New("lifecycle requires row deadline")

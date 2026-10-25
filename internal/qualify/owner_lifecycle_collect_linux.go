@@ -21,10 +21,20 @@ type lifecycleEffects struct {
 }
 
 func lifecycleRow(id string) bool {
-	return id == "transient-ambiguous" || id == "rotation-crash" || id == "cleanup-interrupted"
+	return id == "daemon-death" || id == "replacement-contention" || id == "transient-ambiguous" || id == "rotation-crash" || id == "cleanup-interrupted"
 }
 func lifecycleScripts(id, side string) []string {
 	switch id {
+	case "daemon-death":
+		if side == "positive" {
+			return []string{"stop-successor"}
+		}
+		return []string{"death-live", "death-complete"}
+	case "replacement-contention":
+		if side == "positive" {
+			return []string{"contention-resolved-a", "contention-resolved-b"}
+		}
+		return []string{"contention-unresolved-a", "contention-unresolved-b"}
 	case "transient-ambiguous":
 		if side == "positive" {
 			return []string{"safe-safe-committed"}
@@ -47,6 +57,12 @@ func terminationShape(f egress.TerminationFacts, context string) bool {
 	return f.Context == context && policy.Hash(f.Gate) && f.PID > 0 && f.Signal == 9 && f.Exit == -1 && f.Waits == 1 && f.WaitError != "" && f.Verified && f.Entered && f.SignalSent && f.TraceComplete && f.Joined
 }
 func validLifecycleFact(f lifecycleFact) bool {
+	if parallelScenario(f.Scenario) {
+		return validParallelFact(f)
+	}
+	if f.Parallel != nil {
+		return false
+	}
 	if !lifecycleScenario(f.Scenario) || len(f.Origins) != 2 || len(f.Budgets) != 2 || f.Peak != 1 || f.Events <= 0 || f.Events > 2048 {
 		return false
 	}
