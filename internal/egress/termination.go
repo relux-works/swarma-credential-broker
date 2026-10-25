@@ -24,7 +24,7 @@ type TerminationFacts struct {
 	Context, Gate, WaitError                             string
 	PID, Signal, Exit, Waits                             int
 	Verified, Entered, SignalSent, TraceComplete, Joined bool
-	valid                                                bool
+	valid                                                bool `json:"-"`
 }
 
 func (f TerminationFacts) Valid() bool {

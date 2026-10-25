@@ -464,7 +464,7 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 					signal = int(status.Signal())
 				}
 			}
-			o.termination.joined(cmd.ProcessState, waitErr, err, terminal && len(w.tasks) == 0, signal)
+			o.termination.joined(cmd.ProcessState, waitErr, errors.Join(err, ctx.Err()), terminal && len(w.tasks) == 0, signal)
 		}
 		err = errors.Join(err, waitErr)
 	}()
