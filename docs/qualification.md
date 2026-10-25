@@ -344,6 +344,11 @@ credit. Peer and runner remain **UNRUN**;
 all unavailable paths emit `executed=false`, `exit_code=-1`, no artifact, and
 suppress the neighbouring control. No approved candidate runs in these cases.
 
+The proposed [trusted peer supervisor contract](peer-supervisor.md) defines the
+foreign-case waiter and its installation/attestation gates. It is inactive; the
+peer row above remains UNRUN until an independent supervisor origin is approved
+and qualified. Runner origin decisions are unchanged.
+
 Here P is the trusted qualification parent and K the kernel. A CaseOrigin is
 optional in the egress supervisor: ordinary Run retains its existing contract.
 It accepts only a parent-created typed endpoint, never generic socket ExtraFiles.

@@ -30,6 +30,14 @@ provide no real vendor or lifecycle qualification credit.
 
 Implementation integration questions:
 
+- The selected foreign-peer design uses an owner-installed supervisor as the
+  direct case parent and waiter. Its [proposed contract](docs/peer-supervisor.md)
+  still needs an approved independent witness of the supervisor initial exec,
+  image, argv/environment and launch ancestry across test identities. Existing
+  test-role sudo permission, pidfds and socket credentials alone do not supply
+  all those facts. Installation and activation remain pending; peer and runner
+  rows remain UNRUN.
+
 - `authowner.New` now validates and reconciles `owner-*.json` before snapshots.
   Activation still needs protected fresh-enrolment checkpoints, an independently
   implemented time/restore confidence provider, configured service identities,
