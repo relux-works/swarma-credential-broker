@@ -197,6 +197,7 @@ func containmentCheck(root string, graph containmentGraph) ([]string, error) {
 	var issues []string
 	ownerIssues := containmentOwnerAuthority(sources, graph, ordinary, qualification)
 	issues = append(issues, ownerIssues...)
+	issues = append(issues, containmentTimeFixtures(sources)...)
 	report := func(message string, args ...any) { issues = append(issues, fmt.Sprintf(message, args...)) }
 	authority := map[string]bool{"NewQualification": true, "NewQualificationAdmission": true, "NewQualificationLeaseRow": true, "NewQualificationPeerAdmission": true, "newQualificationPeer": true}
 	containmentClosure(sources, "internal/server", authority)
@@ -581,6 +582,74 @@ func containmentOwnerAuthority(sources []containmentSource, graph containmentGra
 				}
 			}
 		}
+	}
+	return issues
+}
+
+// No production package may materialize the test-only time path or witness.
+// This complements the compiled graph scan; it is not an unsafe/reflection proof.
+func containmentTimeFixtures(sources []containmentSource) []string {
+	var issues []string
+	for _, source := range sources {
+		declarations := map[*ast.Ident]bool{}
+		ast.Inspect(source.file, func(n ast.Node) bool {
+			if spec, ok := n.(*ast.TypeSpec); ok {
+				if body, ok := spec.Type.(*ast.StructType); ok {
+					if spec.Name.Name == "pathQualification" {
+						declarations[spec.Name] = true
+					}
+					if spec.Name.Name == "Consumer" {
+						for _, field := range body.Fields.List {
+							if len(field.Names) == 1 && field.Names[0].Name == "timePath" {
+								if pointer, ok := field.Type.(*ast.StarExpr); ok {
+									if id, ok := pointer.X.(*ast.Ident); ok && id.Name == "pathQualification" {
+										declarations[id] = true
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
+		ast.Inspect(source.file, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && id.Name == "pathQualification" && !declarations[id] {
+				issues = append(issues, "time activation type used in "+source.path)
+			}
+			if id, ok := n.(*ast.Ident); ok && (id.Name == "fixtureWitness" || id.Name == "newSettlementFixture" || id.Name == "fixtureLocal" || id.Name == "qualifiedForkFixture") {
+				issues = append(issues, "test-only time fixture in "+source.path)
+			}
+			// A qualification literal/new/assignment cannot appear even in a protected
+			// driver until a separately reviewed native activation path is implemented.
+			if value, ok := n.(*ast.CompositeLit); ok {
+				if id, ok := value.Type.(*ast.Ident); ok && id.Name == "pathQualification" {
+					issues = append(issues, "time activation materialized in "+source.path)
+				}
+				for _, element := range value.Elts {
+					if kv, ok := element.(*ast.KeyValueExpr); ok {
+						if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "timePath" {
+							issues = append(issues, "time activation field in "+source.path)
+						}
+					}
+				}
+			}
+			if call, ok := n.(*ast.CallExpr); ok {
+				if fun, ok := call.Fun.(*ast.Ident); ok && fun.Name == "new" && len(call.Args) == 1 {
+					if id, ok := call.Args[0].(*ast.Ident); ok && id.Name == "pathQualification" {
+						issues = append(issues, "time activation materialized in "+source.path)
+					}
+				}
+			}
+			if assignment, ok := n.(*ast.AssignStmt); ok {
+				for _, lhs := range assignment.Lhs {
+					if field, ok := lhs.(*ast.SelectorExpr); ok && field.Sel.Name == "timePath" {
+						issues = append(issues, "time activation assigned in "+source.path)
+					}
+				}
+			}
+			return true
+		})
 	}
 	return issues
 }

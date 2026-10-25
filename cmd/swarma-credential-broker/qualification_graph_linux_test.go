@@ -3,6 +3,8 @@
 package main
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,4 +180,73 @@ func CaseMain([]string) (bool, int) { return false, 0 }
 		}
 	}
 	return root, wrapper
+}
+
+// Claim: the graph scan rejects a compiled fixture implementation or activation
+// in any imported directory; declarations alone remain harmless. These bounded
+// plants test the same AST instrument used against the real compiled sources.
+func TestQualificationTimeFixtureContainment(t *testing.T) {
+	for _, plant := range []string{
+		"type fixtureWitness struct{}",
+		"func leak(){_ = &pathQualification{}}",
+		"func leak(){_ = new(pathQualification)}",
+		"type Alias=pathQualification;func leak(){_ = Alias{}}",
+		"func leak(){c.timePath=q}",
+		"func leak(){_ = Consumer{timePath:q}}",
+	} {
+		f, e := parser.ParseFile(token.NewFileSet(), "plant.go", "package sample;"+plant, 0)
+		if e != nil {
+			t.Fatal(e)
+		}
+		sources := []containmentSource{{path: "testdata/bridge.go", pkg: containmentModule + "/testdata", file: f}}
+		if len(containmentTimeFixtures(sources)) == 0 {
+			t.Fatal("time fixture plant not rejected", plant)
+		}
+	}
+	f, e := parser.ParseFile(token.NewFileSet(), "control.go", "package sample;type pathQualification struct{};func ordinary(){_ = ClosedWitness{}}", 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if issues := containmentTimeFixtures([]containmentSource{{path: "timeconf/ordinary.go", file: f}}); len(issues) != 0 {
+		t.Fatal("declaration/closed backend control rejected", issues)
+	}
+}
+
+// Claim: a fixture authority planted in an actual compiled dependency is found
+// by the production graph instrument. Removing just that declaration produces
+// the nearby valid control; unrelated setup/build errors do not satisfy it.
+func TestQualificationTimeFixtureCompiledPlant(t *testing.T) {
+	root, wrapper := containmentWrapperFixture(t, "testdata", false)
+	path := filepath.Join(root, "timeconf")
+	if e := os.Mkdir(path, 0700); e != nil {
+		t.Fatal(e)
+	}
+	file := filepath.Join(path, "fixture.go")
+	leak := []byte("package timeconf;type fixtureWitness struct{}")
+	if e := os.WriteFile(file, leak, 0600); e != nil {
+		t.Fatal(e)
+	}
+	bridge := filepath.Join(root, wrapper, "time.go")
+	if e := os.WriteFile(bridge, []byte(`package containmentbridge;import _ "`+containmentModule+`/timeconf"`), 0600); e != nil {
+		t.Fatal(e)
+	}
+	graph, e := containmentProductionGraph(t, root)
+	if e != nil {
+		t.Fatal(e)
+	}
+	build := containmentGo(t, root, "build", "-p=1", "-o", filepath.Join(t.TempDir(), "fixture"), "./cmd/swarma-credential-broker")
+	if out, e := build.CombinedOutput(); e != nil {
+		t.Fatalf("plant build failed: %v %s", e, out)
+	}
+	issues, e := containmentCheck(root, graph)
+	if e != nil || !strings.Contains(strings.Join(issues, "\n"), "test-only time fixture in timeconf/fixture.go") {
+		t.Fatal("compiled time fixture plant missed", issues, e)
+	}
+	if e := os.WriteFile(file, []byte("package timeconf;type ClosedWitness struct{}"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	issues, e = containmentCheck(root, graph)
+	if e != nil || len(issues) != 0 {
+		t.Fatal("closed witness control rejected", issues, e)
+	}
 }
