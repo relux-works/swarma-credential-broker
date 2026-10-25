@@ -42,6 +42,23 @@ workers create separate private listeners as described below. Cancellation close
 socket object, and a replacement endpoint is preserved. It cannot authorize an
 ordinary client. Transport row authority is limited separately below.
 
+## Qualification authority containment
+
+Both the single-lease and bounded multi-lease synthetic authorities are shipped
+with the qualification command. They are constructible only through its explicit
+`--fixtures` mode, protected `--fixture-config` roles, protected policy and owned
+evidence directory. Neither authority is selectable through daemon/serve,
+default `Run`, manager defaults, daemon configuration, flags or environment.
+`serve` is currently an unsupported command. Synthetic material and stores remain
+inside the private fixture; no real account, token endpoint or store is used.
+
+`TestQualificationAuthorityContainment` checks constructor dependencies and the
+command dispatch gates; `TestQualificationAuthorityCLIContainment` checks shipped
+entry refusals. `TestQualificationAuthorityProtectedInputs` pairs those refusals
+with protected command-driver execution of both authorities and rejects missing
+or unprotected fixture inputs. These checks establish a source/entry boundary,
+not exclusion from the shipped binary.
+
 ## Current identity observers
 
 `IdentityObserver` has one method for version, executable, schema, runner,
