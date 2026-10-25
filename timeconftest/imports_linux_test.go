@@ -15,7 +15,7 @@ import (
 
 // Claim: the real default compiled dependency graph excludes test-only imports
 // but exposes a planted application import. The accepted external module also
-// runs a tagged positive receipt through the public helper and real codec.
+// runs tagged positive receipt and handoff checks through the public helpers.
 func TestFixtureConsumerDependencyBoundary(t *testing.T) {
 	repo, err := filepath.Abs("..")
 	if err != nil {
@@ -52,11 +52,17 @@ func TestPositiveReceipt(t *testing.T) {
  raw,err:=f.ConsumeBeforePin(context.Background(),tc.ConsumptionRequest{Deadline:time.Now().Add(400*time.Millisecond),Expected:f.Enrollment(),OperationDigest:d,Challenge:"11111111111111111111111111111111",JournalFloor:140000000000})
  if err!=nil {t.Fatal(err)}
  if _,err=tc.DecodeReceipt(raw);err!=nil {t.Fatal(err)}
+ hr:=t.TempDir();if err=os.Chmod(hr,0700);err!=nil {t.Fatal(err)}
+ hp,err:=fixture.NewHandoffProvider(hr);if err!=nil {t.Fatal(err)}
+ packet,err:=hp.CollectHandoff(context.Background(),tc.ConsumptionRequest{Deadline:time.Now().Add(400*time.Millisecond),Expected:hp.Enrollment(),OperationDigest:d,Challenge:"22222222222222222222222222222222",JournalFloor:140000000000},tc.WindowIdentity{Profile:"fixture-window",Sequence:"1"},"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+ if err!=nil {t.Fatal(err)}
+ candidate,err:=tc.VerifyWindow(packet.Prepared,packet.Expected,packet.Local,packet.Capture);if err!=nil {t.Fatal(err)}
+ _ = candidate; e:=packet.Expected;key:=tc.UseKey{Consumer:e.Enrollment.Scope.Consumer,Store:e.Enrollment.Store,Operation:e.Operation,Window:e.Window};_ = fixture.NewUseStore(e.Run,key)
 }
 `,
 			}
 			if plant {
-				files["consumer.go"] = "package consumer\nimport fixture \"" + module + "/timeconftest\"\nvar _ = fixture.New\n"
+				files["consumer.go"] = "package consumer\nimport fixture \"" + module + "/timeconftest\"\nvar _ = fixture.New\nvar _ = fixture.NewHandoffProvider\nvar _ = fixture.PrepareHandoff\nvar _ = fixture.NewUseStore\n"
 			}
 			for file, source := range files {
 				if err := os.WriteFile(filepath.Join(root, file), []byte(source), 0600); err != nil {

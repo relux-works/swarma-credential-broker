@@ -30,6 +30,7 @@ func TestFixtureExternalCompileBoundaries(t *testing.T) {
 	type sourceCase struct{ name, body, diagnostic string }
 	cases := []sourceCase{
 		{"public-constructor", `_,_ = tc.NewConsumer(tc.Enrollment{},tc.Policy{},"unused")`, ""},
+		{"private-prepared-handoff", `p:=new(tc.PreparedHandoff);p.anchor=nil`, "cannot refer to unexported field anchor"},
 		{"private-store", `c:=new(tc.Consumer);c.store.witness=nil`, "cannot refer to unexported field store"},
 		{"private-enrollment", `c:=new(tc.Consumer);c.enrollment=tc.Enrollment{}`, "cannot refer to unexported field enrollment"},
 		{"witness-injection", `_,_ = tc.NewConsumer(tc.Enrollment{},tc.Policy{},"unused",tc.ClosedWitness{})`, "too many arguments in call to tc.NewConsumer"},
@@ -37,6 +38,12 @@ func TestFixtureExternalCompileBoundaries(t *testing.T) {
 	}
 	for _, tag := range []string{"", "swarma_timeconf_fixture"} {
 		tagCases := cases
+		if tag == "" {
+			tagCases = append(append([]sourceCase{}, cases...),
+				sourceCase{"fixture-handoff-provider", `var _ = tc.NewFixtureHandoffProvider`, "undefined: tc.NewFixtureHandoffProvider"},
+				sourceCase{"fixture-handoff-preparer", `var _ = tc.PrepareFixtureHandoff`, "undefined: tc.PrepareFixtureHandoff"},
+				sourceCase{"fixture-use-store", `var _ = tc.NewReferenceUseStore`, "undefined: tc.NewReferenceUseStore"})
+		}
 		if tag != "" {
 			tagCases = append(append([]sourceCase{}, cases...), sourceCase{"private-fixture-consumer", `c:=new(tc.FixtureConsumer);c.consumer=nil`, "cannot refer to unexported field consumer"})
 		}
