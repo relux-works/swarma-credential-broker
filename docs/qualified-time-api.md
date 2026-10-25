@@ -5,14 +5,15 @@
 `NewConsumer` installs only `ClosedWitness` and has no qualified collector path.
 Every call returns a typed `*ActivationRefusal`, also matching `ErrUnavailable`.
 There is no configuration, environment variable, flag, enrollment reset or public
-fixture constructor that activates it. The ordinary `Provider.Sample` and
-`StartSample` APIs retain their existing behavior and do not establish durable
-consumption.
+fixture constructor in default builds that activates it. The ordinary
+`Provider.Sample` and `StartSample` APIs retain their existing behavior and do
+not establish durable consumption.
 
 The tests construct an independent fixture witness and qualified fixture path
-only in `_test.go` files. These fixtures exercise settlement and canonical
-receipts; they do not qualify a production backend, chronyc/chronyd graph,
-storage device, reboot transition or platform fence. The production build-graph
+in `_test.go` files and the explicit test-tag implementation described below.
+These fixtures exercise settlement and canonical receipts; they do not qualify
+a production backend, chronyc/chronyd graph, storage device, reboot transition or
+platform fence. The production build-graph
 containment check rejects fixture implementations and time-path construction or
 assignment in compiled sources. Its compiled plant demonstrates detection.
 
@@ -162,3 +163,79 @@ containment checks with
 Use the selected toolchain and the host's resource limits. Tests use only isolated
 synthetic files, clock points and child processes; no real account or time service
 is accessed. Build/test outputs belong in private scratch outside the repository.
+
+## Consumer test fixtures
+
+On Linux, import `github.com/relux-works/swarma-credential-broker/timeconftest`
+only from `_test.go` files with `//go:build timeconf_fixture`. Run these tests
+with `go test -tags=timeconf_fixture ./...`; keep approved application builds
+on default tags. The default import is a refusing stub, not an activation path.
+The standalone `timeconf` and broker default compiled graphs exclude the tagged
+implementation and fixture package. The compiled graph guard has a planted
+fixture-symbol control.
+
+```go
+//go:build timeconf_fixture
+
+package example_test
+
+import (
+    "context"
+    "os"
+    "testing"
+    "time"
+    "github.com/relux-works/swarma-credential-broker/timeconf"
+    "github.com/relux-works/swarma-credential-broker/timeconftest"
+)
+
+func TestAdapterPositive(t *testing.T) {
+    root := t.TempDir()
+    if err := os.Chmod(root, 0700); err != nil { t.Fatal(err) }
+    fixture, err := timeconftest.New(root)
+    if err != nil { t.Fatal(err) }
+    digest, err := timeconf.NativeOperationDigest("operation", []byte("public identity"))
+    if err != nil { t.Fatal(err) }
+    raw, err := fixture.ConsumeBeforePin(context.Background(), timeconf.ConsumptionRequest{
+        Deadline: time.Now().Add(400*time.Millisecond), Expected: fixture.Enrollment(),
+        OperationDigest: digest, Challenge: "11111111111111111111111111111111",
+        JournalFloor: 140000000000,
+    })
+    if err != nil { t.Fatal(err) }
+    if _, err = timeconf.DecodeReceipt(raw); err != nil { t.Fatal(err) }
+    // Feed raw to the consumer's real adapter and assert its expected acceptance.
+}
+```
+
+`New` requires an empty protected mode-0700 test-owned directory and never
+resets existing history. `FixtureConsumer` uses the unchanged consumption and
+settlement engine, a fixed synthetic clock initially at Unix second 211,
+one-second reserved uncertainty, W initially 140 seconds, and an in-memory
+witness. `Advance(d)` moves its wall/elapsed observation together (0 < d ≤ 1h).
+`LoseNextReply` suppresses a successful reply after settlement; `HighWater`
+reads the settled bound. `Policy` and `Enrollment` return the fixture bindings.
+The dedicated `timeconf-fixture-only` authority and root are synthetic, public
+identities, not credentials or production trust anchors.
+
+`VerifyReceipt(raw, expected)` combines the real codec with exact **fixture**
+enrollment/domain matching. It rejects a production enrollment; ordinary
+`Consumer` and `ClosedWitness` remain closed even in tagged tests. Structural
+`DecodeReceipt` alone intentionally accepts valid fixture bytes. This helper
+provides no authentication, original-evidence verification, final-lock safety
+or one-use handoff. Independently bind the operation/challenge in the real
+consumer adapter; never install the fixture root as production authority.
+
+Every consuming repository must have an executable dependency check: run
+`go list -deps -compiled -f '{{.ImportPath}}' -tags= ./...` and again with
+`-tags=timeconf_fixture`, without `-test`, and fail if either graph includes
+`github.com/relux-works/swarma-credential-broker/timeconftest`. Pair the check
+with a temporary non-test `.go` import of that package and require the intended
+fixture-dependency violation; the identical import in `_test.go` must pass.
+`TestFixtureConsumerDependencyBoundary` demonstrates both real compiled graphs,
+the failing application-import control, and an external-module positive receipt.
+Do not count a Go setup/compilation error as detection of the forbidden import.
+
+Mirror `TestFixtureReceiptCodecPositive`, `TestFixtureReplayRefused`,
+`TestFixtureDeadlineRefused` and `TestFixtureLostReplyBurnsUpperBound` when testing
+consumer adapters. The published contract vectors complement these controls;
+they do not replace durable settlement, reboot, receipt authentication or
+bounded handoff/integration testing. Native collector qualification stays closed.

@@ -64,9 +64,10 @@ func containmentGo(t *testing.T, root string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-func containmentProductionGraph(t *testing.T, root string) (containmentGraph, error) {
+func containmentProductionGraph(t *testing.T, root string, extraRoots ...string) (containmentGraph, error) {
 	t.Helper()
-	cmd := containmentGo(t, root, "list", "-deps", "-compiled", "-json", "-tags=", "./cmd/swarma-credential-broker", "./internal/server")
+	args := append([]string{"list", "-deps", "-compiled", "-json", "-tags=", "./cmd/swarma-credential-broker", "./internal/server"}, extraRoots...)
+	cmd := containmentGo(t, root, args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("production build graph unavailable: %w", err)
@@ -591,6 +592,9 @@ func containmentOwnerAuthority(sources []containmentSource, graph containmentGra
 func containmentTimeFixtures(sources []containmentSource) []string {
 	var issues []string
 	for _, source := range sources {
+		if source.pkg == containmentModule+"/timeconftest" || source.path == "timeconf/consumer_fixture_linux.go" {
+			issues = append(issues, "fixture package/source in default build: "+source.path)
+		}
 		declarations := map[*ast.Ident]bool{}
 		ast.Inspect(source.file, func(n ast.Node) bool {
 			if spec, ok := n.(*ast.TypeSpec); ok {
@@ -617,7 +621,7 @@ func containmentTimeFixtures(sources []containmentSource) []string {
 			if id, ok := n.(*ast.Ident); ok && id.Name == "pathQualification" && !declarations[id] {
 				issues = append(issues, "time activation type used in "+source.path)
 			}
-			if id, ok := n.(*ast.Ident); ok && (id.Name == "fixtureWitness" || id.Name == "newSettlementFixture" || id.Name == "fixtureLocal" || id.Name == "qualifiedForkFixture") {
+			if id, ok := n.(*ast.Ident); ok && (id.Name == "fixtureWitness" || id.Name == "newSettlementFixture" || id.Name == "fixtureLocal" || id.Name == "qualifiedForkFixture" || id.Name == "FixtureConsumer" || id.Name == "NewFixtureConsumer" || id.Name == "VerifyFixtureReceipt" || id.Name == "fixtureRootDigest" || id.Name == "taggedFixtureWitness") {
 				issues = append(issues, "test-only time fixture in "+source.path)
 			}
 			// A qualification literal/new/assignment cannot appear even in a protected
