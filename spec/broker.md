@@ -381,11 +381,11 @@ R-ALLSTOP adds a node-wide operator freeze of all leases and renewals (§15.5), 
 
 ### 6.6 Relation to the trust design
 
-curator-trust (capabilities, delegation verification) and waggle (signed envelopes and keys) define the platform's long-term forms. The general architectural `grant/1` language includes roles, actions, targets, conditions, human-presence requirements, delegation ceilings and nondelegable rules. It is **not the broker v0 envelope**, despite the shared `grant/1` body discriminator.
+curator-trust (capabilities, delegation verification) and swarma-envelope (signed envelopes and keys) define the platform's long-term forms. The general architectural `grant/1` language includes roles, actions, targets, conditions, human-presence requirements, delegation ceilings and nondelegable rules. It is **not the broker v0 envelope**, despite the shared `grant/1` body discriminator.
 
 | Contract | Scope and verification |
 |---|---|
-| General platform grants | Architectural trust language; broader predicates and identity/certificate model owned by curator-trust/waggle |
+| General platform grants | Architectural trust language; broader predicates and identity/certificate model owned by curator-trust/swarma-envelope |
 | Broker v0 envelope | Exact accounts/harnesses/profiles/time windows/depth; only `credential.lease` and `agent.spawn`; key subjects or generation-bound agent leaves; §6.1–§6.4 signatures and revocations |
 | Adapter or shared policy layer | Versioned reconciliation before 1.0; must preserve caller binding, narrowing and revocation semantics and explicitly translate or refuse unsupported predicates |
 
