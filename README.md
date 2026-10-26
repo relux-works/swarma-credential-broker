@@ -256,6 +256,10 @@ a usable snapshot; the lease engine ignores that namespace and rejects unknown
 non-owner records. Checkpoints use expected-revision atomic `Account.Put`;
 attempt history uses immutable `Account.Append` with attempt-wide increasing revisions.
 
+All record writers share the readers' inclusive 1 MiB canonical-byte ceiling.
+Oversized writes return `store.ErrTooLarge` before filesystem mutation and retain
+the previous record; see [record size and caller handling](docs/store-records.md).
+
 Lease metadata contains only protected digests, generations and authority. Tokens
 remain in memory and framed socket responses. The canary lifecycle test scans
 all metadata writes at durability checkpoints and all status output, including

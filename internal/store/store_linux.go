@@ -21,6 +21,13 @@ import (
 var ErrUnavailable = errors.New("protected store unavailable")
 var ErrConflict = errors.New("record revision conflict")
 
+// MaxRecordBytes is the inclusive ceiling for encoded protected records.
+const MaxRecordBytes = 1 << 20
+
+// ErrTooLarge identifies a write refused before filesystem mutation. It also
+// matches ErrUnavailable through errors.Is for existing fail-closed callers.
+var ErrTooLarge = fmt.Errorf("%w: encoded record too large", ErrUnavailable)
+
 // Durability receives completed stages; returning an error injects an I/O fault in tests.
 type Durability func(stage string) error
 type Store struct {
@@ -69,8 +76,8 @@ func ReadProtected(path string, uid uint32) ([]byte, error) {
 	if e = protected(f, uid, 0600); e != nil {
 		return nil, e
 	}
-	b, e := io.ReadAll(io.LimitReader(f, 1<<20+1))
-	if e != nil || len(b) > 1<<20 {
+	b, e := io.ReadAll(io.LimitReader(f, MaxRecordBytes+1))
+	if e != nil || len(b) > MaxRecordBytes {
 		return nil, ErrUnavailable
 	}
 	return b, nil
@@ -133,7 +140,13 @@ func Open(path, installation string, uid uint32, initialize bool, hook Durabilit
 	if installation == "" {
 		return nil, ErrUnavailable
 	}
+	var initial []byte
 	if initialize {
+		var e error
+		initial, e = encodeRecord(identity{"store-identity/1", installation, 1})
+		if e != nil {
+			return nil, e
+		}
 		if e := os.Mkdir(path, 0700); e != nil && !os.IsExist(e) {
 			return nil, ErrUnavailable
 		}
@@ -165,7 +178,7 @@ func Open(path, installation string, uid uint32, initialize bool, hook Durabilit
 		if er != nil || len(entries) != 1 || entries[0].Name() != "owner.lock" {
 			return fail()
 		}
-		if e = replace(r, "identity.json", identity{"store-identity/1", installation, 1}, hook); e != nil {
+		if e = replaceEncoded(r, "identity.json", initial, hook); e != nil {
 			return fail()
 		}
 	} else if e != nil {
@@ -187,8 +200,8 @@ func read(r *os.Root, name string, uid uint32) ([]byte, error) {
 	if e = protected(f, uid, 0600); e != nil {
 		return nil, e
 	}
-	b, e := io.ReadAll(io.LimitReader(f, 1<<20+1))
-	if e != nil || len(b) > 1<<20 {
+	b, e := io.ReadAll(io.LimitReader(f, MaxRecordBytes+1))
+	if e != nil || len(b) > MaxRecordBytes {
 		return nil, ErrUnavailable
 	}
 	if _, e = wire.Parse(b); e != nil {
@@ -202,10 +215,36 @@ func notify(h Durability, s string) error {
 	}
 	return nil
 }
-func replace(r *os.Root, name string, v any, h Durability) error {
+func checkRecordSize(b []byte) error {
+	if len(b) > MaxRecordBytes {
+		return ErrTooLarge
+	}
+	return nil
+}
+
+func encodeRecord(v any) ([]byte, error) {
 	b, e := wire.Encode(v)
 	if e != nil {
-		return ErrUnavailable
+		return nil, ErrUnavailable
+	}
+	if e = checkRecordSize(b); e != nil {
+		return nil, e
+	}
+	return b, nil
+}
+
+func replace(r *os.Root, name string, v any, h Durability) error {
+	b, e := encodeRecord(v)
+	if e != nil {
+		return e
+	}
+	return replaceEncoded(r, name, b, h)
+}
+
+// All record writers converge here with the exact canonical bytes they checked.
+func replaceEncoded(r *os.Root, name string, b []byte, h Durability) error {
+	if e := checkRecordSize(b); e != nil {
+		return e
 	}
 	f, e := openFile(r, "pending-"+name, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
 	if e != nil {
@@ -259,7 +298,13 @@ func (s *Store) Account(label string, initialize bool) (*Account, error) {
 	}
 	sum := sha256.Sum256([]byte(label))
 	name := "account-" + hex.EncodeToString(sum[:])
+	var initial []byte
 	if initialize {
+		var e error
+		initial, e = encodeRecord(identity{"account-store/1", s.installation, 1})
+		if e != nil {
+			return nil, e
+		}
 		if e := s.root.Mkdir(name, 0700); e != nil && !os.IsExist(e) {
 			return nil, ErrUnavailable
 		}
@@ -313,7 +358,7 @@ func (s *Store) Account(label string, initialize bool) (*Account, error) {
 			r.Close()
 			return nil, ErrUnavailable
 		}
-		e = replace(r, "identity.json", identity{"account-store/1", s.installation, 1}, s.hook)
+		e = replaceEncoded(r, "identity.json", initial, s.hook)
 	} else if e == nil {
 		var id identity
 		e = wire.Decode(b, &id)
@@ -369,7 +414,7 @@ func (a *Account) Put(name string, prior uint64, v any) error {
 	if json.Unmarshal(b, &m) != nil || json.Unmarshal(m["installation_id"], &id) != nil || id != a.installation || json.Unmarshal(m["revision"], &next) != nil || next != prior+1 {
 		return ErrConflict
 	}
-	return replace(a.root, name, v, a.hook)
+	return replaceEncoded(a.root, name, b, a.hook)
 }
 func (a *Account) Records() (map[string][]byte, error) {
 	a.mu.Lock()
@@ -527,5 +572,5 @@ func (a *Account) Append(name string, v any) error {
 	if err != nil || json.Unmarshal(b, &header) != nil || header.Installation != a.installation || header.Revision == 0 {
 		return ErrConflict
 	}
-	return replace(a.root, name, v, a.hook)
+	return replaceEncoded(a.root, name, b, a.hook)
 }
