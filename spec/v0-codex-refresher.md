@@ -454,7 +454,8 @@ unavailable. Silent hostile rollback detection is not claimed.
 
 ## 6. External-token delivery and one-shot runner
 
-Proposed public command (not yet implemented):
+Experimental public command (implemented; an unqualified tuple refuses with
+status 69, `lease_harness_unqualified`):
 
 ```text
 swarma-credential-broker run-codex --account <label> --profile <profile> --launch-home <directory> (--prompt-stdin | --prompt-file <file>) --model <model> --reasoning-effort <effort> --output-last-message <file> [--cwd <directory>] [--timeout <seconds>] [--resume <thread-id>]
@@ -800,7 +801,7 @@ the case changes that premise. Every refusal requires zero material delivery.
 | `peer-denied`: fresh connection as configured foreign account, UID absent from every entry, no client bytes | Accept-time `role_not_permitted`, null-ID terminal frame; no header/body reads or processed request, no lease/attempt/material | `peer-allowed`: configured allowed-account process completes hello then leases | F; genuine multi-UID process evidence required (§8.1) |
 | `account-denied`: admitted peer requests another known account | `lease_not_authorised`; neither account starts a writer | `account-allowed`: exact peer/account/profile tuple leases | F |
 | `account-unknown`: profile-admitted peer requests nonexistent label | `lease_account_unknown`; no account is created or fallback used | `account-known`: existing allowlisted label leases | F |
-| `release-unqualified`: 0.163.0 digest lacks qualification | `lease_harness_unqualified`; no vendor child | `release-qualified`: fake approved tuple leases | F; real tuple L |
+| `release-unqualified`: 0.163.0 digest lacks qualification | `lease_harness_unqualified`; no lease or app-server | `release-qualified`: fake approved tuple leases | F; real tuple L |
 | `source-conflict`: reserved variable/helper/provider source present | Local `credential_source_conflict`; no lease or app-server | `source-clean`: approved effective source only, no child token inheritance | F; effective vendor source L |
 | `home-auth-present`: auth.json path or link in launch home | Local `credential_source_conflict`, without reading file; home untouched | `home-auth-absent`: clean home, external login, path stays absent | F |
 | `renew-unknown-digest`: digest not last delivered to this lease | `renew_not_current`; token generation and writer count unchanged | `renew-superseded`: old delivered token, newer owner token; current payload, zero refresh | F |
