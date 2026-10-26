@@ -175,15 +175,24 @@ func TestPeerStartupDiagnostics(t *testing.T) {
 
 // Claim: starting a worker/launcher that exits before canonical entry cannot
 // acquire execution credit in any of the shared transport/admission/runner paths.
+// Runner early exit uses a measured native image without testimony; a script is
+// separately refused at its interpreter image, before its claimed exit 17.
 func TestRowStartupEvidence(t *testing.T) {
 	fake := rowTool(t, "../runner/testdata/appserver")
+	early := rowTool(t, "./testdata/earlyexit")
 	for _, id := range []string{"frame-oversized", "account-unknown", "home-auth-present"} {
-		for _, kind := range []string{"missing", "early"} {
+		for _, kind := range []string{"missing", "early", "interpreter"} {
+			if kind == "interpreter" && !runnerRow(id) {
+				continue
+			}
 			t.Run(id+"/"+kind, func(t *testing.T) {
 				_, c, root := setup(t)
 				worker := filepath.Join(t.TempDir(), "worker")
-				if kind == "early" && os.WriteFile(worker, []byte("#!/bin/sh\nexit 17\n"), 0700) != nil {
+				if (kind == "early" || kind == "interpreter") && os.WriteFile(worker, []byte("#!/bin/sh\nexit 17\n"), 0700) != nil {
 					t.Fatal("worker fixture")
+				}
+				if kind == "early" && runnerRow(id) {
+					worker = early
 				}
 				var records []rowExecutionRecord
 				d := driver{rowExecutable: worker, runnerExecutable: fake, executions: &records}
@@ -195,7 +204,15 @@ func TestRowStartupEvidence(t *testing.T) {
 					t.Fatal("worker phase evidence", records)
 				}
 				e := records[0].Execution
-				if kind == "early" && (!e.Launched || !e.Joined || e.HelperExit != 17 || e.Diagnostic != "case_not_started" && e.Diagnostic != "case_origin_unavailable") {
+				if runnerRow(id) && kind != "missing" {
+					wantExit := 17
+					if kind == "interpreter" {
+						wantExit = -1 // killed at the refused exec stop, never script exit 17
+					}
+					if !e.Launched || !e.Joined || e.HelperExit != wantExit || e.Diagnostic != "observation_invalid" || e.Handshake || e.Completed || e.WorkerExit != -1 {
+						t.Fatal("runner measured startup wait/refusal lost", e)
+					}
+				} else if kind == "early" && (!e.Launched || !e.Joined || e.HelperExit != 17 || e.Diagnostic != "case_not_started" && e.Diagnostic != "case_origin_unavailable") {
 					t.Fatal("worker actual wait status lost", e)
 				}
 			})

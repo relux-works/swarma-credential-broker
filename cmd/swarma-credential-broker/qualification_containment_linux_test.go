@@ -261,7 +261,7 @@ func containmentCheck(root string, graph containmentGraph) ([]string, error) {
 			}
 			if inServer && containmentReferences(decl, authority) {
 				fn, ok := decl.(*ast.FuncDecl)
-				allowed := source.path == "internal/server/qualification_linux.go" || source.path == "internal/server/qualification_lease_rows_linux.go"
+				allowed := source.path == "internal/server/qualification_linux.go" || source.path == "internal/server/qualification_lease_rows_linux.go" || source.path == "internal/server/qualification_runner_linux.go"
 				if !allowed || !ok || fn.Name.Name == "init" {
 					report("qualification authority containment: server authority dependency outside fixture constructors in %s", source.path)
 				}
