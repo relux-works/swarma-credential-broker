@@ -7,6 +7,15 @@ qualified, this contract permits execution credit for these pairs. It grants no
 live vendor, peer, arbitrary runner or production release qualification credit.
 Kernel tracing of function calls, including uprobes, is separate future work.
 
+The isolated Linux/amd64 `egress.NewRunnerOrigin` / `TraceRunner` API supplies
+only the direct-child trace and consuming wait. It checks retained bytes and
+initial argv, follows runtime threads, rejects a later case exec and detaches
+process children at their initial stop so the runner owns its nested tracer.
+Its result preserves the real exit status separately from origin errors.
+Other platforms return `ErrRunnerOriginUnavailable`. It installs no outer
+network policy and proves no post-Command exchange or complete absence of
+process effects. It is not connected to qualification rows; both remain UNRUN.
+
 P is the trusted qualification parent; C is its direct case child; K is the
 kernel. The evidence class is **`measured-code-testimony`**. It combines
 kernel-observed process identity and completion with testimony from audited
