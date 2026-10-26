@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"reflect"
@@ -190,6 +189,10 @@ func (d driver) runRows(ctx context.Context, configuration string, p policy.Poli
 			d.runPeerRows(ctx, fixtures, q, root, c)
 			continue
 		}
+		if runnerRow(c.ID) {
+			d.runRunnerPair(ctx, q, root, c)
+			continue
+		}
 		c.Positive = d.runRow(ctx, q, root, c.ID, "positive")
 		if c.Positive.Executed {
 			c.Negative = d.runRow(ctx, q, root, c.ID, "negative")
@@ -214,6 +217,12 @@ func (d driver) runRows(ctx context.Context, configuration string, p policy.Poli
 }
 
 func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side string) (control qualification.Control) {
+	return d.runRowObserved(parent, p, root, id, side, nil)
+}
+func (d driver) runRowObserved(parent context.Context, p policy.Policy, root, id, side string, observed *runnerObservation) (control qualification.Control) {
+	if runnerRow(id) && observed == nil {
+		observed = &runnerObservation{}
+	}
 	if lifecycleRow(id) {
 		return d.runLifecycleRow(parent, p, root, id, side)
 	}
@@ -241,6 +250,16 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 		return
 	}
 	defer broker.Close()
+	if observed != nil {
+		digest, e := descriptorDigest(broker)
+		if e != nil {
+			return
+		}
+		observed.origin, e = egress.NewRunnerOrigin(broker, digest, []string{"/proc/self/fd/3", "qualification-case", id, side})
+		if e != nil {
+			return
+		}
+	}
 	candidate, e := qualification.OpenExecutable(p.Executable)
 	if e != nil {
 		return
@@ -261,6 +280,9 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	}
 	defer func() {
 		if os.RemoveAll(scratch) != nil {
+			if observed != nil {
+				observed.available = false
+			}
 			control.Verdict = "pending"
 			control.Executed = false
 			control.ExitCode = -1
@@ -312,7 +334,11 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 			defer runnerFixture.close()
 			serviceRoot = filepath.Join(scratch, "service")
 		}
-		socket, closeRow, phaseFiles, e = startAdmissionRow(ctx, serviceRoot, inputValue, &pid, &effects, origins...)
+		if observed != nil {
+			socket, closeRow, phaseFiles, e = startAdmissionObserved(ctx, serviceRoot, inputValue, &pid, &effects, nil, observed)
+		} else {
+			socket, closeRow, phaseFiles, e = startAdmissionRow(ctx, serviceRoot, inputValue, &pid, &effects, origins...)
+		}
 	} else {
 		socket, closeRow, e = startTransportRow(ctx, scratch, inputValue, &pid, origins...)
 	}
@@ -331,6 +357,17 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	inputValue.Socket = socket
 	if runnerFile != nil {
 		phaseFiles = append(phaseFiles, runnerFile)
+	}
+	var testimony *RunnerTestimony
+	if observed != nil {
+		testimony, e = NewRunnerTestimony(observed.origin, inputValue.Peer, os.TempDir())
+		if e != nil {
+			return
+		}
+		defer testimony.Close()
+		if runnerFixture.startWatch() != nil {
+			return
+		}
 	}
 	fd, e := unix.Socket(unix.AF_INET, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if e != nil {
@@ -407,21 +444,23 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	var report egress.Report
 	var runError error
 	files := withCaseStart(append([]*os.File{broker, inputR, candidate}, phaseFiles...), inputR, startW)
-	if runnerFixture != nil {
-		// Trusted runner setup needs its own session. The synthetic app-server
-		// fixture confines its children after that setup and returns their reports.
-		report.Summary = map[string]egress.Counts{}
-		cmd := exec.CommandContext(ctx, command[0], command[1:]...)
-		cmd.Env = env
-		cmd.Stdout = outW
-		cmd.Stderr = errW
-		cmd.ExtraFiles = append([]*os.File{inputR}, files...)
-		if runError = cmd.Start(); runError == nil {
-			execution.Launched = true
-			pid.Store(int64(cmd.Process.Pid))
-			runError = cmd.Wait()
-			execution.waited(cmd.ProcessState)
+	if observed != nil {
+		done := make(chan struct{})
+		var traceError error
+		go func() {
+			observed.trace, traceError = egress.TraceRunner(ctx, egress.RunnerTraceConfig{Origin: observed.origin, Args: []string{"qualification-case", id, side}, Env: env, Stdout: outW, Stderr: errW, ExtraFiles: []*os.File{testimony.Child(), inputR, candidate, runnerFile}, Verified: observed.bind, Started: func(n int) { execution.Launched = true; pid.Store(int64(n)) }, Waited: execution.waited})
+			if traceError != nil {
+				cancel()
+			}
+			close(done)
+		}()
+		var testimonyError error
+		observed.outcome, testimonyError = testimony.Exchange(ctx)
+		if testimonyError != nil {
+			cancel()
 		}
+		<-done
+		runError = errors.Join(traceError, testimonyError)
 	} else {
 		report, runError = egress.Run(ctx, egress.Config{Origin: origins[0].origin, Launcher: "/proc/self/fd/4", Waited: execution.waited, Started: func(n int) { execution.Launched = true; pid.Store(int64(n)) }, LauncherArgs: []string{"--internal-qualification-candidate"}, Executable: command[0], Args: command[1:], Env: env, Policy: egress.Policy{UnixPaths: []string{socket}, MaxEvents: 4096}, Stdout: outW, Stderr: errW, ExtraFiles: files[:5]})
 	}
@@ -431,6 +470,19 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	outW.Close()
 	errW.Close()
 	out, diag := <-output, <-diagnostic
+	if observed != nil {
+		observationOK := out.e == nil && diag.e == nil && len(diag.b) == 0 && wire.Decode(out.b, &observed.observation) == nil
+		if observationOK {
+			observationOK = runnerFixture.verify(observed.observation)
+		}
+		observed.admission = effects
+		observed.available = observed.validate(inputValue, runError == nil && ctx.Err() == nil, noEffects && observationOK)
+		execution.Diagnostic = "case_origin_unavailable"
+		if !observed.available {
+			execution.Diagnostic = "observation_invalid"
+		}
+		return
+	}
 	if len(origins) == 1 {
 		facts := origins[0].origin.Facts()
 		execution.Handshake, execution.Started = facts.Verified, facts.Entered
@@ -466,10 +518,6 @@ func (d driver) runRow(parent context.Context, p policy.Policy, root, id, side s
 	}
 	var observation rowObservation
 	observationValid := wire.Decode(out.b, &observation) == nil
-	if observationValid && runnerFixture != nil {
-		observationValid = runnerFixture.verify(observation)
-		report.Summary = runnerFixture.network
-	}
 	observationValid = observationValid && validRowEnvelopes(observation, p.Generation)
 	if !observationValid {
 		execution.Diagnostic = "observation_invalid"

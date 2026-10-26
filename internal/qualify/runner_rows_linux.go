@@ -5,7 +5,6 @@ package qualify
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"io"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/relux-works/swarma-credential-broker/internal/egress"
 	"github.com/relux-works/swarma-credential-broker/internal/qualification"
@@ -55,6 +55,7 @@ type runnerRowFixture struct {
 	root    string
 	stamp   os.FileInfo
 	watch   int
+	watches map[int]string
 }
 
 func (f *runnerRowFixture) close() { unix.Close(f.watch) }
@@ -99,6 +100,18 @@ func prepareRunnerRow(root, executable string, in *rowInput) (*os.File, *runnerR
 	if e != nil {
 		return fail()
 	}
+	copy, e := os.OpenFile(filepath.Join(root, "runner-fixture"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0700)
+	if e != nil {
+		return fail()
+	}
+	_, e = io.Copy(copy, f)
+	ce := copy.Close()
+	if e != nil || ce != nil {
+		return fail()
+	}
+	if _, e = f.Seek(0, 0); e != nil {
+		return fail()
+	}
 	fixture := &runnerRowFixture{root: root, watch: -1}
 	if in.ID == "home-auth-present" && in.Side == "negative" {
 		path := filepath.Join(root, "home", "auth.json")
@@ -110,42 +123,15 @@ func prepareRunnerRow(root, executable string, in *rowInput) (*os.File, *runnerR
 			return fail()
 		}
 	}
-	fixture.watch, e = unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
-	if e != nil {
-		return fail()
-	}
-	if _, e = unix.InotifyAddWatch(fixture.watch, filepath.Join(root, "home"), unix.IN_OPEN); e != nil {
-		fixture.close()
-		return fail()
-	}
 	return f, fixture, nil
 }
 func (f *runnerRowFixture) verify(o rowObservation) bool {
 	if o.Runner == nil {
 		return false
 	}
-	good := true
-	var events [8192]byte
-	for {
-		n, e := unix.Read(f.watch, events[:])
-		if e == unix.EAGAIN {
-			break
-		}
-		if e != nil || n == 0 {
-			return false
-		}
-		for at := 0; at+unix.SizeofInotifyEvent <= n; {
-			// The kernel encodes inotify's fixed header in native byte order.
-			length := int(binary.NativeEndian.Uint32(events[at+12 : at+16]))
-			if at+16+length > n {
-				return false
-			}
-			name := strings.TrimRight(string(events[at+16:at+16+length]), "\x00")
-			if name == "auth.json" {
-				good = false
-			}
-			at += 16 + length
-		}
+	good := f.watchComplete(o.Side)
+	if !good {
+		return false
 	}
 	path := filepath.Join(f.root, "home", "auth.json")
 	after, e := os.Lstat(path)
@@ -154,8 +140,9 @@ func (f *runnerRowFixture) verify(o rowObservation) bool {
 	} else {
 		good = good && os.IsNotExist(e)
 	}
+	o.Runner.Login, o.Runner.Version = 0, false
 	eventPath := filepath.Join(f.root, "home", "events.jsonl")
-	b, e := os.ReadFile(eventPath)
+	b, e := runnerReadFile(eventPath)
 	if o.Side == "negative" {
 		good = good && os.IsNotExist(e)
 	} else if e != nil || len(b) > 65536 {
@@ -190,7 +177,7 @@ func (f *runnerRowFixture) verify(o rowObservation) bool {
 		good = good && e == nil && len(entries) == want
 	}
 	if o.Side == "positive" {
-		b, e := os.ReadFile(filepath.Join(f.root, "home", "boundary.jsonl"))
+		b, e := runnerReadFile(filepath.Join(f.root, "home", "boundary.jsonl"))
 		if e != nil || len(b) > 65536 {
 			good = false
 		} else {
@@ -214,7 +201,11 @@ func (f *runnerRowFixture) verify(o rowObservation) bool {
 					f.network[class] = total
 				}
 			}
-			good = good && f.runs == 2
+			good = good && f.runs == 2 && rowIsolated(rowArtifact{Network: f.network})
+			answer, e := runnerReadFile(filepath.Join(f.root, "answer.txt"))
+			good = good && e == nil && string(answer) == "answer"
+			_, e = os.Lstat(filepath.Join(f.root, "home", ".run-codex-unresolved"))
+			good = good && os.IsNotExist(e)
 		}
 	} else {
 		f.network = map[string]egress.Counts{}
@@ -265,15 +256,6 @@ func runnerExchange(in rowInput) (string, *runnerRowEffects, error) {
 		return "", nil, e
 	}
 	executable := filepath.Join(root, "runner-fixture")
-	out, e := os.OpenFile(executable, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0700)
-	if e != nil {
-		return "", nil, e
-	}
-	_, e = io.Copy(out, f)
-	ce := out.Close()
-	if e != nil || ce != nil {
-		return "", nil, qualification.ErrUnavailable
-	}
 	effects := &runnerRowEffects{}
 	a := in.Policy.Accounts[0]
 	p := runner.Policy{Account: a.Label, Profile: a.Profiles[0], Endpoint: a.Endpoint, Executable: executable, ExecutableSHA256: digest, Release: "codex-cli 0.163.0", SchemaSHA256: qualification.Hash([]byte("synthetic schema")), ChatGPTAccountID: a.VendorID, ConfigSHA256: in.RunnerConfig, BindingDigest: in.Policy.Binding(in.Peer, a, a.Profiles[0]).Digest, UID: in.Peer, BrokerUID: in.Policy.BrokerUID, PolicyGeneration: in.Policy.Generation, Qualified: true, Catalog: map[string][]string{"synthetic-model": {"medium"}}}
@@ -292,7 +274,13 @@ func runnerExchange(in rowInput) (string, *runnerRowEffects, error) {
 	args := runnerArgs(root)
 	args[3] = a.Profiles[0]
 	var stdout, stderr bytes.Buffer
-	effects.Status = runner.Command(context.Background(), args, runner.IO{In: strings.NewReader("synthetic prompt"), Out: &stdout, Err: &stderr}, d)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	outcome, e := RunnerTestimonyCommand(ctx, args, runner.IO{In: strings.NewReader("synthetic prompt"), Out: &stdout, Err: &stderr}, d)
+	if e != nil {
+		return "", nil, e
+	}
+	effects.Status = outcome.Status
 	effects.LocalConflict = effects.Status == 69 && stderr.String() == "runner: credential_source_conflict\n"
 	if in.Side == "negative" {
 		return "credential_source_conflict", effects, nil

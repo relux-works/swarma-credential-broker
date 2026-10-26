@@ -124,6 +124,9 @@ func startAdmissionRow(ctx context.Context, root string, in rowInput, pid *atomi
 	return startAdmissionFixture(ctx, root, in, pid, effects, nil, origins...)
 }
 func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *atomic.Int64, effects *admissionEffects, peers *peerFixture, origins ...*rowOrigin) (string, func() bool, []*os.File, error) {
+	return startAdmissionObserved(ctx, root, in, pid, effects, peers, nil, origins...)
+}
+func startAdmissionObserved(ctx context.Context, root string, in rowInput, pid *atomic.Int64, effects *admissionEffects, peers *peerFixture, observed *runnerObservation, origins ...*rowOrigin) (string, func() bool, []*os.File, error) {
 	deadline, bounded := ctx.Deadline()
 	if !bounded || time.Until(deadline) > 30*time.Second || ctx.Err() != nil || effects == nil || !validAdmissionInput(in) || in.Policy.Validate(in.Peer) != nil {
 		return "", nil, nil, qualification.ErrUnavailable
@@ -167,6 +170,9 @@ func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *a
 		return "", nil, nil, e
 	}
 	srv, err := server.NewQualificationAdmission(m, p.ExecutableSHA256, in.Peer, pid, originCheck(origins)...)
+	if observed != nil {
+		srv, observed.broker, err = server.NewQualificationRunnerAdmission(m, p.ExecutableSHA256, in.Peer, pid, observed.origin.Live)
+	}
 	if peers != nil {
 		srv, err = server.NewQualificationPeerAdmission(m, p.ExecutableSHA256, in.Peer, peers.foreign, peers.group, peers.foreignGID, peers.group, pid)
 	}
@@ -185,7 +191,12 @@ func startAdmissionFixture(ctx context.Context, root string, in rowInput, pid *a
 	if peers != nil {
 		mode = 0660
 	}
-	closeListener, err := prepareRowListener(ctx, srv, path, mode, origins...)
+	var closeListener func() error
+	if observed != nil {
+		closeListener, err = runnerListener(ctx, srv, path, observed)
+	} else {
+		closeListener, err = prepareRowListener(ctx, srv, path, mode, origins...)
+	}
 	if err != nil {
 		return fail(err)
 	}

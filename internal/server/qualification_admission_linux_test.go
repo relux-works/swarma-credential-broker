@@ -53,4 +53,17 @@ func TestQualificationAdmissionBudget(t *testing.T) {
 	if New(m).qualificationCall != nil {
 		t.Fatal("ordinary admission changed")
 	}
+	// Claim: runner method observation counts refused attempts too, before
+	// the unchanged single-lease budget; it cannot silently omit a request.
+	observed, counts, err := NewQualificationRunnerAdmission(m, p.ExecutableSHA256, e.UID, &pid, func(int) bool { return true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed.qualificationCall("lease.request")
+	observed.qualificationCall("lease.release")
+	observed.qualificationCall("status")
+	_, requests, releases, other := counts.Counts()
+	if requests != 1 || releases != 1 || other != 1 {
+		t.Fatal("runner method counts", requests, releases, other)
+	}
 }

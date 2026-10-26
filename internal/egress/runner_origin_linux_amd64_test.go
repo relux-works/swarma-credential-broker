@@ -252,3 +252,27 @@ func runnerCheck(t *testing.T, e error) {
 		t.Fatal(e)
 	}
 }
+
+// Claim: the new callback runs at the verified initial stop, before case
+// userspace, and callback refusal invalidates origin while preserving sole wait.
+func TestRunnerOriginVerifiedCallback(t *testing.T) {
+	for _, refuse := range []bool{false, true} {
+		o, _ := newRunnerTestOrigin(t, []string{"threads"})
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		calls := 0
+		r, e := TraceRunner(ctx, RunnerTraceConfig{Origin: o, Args: []string{"threads"}, Env: []string{"GOMAXPROCS=2"}, Verified: func() error {
+			calls++
+			if !o.Live(o.Facts().PID) {
+				t.Error("callback before verified exec")
+			}
+			if refuse {
+				return ErrRunnerOriginUnavailable
+			}
+			return nil
+		}})
+		cancel()
+		if calls != 1 || r.State == nil || !o.Facts().Joined || (e != nil) != refuse || o.Facts().Verified == refuse {
+			t.Fatal("verified callback/wait", calls, o.Facts(), r, e)
+		}
+	}
+}

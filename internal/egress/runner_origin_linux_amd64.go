@@ -234,6 +234,11 @@ func TraceRunner(ctx context.Context, c RunnerTraceConfig) (result RunnerTraceRe
 			}
 			birth = true
 			o.verified.Store(true)
+			if c.Verified != nil {
+				if err = c.Verified(); err != nil {
+					return
+				}
+			}
 		} else if s.TrapCause() == unix.PTRACE_EVENT_EXEC {
 			return result, ErrRunnerOriginUnavailable
 		}
@@ -263,7 +268,7 @@ func runnerResume(w *originOwner, tid int, s unix.WaitStatus, result *RunnerTrac
 				return e
 			}
 			delete(w.tasks, tid)
-			result.Children++
+			result.child(tid)
 			return nil
 		}
 	}
@@ -272,6 +277,11 @@ func runnerResume(w *originOwner, tid int, s unix.WaitStatus, result *RunnerTrac
 		p, e := unix.PtraceGetEventMsg(tid)
 		if e != nil || p == 0 || len(w.tasks) >= 128 {
 			return ErrRunnerOriginUnavailable
+		}
+		// Count creation before the parent resumes, even if group exit overtakes
+		// the newborn stop. Deduplication also covers stop-before-event ordering.
+		if !w.tasks[int(p)] && (cause != unix.PTRACE_EVENT_CLONE || !originThread(int(p), w.pid)) {
+			result.child(int(p))
 		}
 		if _, known := w.tasks[int(p)]; !known {
 			w.tasks[int(p)] = false
@@ -295,4 +305,12 @@ func runnerConsumeWait(cmd *exec.Cmd, o *RunnerOrigin, terminal bool) (*os.Proce
 	}
 	o.joined.Store(true)
 	return s, nil
+}
+
+func (r *RunnerTraceResult) child(pid int) {
+	if r.children == nil {
+		r.children = map[int]bool{}
+	}
+	r.children[pid] = true
+	r.Children = uint64(len(r.children))
 }

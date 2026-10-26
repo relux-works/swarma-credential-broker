@@ -39,21 +39,24 @@ func (o *RunnerOrigin) Live(pid int) bool {
 // ExtraFiles at 4+. Args excludes argv[0], which is /proc/self/fd/3. Env must be
 // explicit. No network policy is installed around trusted runner setup; the
 // runner retains responsibility for its own nested supervisor and confinement.
+// Verified runs at the initial verified stop; refusal prevents case userspace.
 type RunnerTraceConfig struct {
 	Origin                *RunnerOrigin
 	Args, Env             []string
 	Dir                   string
 	Stdin, Stdout, Stderr *os.File
 	ExtraFiles            []*os.File
+	Verified              func() error
 	Started               func(int)
 	Waited                func(*os.ProcessState)
 }
 
 // RunnerTraceResult retains the actual sole consuming wait separately from
 // origin errors. A verified, joined exit 17 is a real status, not an unavailable
-// origin. Children counts detached processes observed at initial stops, not a proof of
+// origin. Children counts process creation observed at fork/newborn stops, not
 // descendant absence. Their subtrees belong to the runner's own containment.
 type RunnerTraceResult struct {
+	children          map[int]bool
 	State             *os.ProcessState
 	Threads, Children uint64
 }

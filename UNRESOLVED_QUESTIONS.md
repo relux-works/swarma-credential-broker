@@ -60,9 +60,10 @@ Implementation integration questions:
   supplies its template and current-property observer. Ten transport/admission
   fixture rows have attested paired execution; the peer row needs an independently
   trusted inner-case waiter and image identity. Both runner rows now have the
-  accepted measured-code testimony contract; its post-Command challenge, effect
-  observations and explicit report class still need implementation and
-  qualification. The peer authority decision remains open; no kernel-observed
+  accepted measured-code testimony contract with an implemented post-Command
+  exchange and bounded parent effect observations, still without row credit.
+  The explicit report class, private artifact proof gate and qualification
+  remain pending. The peer authority decision remains open; no kernel-observed
   Command call is claimed for the runner contract. Other rows stay pending, live
   execution remains refused, and no production tuple qualifies.
   See [qualification](docs/qualification.md). An interrupted-run fence, missing activation or recovered pending activation

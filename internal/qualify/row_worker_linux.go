@@ -82,10 +82,11 @@ func CaseMain(args []string) (bool, int) {
 	if len(args) == 0 || args[0] != "qualification-case" {
 		return false, 0
 	}
-	if os.Args[0] != "/proc/self/fd/4" || len(args) != 3 || !rowImplemented(args[1]) || args[2] != "positive" && args[2] != "negative" {
-		return true, 125
+	image := "/proc/self/fd/4"
+	if len(args) == 3 && runnerRow(args[1]) {
+		image = "/proc/self/fd/3"
 	}
-	if runnerRow(args[1]) && signalCaseStart() != nil {
+	if len(args) != 3 || !rowImplemented(args[1]) || os.Args[0] != image || args[2] != "positive" && args[2] != "negative" {
 		return true, 125
 	}
 	f := os.NewFile(5, "row-context")

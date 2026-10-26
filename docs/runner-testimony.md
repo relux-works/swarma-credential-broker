@@ -14,7 +14,9 @@ process children at their initial stop so the runner owns its nested tracer.
 Its result preserves the real exit status separately from origin errors.
 Other platforms return `ErrRunnerOriginUnavailable`. It installs no outer
 network policy and proves no post-Command exchange or complete absence of
-process effects. It is not connected to qualification rows; both remain UNRUN.
+process effects. The two runner pairs now use this origin, but remain UNRUN
+until the evidence-class and private artifact proof gate is implemented and
+qualified.
 
 The separate `qualify.RunnerTestimonyCommand` dispatcher calls
 `runner.CommandWithOutcome` synchronously before sending readiness. The typed
@@ -23,8 +25,34 @@ classification from the same deferred classifier used by `Command`. A private
 address pipe at FD4 is closed before Command; the case's seqpacket endpoint is
 close-on-exec. `RunnerTestimony.Exchange` checks both case messages against the
 live traced PID and configured UID, uses a fresh one-time nonce and requires
-ACK followed by endpoint closure. These isolated APIs still supply no effect
-validation, artifact binding or qualification-row credit.
+ACK followed by endpoint closure. Both pairs now join this exchange with the
+trace and bounded parent effect observations. They still supply no artifact
+binding or qualification-row credit.
+
+The parent creates the runner broker listener only at verified exec. Its live
+origin check remains mandatory at admission. Parent counters record accepted
+connections, including refused peers, and parsed post-hello request, release and
+other method attempts, including refused attempts. A pending listener queue or
+failed listener/server join makes observation unavailable. The existing fixture
+checks zero owner/store effects on negatives and the bounded released lease on
+positives. Child counters remain testimony and must agree with parent counts.
+
+After parent fixture setup, inotify watches the fixture root, home and project.
+The bounded drain rejects overflow, lost watches, malformed/unknown events and
+out-of-set mutations; negative controls permit no mutations or native-path open.
+Positive controls permit only the existing output staging/publication, runner
+lock/intent and fake app-server files, and still require login, release and both
+complete isolated child-boundary reports. Native-path metadata is compared
+without reading credential contents. Fixture diagnostic files use protected
+bounded reads and a 64 KiB acceptance bound. Process-creation counters include
+fork events before parent resumption as well as newborn stops; negative controls
+require zero. These checks do not establish absence of effects outside their
+declared observers or complete descendant absence for arbitrary runner code.
+
+Both report controls retain `executed=false`, status -1 and no row artifacts.
+Actual joined case waits remain diagnostics, separate from Command testimony.
+An unavailable positive observation prevents launching its negative neighbour;
+even valid preparatory observations grant no credit before the next proof gate.
 
 P is the trusted qualification parent; C is its direct case child; K is the
 kernel. The evidence class is **`measured-code-testimony`**. It combines
