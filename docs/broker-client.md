@@ -23,16 +23,21 @@ The production qualified set comes from the protected list and evidence beside
 static configuration, through the common daemon/runner reader. A nonempty
 `qualification_id` does not qualify anything. Current version, schema, applied
 properties and model-catalog observers are unavailable, so production still
-refuses `lease_harness_unqualified` (69) before a lease request or app-server
-start. During resolution, the common reader may run native candidate
-measurements, beginning with `--version`, before reading the published
-qualification list, provided the protected repository root and lock are
-accessible and no admission fence is present. The runner's separate version
+refuses `lease_harness_unqualified` (69) before a lease request or start of the
+runner's leased application session. During resolution, the common reader may
+run native candidate measurements, beginning with `--version`, before reading
+the published qualification list, provided the protected repository root and lock
+are
+accessible and no admission fence is present. These isolated measurements may
+include schema helpers and a catalog app-server process
+(`app-server --listen stdio://`), even if another unavailable measurement
+ultimately causes qualification to refuse. The runner's separate version
 probe follows successful qualification; the lease request follows broker
-admission, and app-server start requires both qualification and admission. See
-[qualification](qualification.md) for the exact record, publication and observer
-contract. Fixture observers and constructors exist only in tests; the command
-cannot select them. The shipped owner remains stopped independently.
+admission, and starting the runner's leased application session requires both
+qualification and admission. The isolated measurement processes do not establish
+admission for that session. See [qualification](qualification.md) for the exact
+record, publication and observer contract. Fixture observers and constructors
+exist only in tests; the command cannot select them. The shipped owner remains stopped independently.
 
 ## Wire validation
 
