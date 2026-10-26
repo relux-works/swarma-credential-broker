@@ -62,12 +62,21 @@ fixed metadata. These types describe the adapter seam. The production Linux
 adapter reuses `internal/wire` for frames and canonical JSON.
 
 The runner rechecks policy/configuration immediately before starting app-server.
-It verifies the executable digest and runs the verified open file through a
-private descriptor, preventing substitution between hashing and exec. Tokens
-are delivered only through RPC stdin. The child receives a new environment with
-explicit launch HOME/CODEX_HOME, fixed PATH and locale; neither broker nor home
-lock descriptors reach it. The verified executable descriptor is intentionally
-inherited. The explicit credential store override is `ephemeral`.
+It verifies the executable digest and retains the pinned object in the live
+supervisor. Exec resolves that supervisor's kernel descriptor reference rather
+than reopening the selected executable pathname, including if that pathname
+has been replaced or unlinked. The supervisor's lifeline, home lock and pinned
+image descriptors remain close-on-exec and are not transferred to the
+app-server image. Proc access or exec failure refuses without a pathname
+fallback. Tokens are delivered only through RPC stdin. The child receives a new
+environment with explicit launch HOME/CODEX_HOME, fixed PATH and locale. The
+explicit credential store override is `ephemeral`.
+
+`TestSupervisorDescriptorBoundary` checks kernel object identities at audited
+native fixture entry, with `TestSupervisorNativeLaunch` as a permitted stdio
+launch control. The fixture then opens its own image to distinguish a later
+child-created descriptor from an inherited supervisor object. These checks do
+not restrict later child opens or re-execution and grant no vendor qualification.
 
 ## Source and output admission
 

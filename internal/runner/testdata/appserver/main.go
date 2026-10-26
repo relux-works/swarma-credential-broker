@@ -21,7 +21,7 @@ import (
 )
 
 type scenario struct {
-	Boundary                                                                                                bool
+	Boundary, DescriptorProbe                                                                               bool
 	FailAt, HangAt, ExitAt                                                                                  string
 	InitFail, LoginFail, Hang, Spawn, Echo, PreviousMismatch, Duplicate, WrongTurn, Escape, RetryAfterError bool
 	LargeOutput, HashEcho, StopReadAfterThread                                                              bool
@@ -99,6 +99,10 @@ func main() {
 	}
 	if !strings.Contains(strings.Join(os.Args, " "), `cli_auth_credentials_store="ephemeral"`) {
 		os.Exit(2)
+	}
+	if s.DescriptorProbe {
+		self := descriptorProbe()
+		defer self.Close()
 	}
 	os.WriteFile(filepath.Join(home, "server-pid"), []byte(strconv.Itoa(os.Getpid())), 0600)
 	if s.Spawn {
@@ -320,4 +324,64 @@ func boundedFixture() int {
 		return 1
 	}
 	return 0
+}
+
+// Snapshot kernel object identities before this fixture deliberately opens its
+// own image. Later self-created descriptors are not inherited broker handles.
+func descriptorProbe() *os.File {
+	type object struct {
+		Device uint64
+		Inode  uint64
+		Kind   uint32
+	}
+	identify := func(path string) (object, error) {
+		var st syscall.Stat_t
+		err := syscall.Stat(path, &st)
+		return object{uint64(st.Dev), st.Ino, st.Mode & syscall.S_IFMT}, err
+	}
+	entry := map[string]object{}
+	fds, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		os.Exit(1)
+	}
+	for _, fd := range fds {
+		id, err := identify("/proc/self/fd/" + fd.Name())
+		if os.IsNotExist(err) {
+			continue
+		} // ReadDir's own closed descriptor
+		if err != nil {
+			os.Exit(1)
+		}
+		entry[fd.Name()] = id
+	}
+	self, err := os.Open("/proc/self/exe")
+	if err != nil {
+		os.Exit(1)
+	}
+	opened, err := identify(fmt.Sprintf("/proc/self/fd/%d", self.Fd()))
+	if err != nil {
+		os.Exit(1)
+	}
+	report := struct {
+		PID      int
+		Entry    map[string]object
+		Opened   object
+		OpenedFD int
+	}{os.Getpid(), entry, opened, int(self.Fd())}
+	b, err := json.Marshal(report)
+	if err != nil {
+		os.Exit(1)
+	}
+	starts, err := os.OpenFile(filepath.Join(home, "descriptor-starts"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		os.Exit(1)
+	}
+	_, err = fmt.Fprintln(starts, os.Getpid())
+	if closeErr := starts.Close(); err != nil || closeErr != nil {
+		os.Exit(1)
+	}
+	if os.WriteFile(filepath.Join(home, "descriptor-report.json"), b, 0600) != nil {
+		os.Exit(1)
+	}
+	return self
 }

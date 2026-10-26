@@ -20,8 +20,9 @@ import (
 const supervisorArg = "--internal-run-codex-supervisor"
 
 // SupervisorMain is called before CLI parsing by the embedding executable.
-// The guard is a session/group leader and Linux child subreaper. Only its
-// lifeline and home-lock descriptors are inherited; neither reaches Codex.
+// The guard is a session/group leader and Linux child subreaper. Its
+// lifeline, home lock and pinned image remain in the guard; none of these
+// objects is transferred to the app-server image.
 // Parent death closes the lifeline even for SIGKILL. The guard stays alive to
 // kill and reap its group before releasing the launch-home lock. An unresolved
 // intent also fences home reuse if the guard itself dies unexpectedly.
@@ -59,9 +60,12 @@ func SupervisorMain(args []string) (bool, int) {
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(signals)
-	cmd := exec.Command("/proc/self/fd/3", args[3:]...)
+	// Resolve the guard's retained kernel object, not the mutable selected path.
+	// The live guard keeps both its PID and this descriptor stable through exec.
+	// All three source descriptors stay CLOEXEC; no ExtraFiles duplicate clears
+	// that flag in the child. Proc access/exec failure has no pathname fallback.
+	cmd := exec.Command(fmt.Sprintf("/proc/%d/fd/%d", os.Getpid(), executable.Fd()), args[3:]...)
 	cmd.Args[0] = args[2]
-	cmd.ExtraFiles = []*os.File{executable}
 	cmd.Env = os.Environ()
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
