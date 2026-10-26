@@ -31,6 +31,14 @@ func Command(parent context.Context, args []string, streams IO, d Dependencies) 
 			state.capture(result)
 		}
 		status = classify(state, streams.Err)
+		if c, ok := parent.(*outcomeContext); ok {
+			c.out.Kind = OutcomeFailure
+			if status == 0 {
+				c.out.Kind = OutcomeSuccess
+			} else if status == 69 && state.failure != nil && state.failure.code == "credential_source_conflict" {
+				c.out.Kind = OutcomeSourceConflict
+			}
+		}
 	}()
 	o, err := Parse(args)
 	if err != nil {

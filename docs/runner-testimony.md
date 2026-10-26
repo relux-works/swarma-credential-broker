@@ -16,6 +16,16 @@ Other platforms return `ErrRunnerOriginUnavailable`. It installs no outer
 network policy and proves no post-Command exchange or complete absence of
 process effects. It is not connected to qualification rows; both remain UNRUN.
 
+The separate `qualify.RunnerTestimonyCommand` dispatcher calls
+`runner.CommandWithOutcome` synchronously before sending readiness. The typed
+outcome retains the final status and a bounded success/source-conflict/failure
+classification from the same deferred classifier used by `Command`. A private
+address pipe at FD4 is closed before Command; the case's seqpacket endpoint is
+close-on-exec. `RunnerTestimony.Exchange` checks both case messages against the
+live traced PID and configured UID, uses a fresh one-time nonce and requires
+ACK followed by endpoint closure. These isolated APIs still supply no effect
+validation, artifact binding or qualification-row credit.
+
 P is the trusted qualification parent; C is its direct case child; K is the
 kernel. The evidence class is **`measured-code-testimony`**. It combines
 kernel-observed process identity and completion with testimony from audited
