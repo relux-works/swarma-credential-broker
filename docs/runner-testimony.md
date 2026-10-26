@@ -1,9 +1,10 @@
 # Runner measured-code testimony contract
 
 This accepted contract covers only the synthetic `home-auth-present` and
-`source-conflict` pairs. Implementation and qualification are pending; the
-current executable still reports both rows **UNRUN**. Once implemented and
-qualified, this contract permits execution credit for these pairs. It grants no
+`source-conflict` pairs. The Linux/amd64 synthetic tests now pass both pairs with protected artifacts
+and the explicit evidence class below. `TestRunnerArtifactBinding` checks their
+private binding; `TestRowsHarness` retains the twenty earlier passing pairs and
+these two runner pairs. Missing gates still report **UNRUN**. It grants no
 live vendor, peer, arbitrary runner or production release qualification credit.
 Kernel tracing of function calls, including uprobes, is separate future work.
 
@@ -14,9 +15,8 @@ process children at their initial stop so the runner owns its nested tracer.
 Its result preserves the real exit status separately from origin errors.
 Other platforms return `ErrRunnerOriginUnavailable`. It installs no outer
 network policy and proves no post-Command exchange or complete absence of
-process effects. The two runner pairs now use this origin, but remain UNRUN
-until the evidence-class and private artifact proof gate is implemented and
-qualified.
+process effects. The two runner pairs combine this origin with the separate testimony, effect
+and private artifact gates; the trace API alone grants no row credit.
 
 The separate `qualify.RunnerTestimonyCommand` dispatcher calls
 `runner.CommandWithOutcome` synchronously before sending readiness. The typed
@@ -26,8 +26,8 @@ address pipe at FD4 is closed before Command; the case's seqpacket endpoint is
 close-on-exec. `RunnerTestimony.Exchange` checks both case messages against the
 live traced PID and configured UID, uses a fresh one-time nonce and requires
 ACK followed by endpoint closure. Both pairs now join this exchange with the
-trace and bounded parent effect observations. They still supply no artifact
-binding or qualification-row credit.
+trace and bounded parent effect observations. Credit additionally requires the accepted-image and private artifact binding
+described below.
 
 The parent creates the runner broker listener only at verified exec. Its live
 origin check remains mandatory at admission. Parent counters record accepted
@@ -49,10 +49,34 @@ fork events before parent resumption as well as newborn stops; negative controls
 require zero. These checks do not establish absence of effects outside their
 declared observers or complete descendant absence for arbitrary runner code.
 
-Both report controls retain `executed=false`, status -1 and no row artifacts.
-Actual joined case waits remain diagnostics, separate from Command testimony.
-An unavailable positive observation prevents launching its negative neighbour;
-even valid preparatory observations grant no credit before the next proof gate.
+A complete accepted control writes a protected artifact before returning execution
+credit. Its `row_executions` entry and artifact execution object include
+`runner_evidence`: `class`, `case_image_sha256`, `command_status`, and the closed
+`command_outcome` (`success`, `credential_source_conflict`, or `failure`). The
+actual consuming wait remains in the separate case/worker/helper exit fields.
+The recorded runner argv starts at the retained descriptor `/proc/self/fd/3`.
+
+The trusted parent accepts its own current executable digest before measuring
+the selected child image. Test-only replacement images require an explicit
+private acceptance pin; selecting or measuring an arbitrary fixture never
+accepts it. A value snapshot of the class, image and outcome, the joined trace
+and parent observations, and the exact artifact hash remain private. Serialized
+fields or a refreshed public hash cannot reconstruct that authority. The legacy
+outer-network map is empty for these rows; their effect evidence comes from the
+parent observers and the checked inner boundary reports described above.
+
+A missing gate returns `executed=false`, status -1 and no credited artifact.
+An unavailable positive observation prevents launching its negative neighbour.
+A genuine failed positive keeps its actual FAIL and suppresses its neighbour;
+a passing pair requires both independently bound controls. Preparatory
+observations alone never grant credit.
+
+Expected-outcome classification follows effect validation. An authenticated
+unexpected Command result with valid effects is FAIL, retaining its actual
+Command status separately from the case exit. `TestRunnerUnexpectedOutcome`
+exercises a real parse refusal (Command 64, case 0), alongside a passing positive.
+Substituted outcome fields and a claimed refusal contradicted by parent effects
+remain UNRUN. Cancellation before or during artifact sealing grants no credit.
 
 P is the trusted qualification parent; C is its direct case child; K is the
 kernel. The evidence class is **`measured-code-testimony`**. It combines

@@ -43,8 +43,9 @@ func rowConfiguration(t *testing.T, p policy.Policy, root string) string {
 	return path
 }
 
-// Claim: twenty attested transport/admission/lease/owner pairs run; peer, runner and missing
-// bodies remain pending. None of these synthetic cases runs the candidate.
+// Claim: twenty attested transport/admission/lease/owner pairs and two measured
+// runner testimony pairs run. Peer and missing bodies stay pending; these
+// synthetic row cases never execute the approved candidate.
 func TestRowsHarness(t *testing.T) {
 	worker := rowTool(t, "../../cmd/swarma-credential-broker")
 	path, c, root := setup(t)
@@ -53,6 +54,7 @@ func TestRowsHarness(t *testing.T) {
 	configurePeers(t, config)
 	d := newFixtureDriver(path, "0.163.0")
 	d.rowExecutable = worker
+	d.runnerAcceptedImage = acceptedRunnerDriver(t, worker, "").runnerAcceptedImage
 	var out bytes.Buffer
 	if code := d.run(context.Background(), []string{"--executable", c.Policy.Executable, "--fixtures", "--fixture-config", config, "--evidence-dir", root}, &out); code != 69 {
 		t.Fatal("publication gate", code)
@@ -63,7 +65,7 @@ func TestRowsHarness(t *testing.T) {
 	}
 	credited := 0
 	for _, row := range r.Cases {
-		if rowImplemented(row.ID) && row.ID != "peer-denied" && !runnerRow(row.ID) {
+		if rowImplemented(row.ID) && row.ID != "peer-denied" {
 			if !row.Positive.Executed || !row.Negative.Executed || row.Positive.Verdict != "passed" || row.Negative.Verdict != "passed" {
 				t.Fatal("attested pair unavailable", row)
 			}
@@ -73,11 +75,11 @@ func TestRowsHarness(t *testing.T) {
 			assertOriginPending(t, root, row.ID, row.Negative)
 		}
 	}
-	if credited != 20 {
+	if credited != 22 {
 		t.Fatal("transport/admission count", credited)
 	}
 	for _, record := range r.Executions {
-		if record.ID == "peer-denied" || runnerRow(record.ID) {
+		if record.ID == "peer-denied" {
 			if record.Execution.Started || record.Execution.Completed || record.Execution.CaseExit != -1 {
 				t.Fatal("unproved origin credit", record)
 			}

@@ -64,7 +64,7 @@ func TestPeerStartupReportDiagnostics(t *testing.T) {
 }
 
 // Claim: attested transport/admission retain genuine canonical 0/17 statuses;
-// peer and runner retain only launcher diagnostics and no canonical credit.
+// peer and unaccepted runner images retain only launcher diagnostics.
 func TestCaseCompletionStatus(t *testing.T) {
 	fake := rowTool(t, "../runner/testdata/appserver")
 	for _, status := range []int{0, 17} {
@@ -77,6 +77,9 @@ func TestCaseCompletionStatus(t *testing.T) {
 				_, c, root := setup(t)
 				var records []rowExecutionRecord
 				d := driver{rowExecutable: worker, runnerExecutable: fake, executions: &records}
+				if runnerRow(id) && status == 0 {
+					d.runnerAcceptedImage = acceptedRunnerDriver(t, worker, fake).runnerAcceptedImage
+				}
 				if id == "peer-denied" {
 					f := configuredPeerRow(t)
 					if status != 0 {
@@ -88,7 +91,7 @@ func TestCaseCompletionStatus(t *testing.T) {
 					assertOriginPending(t, root, id, row.Positive)
 				} else {
 					control := d.runRow(context.Background(), c.Policy, root, id, "positive")
-					if runnerRow(id) {
+					if runnerRow(id) && status != 0 {
 						assertOriginPending(t, root, id, control)
 					} else if !control.Executed || control.ExitCode != status || control.Verdict != map[int]string{0: "passed", 17: "failed"}[status] {
 						t.Fatal("canonical status lost", control)
@@ -102,7 +105,7 @@ func TestCaseCompletionStatus(t *testing.T) {
 				if id == "peer-denied" {
 					want = 0
 				}
-				if id != "peer-denied" && !runnerRow(id) {
+				if id != "peer-denied" && (!runnerRow(id) || status == 0) {
 					if !e.credit(false) || e.CaseExit != status {
 						t.Fatal("canonical wait/status missing", e)
 					}

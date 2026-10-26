@@ -15,30 +15,40 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// This private observation is preparatory evidence, never serialized authority.
-// The evidence-class/artifact gate is deliberately still unavailable.
+// This private observation is preparatory evidence until the artifact gate seals it.
 type runnerObservation struct {
-	origin      *egress.RunnerOrigin
-	broker      *server.RunnerAdmissionCounts
-	bind        func() error
-	outcome     runner.Outcome
-	trace       egress.RunnerTraceResult
-	admission   admissionEffects
-	observation rowObservation
-	available   bool
+	image, accepted string
+	origin          *egress.RunnerOrigin
+	broker          *server.RunnerAdmissionCounts
+	bind            func() error
+	outcome         runner.Outcome
+	trace           egress.RunnerTraceResult
+	admission       admissionEffects
+	observation     rowObservation
+	available       bool
 }
 
 func (d driver) runRunnerPair(ctx context.Context, p policy.Policy, root string, c *qualification.Case) {
-	var o runnerObservation
-	d.runRowObserved(ctx, p, root, c.ID, "positive", &o)
-	if o.available && o.trace.State.ExitCode() == 0 {
-		d.runRow(ctx, p, root, c.ID, "negative")
-	} else {
+	previous := d.executions
+	var records []rowExecutionRecord
+	d.executions = &records
+	defer func() {
+		if previous != nil {
+			*previous = append(*previous, records...)
+		}
+	}()
+	c.Positive = d.runRow(ctx, p, root, c.ID, "positive")
+	c.Negative = pendingRowControl()
+	if c.Positive.Verdict != "passed" {
 		e := newRowExecution()
 		e.Diagnostic = "case_pair_unavailable"
 		d.recordExecution(c.ID, "negative", e)
+		return // retain a genuine nonzero positive case wait as FAIL
 	}
-	c.Positive, c.Negative = pendingRowControl(), pendingRowControl()
+	c.Negative = d.runRow(ctx, p, root, c.ID, "negative")
+	if validateRow(root, p.ExecutableSHA256, p.Generation, *c, records) != nil {
+		c.Positive, c.Negative = pendingRowControl(), pendingRowControl()
+	}
 }
 
 // Gates require joined parent facts and agreement with child testimony.
@@ -54,7 +64,17 @@ func (o runnerObservation) validate(in rowInput, joined, effects bool) bool {
 	if ob.Owner != nil || ob.Lifecycle != nil || ob.Admission != nil || ob.LeaseProtocol != nil || ob.ProbeFault || len(ob.Envelopes) != 0 {
 		return false
 	}
-	if ob.ID != in.ID || ob.Side != in.Side || ob.Candidate != in.ApprovedDigest || !ob.NoEffects || ob.Refusal != map[bool]string{true: "credential_source_conflict", false: "external-login"}[in.Side == "negative"] || !validRunnerEffects(ob) {
+	wantRefusal := map[bool]string{true: "credential_source_conflict", false: "external-login"}[in.Side == "negative"]
+	if o.outcome.Kind == runner.OutcomeFailure {
+		wantRefusal = "runner_failure"
+	}
+	if ob.ID != in.ID || ob.Side != in.Side || ob.Candidate != in.ApprovedDigest || !ob.NoEffects || ob.Refusal != wantRefusal || !runnerEffectsValid(ob) {
+		return false
+	}
+	if in.Side == "positive" && o.outcome.Kind == runner.OutcomeSourceConflict {
+		return false
+	}
+	if !testimonyOutcome(o.outcome) || o.outcome.Status != ob.Runner.Status || (o.outcome.Kind == runner.OutcomeSourceConflict) != ob.Runner.LocalConflict {
 		return false
 	}
 	connections, requests, releases, other := o.broker.Counts()
@@ -62,9 +82,9 @@ func (o runnerObservation) validate(in rowInput, joined, effects bool) bool {
 		return false
 	}
 	if in.Side == "negative" {
-		return o.trace.Children == 0 && connections == 0 && requests == 0 && releases == 0 && o.admission.Records == 0 && o.admission.Snapshots == 0 && o.admission.Refreshes == 0 && o.outcome == (runner.Outcome{Status: 69, Kind: runner.OutcomeSourceConflict})
+		return o.trace.Children == 0 && connections == 0 && requests == 0 && releases == 0 && o.admission.Records == 0 && o.admission.Snapshots == 0 && o.admission.Refreshes == 0
 	}
-	return connections == 1 && requests == 1 && releases == 1 && o.admission.Records == 1 && o.admission.Snapshots == 2 && o.admission.Refreshes == 0 && o.outcome == (runner.Outcome{Status: 0, Kind: runner.OutcomeSuccess})
+	return connections == 1 && requests == 1 && releases == 1 && o.admission.Records == 1 && o.admission.Snapshots == 2 && o.admission.Refreshes == 0
 }
 
 // No listener exists until the trace's verified exec stop. Poll before closing

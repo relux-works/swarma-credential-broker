@@ -16,17 +16,19 @@ import (
 type rowDiagnostic string
 
 type rowExecution struct {
-	artifact   string        `json:"-"` // exact bytes produced by this parent-owned invocation
-	attested   bool          `json:"-"` // private parent evidence; never accepted from artifact JSON
-	Launched   bool          `json:"launched"`
-	Handshake  bool          `json:"identity_handshake"`
-	Started    bool          `json:"case_started"`
-	Completed  bool          `json:"case_completed"`
-	Joined     bool          `json:"helper_joined"`
-	HelperExit int           `json:"helper_exit"`
-	WorkerExit int           `json:"worker_exit"`
-	CaseExit   int           `json:"case_exit"`
-	Diagnostic rowDiagnostic `json:"diagnostic,omitempty"`
+	Runner      *runnerEvidence      `json:"runner_evidence,omitempty"`
+	runnerProof *runnerArtifactProof `json:"-"`
+	artifact    string               `json:"-"` // exact bytes produced by this parent-owned invocation
+	attested    bool                 `json:"-"` // private parent evidence; never accepted from artifact JSON
+	Launched    bool                 `json:"launched"`
+	Handshake   bool                 `json:"identity_handshake"`
+	Started     bool                 `json:"case_started"`
+	Completed   bool                 `json:"case_completed"`
+	Joined      bool                 `json:"helper_joined"`
+	HelperExit  int                  `json:"helper_exit"`
+	WorkerExit  int                  `json:"worker_exit"`
+	CaseExit    int                  `json:"case_exit"`
+	Diagnostic  rowDiagnostic        `json:"diagnostic,omitempty"`
 }
 
 type rowExecutionRecord struct {
@@ -65,7 +67,7 @@ func (d driver) recordExecution(id, side string, e rowExecution) {
 }
 
 func (e rowExecution) credit(peer bool) bool {
-	return !peer && e.attested && e.Launched && e.Handshake && e.Started && e.Completed && e.Joined && e.CaseExit >= 0 && e.CaseExit == e.WorkerExit && e.CaseExit == e.HelperExit
+	return (e.Runner == nil && e.runnerProof == nil || e.runnerCredit()) && !peer && e.attested && e.Launched && e.Handshake && e.Started && e.Completed && e.Joined && e.CaseExit >= 0 && e.CaseExit == e.WorkerExit && e.CaseExit == e.HelperExit
 }
 
 func pendingRowControl() qualification.Control {

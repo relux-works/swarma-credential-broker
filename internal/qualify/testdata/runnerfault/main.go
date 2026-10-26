@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -38,7 +39,10 @@ func main() {
 			os.Exit(120)
 		}
 		var in struct {
-			Socket string `json:"socket"`
+			Socket         string `json:"socket"`
+			ID             string `json:"id"`
+			Side           string `json:"side"`
+			ApprovedDigest string `json:"approved_digest"`
 		}
 		// Only decode the socket; the unchanged full context goes to CaseMain.
 		// json.Unmarshal intentionally allows the other fixture fields here.
@@ -58,6 +62,25 @@ func main() {
 		}
 		root := filepath.Dir(os.Getenv("HOME"))
 		switch fault {
+		case "unexpected":
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			// Real Command parses the unsupported option and returns 64 before work.
+			out, e := qualify.RunnerTestimonyCommand(ctx, []string{"--unknown-fixture-option"}, runner.IO{Err: io.Discard}, runner.Dependencies{})
+			if e != nil {
+				os.Exit(120)
+			}
+			effects := map[string]any{"status": out.Status}
+			for _, key := range []string{"resolves", "connects", "requests", "releases", "login"} {
+				effects[key] = 0
+			}
+			for _, key := range []string{"local_conflict", "version", "state_verified"} {
+				effects[key] = false
+			}
+			if json.NewEncoder(os.Stdout).Encode(map[string]any{"id": in.ID, "side": in.Side, "candidate": in.ApprovedDigest, "refusal": "runner_failure", "no_effects": true, "probe_fault": false, "envelopes": []any{}, "runner": effects}) != nil {
+				os.Exit(120)
+			}
+			return
 		case "connection", "request", "method":
 			c, e := net.Dial("unix", in.Socket)
 			if e != nil {

@@ -27,8 +27,8 @@ func configureRunner(t *testing.T, path, executable string) {
 	}
 }
 
-// Claim: real runner fixture invocations cannot gain qualification credit
-// without independently established Command preflight origin.
+// Claim: each real runner control earns only measured-code-testimony credit
+// with an explicitly accepted image, joined exchange, effects and artifact.
 func TestRunnerRowFixtures(t *testing.T) {
 	worker := rowTool(t, "../../cmd/swarma-credential-broker")
 	fake := rowTool(t, "../runner/testdata/appserver")
@@ -37,10 +37,13 @@ func TestRunnerRowFixtures(t *testing.T) {
 			t.Run(id+"/"+side, func(t *testing.T) {
 				_, c, root := setup(t)
 				var records []rowExecutionRecord
-				d := driver{rowExecutable: worker, runnerExecutable: fake, executions: &records}
+				d := acceptedRunnerDriver(t, worker, fake)
+				d.executions = &records
 				control := d.runRow(context.Background(), c.Policy, root, id, side)
-				assertOriginPending(t, root, id, control)
-				if len(records) != 1 || !records[0].Execution.Joined || records[0].Execution.HelperExit != 0 || records[0].Execution.Diagnostic != "case_origin_unavailable" {
+				if !control.Executed || control.Verdict != "passed" || control.ExitCode != 0 || len(control.Artifacts) != 1 {
+					t.Fatal("runner control unavailable", control)
+				}
+				if len(records) != 1 || !records[0].Execution.Joined || records[0].Execution.HelperExit != 0 || records[0].Execution.Diagnostic != "" || records[0].Execution.Runner == nil {
 					t.Fatal("runner origin", records)
 				}
 			})

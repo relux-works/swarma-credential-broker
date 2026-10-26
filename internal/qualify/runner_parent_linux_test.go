@@ -20,7 +20,7 @@ import (
 )
 
 // Claim: each pair uses a real traced Command and parent effects; no row credit
-// is granted before the separate artifact proof gate.
+// is granted without the separate accepted-image artifact proof gate.
 func TestRunnerParentEffects(t *testing.T) {
 	worker, fake := rowTool(t, "../../cmd/swarma-credential-broker"), rowTool(t, "../runner/testdata/appserver")
 	for _, id := range []string{"home-auth-present", "source-conflict"} {
@@ -36,9 +36,12 @@ func TestRunnerParentEffects(t *testing.T) {
 		_, c, root := setup(t)
 		var records []rowExecutionRecord
 		pair := qualification.Case{ID: id}
-		(driver{rowExecutable: worker, runnerExecutable: fake, executions: &records}).runRunnerPair(context.Background(), c.Policy, root, &pair)
-		assertOriginPending(t, root, id, pair.Positive)
-		assertOriginPending(t, root, id, pair.Negative)
+		d := acceptedRunnerDriver(t, worker, fake)
+		d.executions = &records
+		d.runRunnerPair(context.Background(), c.Policy, root, &pair)
+		if validateRow(root, c.Policy.ExecutableSHA256, c.Policy.Generation, pair, records) != nil {
+			t.Fatal("joined pair proof unavailable", pair)
+		}
 		if len(records) != 2 || !records[0].Execution.Joined || !records[1].Execution.Joined || records[0].Execution.HelperExit != 0 || records[1].Execution.HelperExit != 0 {
 			t.Fatal("pair did not join both real controls", records)
 		}
@@ -98,6 +101,7 @@ func TestRunnerParentRefusals(t *testing.T) {
 			if o.available {
 				t.Fatal("parent gate accepted forbidden effect", mode)
 			}
+			d.runnerAcceptedImage = acceptedRunnerDriver(t, worker, fake).runnerAcceptedImage
 			control := d.runRow(context.Background(), c.Policy, root, "source-conflict", "negative")
 			assertOriginPending(t, root, "source-conflict", control)
 		})

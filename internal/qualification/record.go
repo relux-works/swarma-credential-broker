@@ -81,6 +81,9 @@ func RequiredCases() []string {
 // CaseCommand names the retained broker worker descriptor, never a shell or
 // candidate path. The worker separately measures the approved candidate at FD6.
 func CaseCommand(id, control string) []string {
+	if id == "home-auth-present" || id == "source-conflict" {
+		return []string{"/proc/self/fd/3", "qualification-case", id, control}
+	}
 	return []string{"/proc/self/fd/4", "qualification-case", id, control}
 }
 func Hash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }

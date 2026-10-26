@@ -340,7 +340,8 @@ same listener. Only role-verification booleans leave the private handshake.
 
 This section is normative. With protected fixtures on Linux/amd64, six transport,
 four single-lease admission and three bounded lease-protocol rows have execution
-credit. Peer and runner remain **UNRUN**;
+credit, alongside seven fake owner-core pairs. The two runner source rows pass
+under the measured-code testimony class. Peer remains **UNRUN**;
 all unavailable paths emit `executed=false`, `exit_code=-1`, no artifact, and
 suppress the neighbouring control. No approved candidate runs in these cases.
 
@@ -348,8 +349,9 @@ The proposed [trusted peer supervisor contract](peer-supervisor.md) defines the
 foreign-case waiter and its installation/attestation gates. It is inactive; the
 peer row above remains UNRUN until an independent supervisor origin is approved
 and qualified. The accepted [runner testimony contract](runner-testimony.md)
-permits credit for the two runner pairs after implementation and qualification;
-it does not change the current executable or confer credit in this docs-only step.
+is implemented for the two synthetic pairs, including accepted image identity,
+post-return testimony, joined parent effects and private artifact binding.
+It confers no live-source or production release qualification.
 
 Here P is the trusted qualification parent and K the kernel. A CaseOrigin is
 optional in the egress supervisor: ordinary Run retains its existing contract.
@@ -360,7 +362,7 @@ It accepts only a parent-created typed endpoint, never generic socket ExtraFiles
 | Transport — `TestOriginExecIdentity`, `TestRowsHarness` | P observes Start, retains the worker image and pidfd. At K's exec stop P compares `/proc` image device/inode and exact bounded initial argv. | P sends a fresh challenge only after verified exec; the measured dispatcher answers on FD9 after input, candidate and empty-home checks. K's SO_PASSCRED supplies the same PID/UID/GID. P acknowledges before exchange. | The locked Start thread owns trace stops and the sole consuming `cmd.Wait`. It retains actual case status, including genuine 0/17 (`TestCaseCompletionStatus`). | P alone writes artifacts after verified entry and join. A passing pair additionally requires exact envelopes and unchanged fixture effects. |
 | Admission — same origin tests, `TestRowRefusalEnvelope` | Same retained-image, initial-argv and pidfd proof. | Same post-exec challenge; server checks live origin together with SO_PEERCRED. | Same exact-process wait authority; no helper-supplied status. | P checks grant bounds, store state and Snapshot/Refresh counts before accepting both artifacts. |
 | Peer — `TestExecutionOrigin/peer` | P observes sudo Start and kernel connection credentials, but lacks independent measured inner-case identity. | Helper metadata or its receipt can precede entry. UNRUN. | P waits for sudo; no trusted exact-inner-case waiter. Only launcher diagnostics. | Missing origin prevents artifacts and neighbour launch. |
-| Runner — `TestExecutionOrigin/runner`; accepted contract, implementation pending | P must measure the image/digest and exact argv at its own direct-child exec stop. | After real Command returns, audited code signals readiness, then answers P's fresh nonce with the actual outcome; SO_PASSCRED binds PID/UID to the traced child. This is `measured-code-testimony`, not a kernel-observed call. | P must own the exact-child wait and validate effects. Missing origin is UNRUN; a valid case with actual nonzero exit is FAIL. Expected local Command refusal 69 is separate from case exit. | P must bind the evidence class and outcome to exact artifacts and its own effect observations. Current executable stays UNRUN until the [contract](runner-testimony.md) is implemented and qualified. |
+| Runner — `TestRunnerArtifactBinding`, `TestRunnerArtifactAcceptance`, `TestExecutionOrigin/runner` | P measures the accepted image/digest and exact argv at its own direct-child exec stop. | After real Command returns, audited code signals readiness, then answers P's fresh nonce with the actual outcome; SO_PASSCRED binds PID/UID to the traced child. This is `measured-code-testimony`, not a kernel-observed call. | P owns the exact-child wait and validates effects. Missing origin is UNRUN; a valid case with actual nonzero exit is FAIL. Expected local Command refusal 69 is separate from case exit. | P privately binds the evidence class, accepted image and actual outcome to exact protected artifacts and joined parent observations. Missing proof or substituted public evidence is UNRUN; both synthetic pairs pass the [contract](runner-testimony.md). |
 
 The origin exchange uses a fresh SOCK_SEQPACKET pair with SO_PASSCRED; FD9 is
 marked CLOEXEC on dispatcher entry and closed after acknowledgement. Pre-exec,
@@ -387,7 +389,8 @@ the private parent proof bound to these exact artifact bytes. Failed genuine cas
 status, but cannot pass qualification. `row_executions` retains bounded typed
 launcher diagnostics for unavailable origins; helper text never becomes authority.
 Peer still requires its independent supervisor-origin decision. The runner
-contract is accepted; its implementation and qualification remain pending.
+contract supplies synthetic pair credit through private artifact binding;
+live-source and production release qualification remain pending.
 The any-peer control remains a declared survivor for that boundary.
 
 Runner source rows execute the real runner Command and SocketClient. The
@@ -414,9 +417,8 @@ This placement preserves the boundary's refusal of setsid inside untrusted code
 and the runner's real containment setup. Parent validation requires exactly two
 complete boundary reports and rejects refused traffic. Negatives start no child
 and have no boundary report. These are synthetic runner fixture operations.
-The current implementation receives no qualification credit. The accepted
-testimony contract permits synthetic pair credit only after implementation and
-qualification; no real Codex login, inference or release qualification is established.
+The measured-code testimony and private artifact gates now grant synthetic
+pair credit. No real Codex login, inference or release qualification is established.
 
 `time-untrusted` remains unrun. The snapshot-only fixture has no retained owner
 watermark, so a provider Boolean or a fake checkpoint would not prove profile
@@ -429,7 +431,9 @@ linked into the release worker. No time-row pass credit is granted here.
 For the thirteen attested transport, admission and lease-protocol rows, the
 artifact schema records
 argv, exit, monotonic duration and bound for each credited control in a pair.
-Peer and runner remain UNRUN pending their documented owner decisions in
+Peer remains UNRUN pending its documented owner decision. Runner artifacts
+add the explicit evidence class, case-image digest and actual Command outcome,
+separate from the consuming case wait; see
 [Execution evidence origin](#execution-evidence-origin). Owned 0600 `row-<id>-<side>.json` files contain closed
 `qualification-row-control/1` diagnostic evidence with the exact control,
 candidate digest, bounded observation and aggregate egress counts. Their hashes
@@ -524,8 +528,9 @@ The registry below has all 46 required IDs. “Next slice” means unexecuted,
 never a skipped pass. This implementation covers the harness, framing,
 peer-probe, genuine peer denial, account, release qualification, runner source
 and ended-lease fixture implementations. Thirteen transport/admission/lease rows and seven fake owner-core rows execute with attested origin and paired artifacts.
-The peer row and two runner rows remain UNRUN even with usable fixtures; the
-accepted runner testimony contract awaits implementation and qualification.
+The two runner rows also pass synthetic pairs under the measured-code testimony
+class and private artifact proof gate. The peer row remains UNRUN even with
+usable fixtures pending its independent supervisor origin.
 Other bodies remain pending; the time row
 requires the durable owner integration described above.
 P9 means [profile §9](../spec/v0-codex-refresher.md#9-negative-cases-and-adjacent-positive-controls);
@@ -546,8 +551,8 @@ fixture result cannot satisfy the live part of a combined row.
 | account-denied | fake-only; P9 | Exact allowed peer/account/profile leases | Known disallowed account gets lease_not_authorised, no writer | Executed with attested paired artifacts; disabled subject, zero Snapshot; P7:582–598, P9:801 |
 | account-unknown | fake-only; P9 | Existing allowed label leases | Missing label gets lease_account_unknown, no creation/fallback | Executed with attested paired artifacts; missing label, zero Snapshot; P7:582–598, P9:802 |
 | release-unqualified | fake-now + live-later; P9, P8.2 steps 2/4 | Exact approved fake tuple leases; later real tuple | Unqualified digest gets lease_harness_unqualified, no child | Executed with attested paired artifacts; fake tuple; no production publication; P8.2:749–788, P9:803, B9.6:575–587 |
-| source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | UNRUN: accepted measured-code-testimony contract, implementation pending; empty reserved-variable pair; P6:493–507, P9:804 |
-| home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | UNRUN: accepted measured-code-testimony contract, implementation pending; synthetic-file pair; retained runner link regression; P6:499–502, P9:805 |
+| source-conflict | fake-now + live-later; P9, P8.2 steps 2/4 | Clean effective external source; later real scopes | Reserved variable/helper/provider refuses before lease/child | Synthetic pair PASS under measured-code-testimony with private artifact binding; empty reserved-variable pair; P6:493–507, P9:804 |
+| home-auth-present | fake-only; P9 | Absent native file stays absent | Existing path/link refuses without reading or altering it | Synthetic pair PASS under measured-code-testimony with private artifact binding; synthetic-file pair; retained runner link regression; P6:499–502, P9:805 |
 | renew-unknown-digest | fake-only; P9 | Superseded delivered token returns current payload without refresh | Unknown digest gets renew_not_current, generation unchanged | Attested synthetic pair; parent verifies history refusal and unchanged state |
 | renew-contention | fake-now + live-later; P9, P9.1, B9.6, P8.2 step 4 | One rejection causes one refresh | Eight same-token rejecters share exactly one refresh/generation | Attested fake pair only; live half pending |
 | renew-late | fake-now + live-later; P9, P8.2 steps 2/4 | In-budget result answers once | After-eight-second result gets renew_timeout, no late callback | Next slice |
@@ -707,7 +712,8 @@ run in default Linux/amd64 tests. Capability skips follow actual pidfd, ptrace
 or seccomp listener probe failures and earn no executed-row credit. No systemd,
 chrony, root, additional UID, real login or real endpoint is needed.
 
-The `time-untrusted`, peer and runner rows remain pending.
+The `time-untrusted` and peer rows remain pending. Runner source rows have
+synthetic measured-code testimony credit, without live-source qualification.
 `reenrol-unresolved` and `duplicate-account`
 need the administrative fresh-home enrolment and publication mechanism (separate
 decision). `store-rollback` needs independent CAS witness and broker restore

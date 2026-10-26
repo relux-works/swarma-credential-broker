@@ -35,14 +35,22 @@ type runnerRowEffects struct {
 }
 
 func validRunnerEffects(o rowObservation) bool {
+	if !runnerEffectsValid(o) {
+		return false
+	}
+	return o.Side == "negative" && o.Runner.Status == 69 && o.Runner.LocalConflict || o.Side == "positive" && o.Runner.Status == 0 && !o.Runner.LocalConflict
+}
+
+// Effect completeness is separate from the expected semantic Command outcome.
+func runnerEffectsValid(o rowObservation) bool {
 	f := o.Runner
 	if f == nil || o.Peer != nil || !f.StateVerified {
 		return false
 	}
 	if o.Side == "negative" {
-		return f.Status == 69 && f.LocalConflict && f.Resolves == 0 && f.Connects == 0 && f.Requests == 0 && f.Releases == 0 && f.Login == 0 && !f.Version
+		return f.Resolves == 0 && f.Connects == 0 && f.Requests == 0 && f.Releases == 0 && f.Login == 0 && !f.Version
 	}
-	return o.Side == "positive" && f.Status == 0 && !f.LocalConflict && f.Resolves == 2 && f.Connects == 1 && f.Requests == 1 && f.Releases == 1 && f.Login == 1 && f.Version
+	return o.Side == "positive" && f.Resolves == 2 && f.Connects == 1 && f.Requests == 1 && f.Releases == 1 && f.Login == 1 && f.Version
 }
 
 type runnerBoundary struct {
@@ -211,7 +219,7 @@ func (f *runnerRowFixture) verify(o rowObservation) bool {
 		f.network = map[string]egress.Counts{}
 	}
 	o.Runner.StateVerified = good
-	return good && validRunnerEffects(o)
+	return good && runnerEffectsValid(o)
 }
 
 type runnerFixtureAuthority struct {
@@ -282,6 +290,9 @@ func runnerExchange(in rowInput) (string, *runnerRowEffects, error) {
 	}
 	effects.Status = outcome.Status
 	effects.LocalConflict = effects.Status == 69 && stderr.String() == "runner: credential_source_conflict\n"
+	if outcome.Kind == runner.OutcomeFailure {
+		return "runner_failure", effects, nil
+	}
 	if in.Side == "negative" {
 		return "credential_source_conflict", effects, nil
 	}

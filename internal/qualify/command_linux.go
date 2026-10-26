@@ -59,13 +59,14 @@ func parse(args []string) (options, error) {
 }
 
 type driver struct {
-	executions       *[]rowExecutionRecord
-	path             string
-	environment      []string
-	observer         func(policy.Config) qualification.IdentityObserver
-	ops              commandSyscalls
-	runnerExecutable string // protected synthetic fixture only
-	rowExecutable    string // no production flag or environment selector
+	runnerAcceptedImage string // private audited-image acceptance, never serialized or configured
+	executions          *[]rowExecutionRecord
+	path                string
+	environment         []string
+	observer            func(policy.Config) qualification.IdentityObserver
+	ops                 commandSyscalls
+	runnerExecutable    string // protected synthetic fixture only
+	rowExecutable       string // no production flag or environment selector
 }
 
 func Command(ctx context.Context, args []string, configPath string, environment []string, out io.Writer) int {

@@ -37,8 +37,9 @@ Implementation integration questions:
   test-role sudo permission, pidfds and socket credentials alone do not supply
   all those facts. Installation and activation remain pending; the peer row
   remains UNRUN. The two runner rows have an accepted
-  [measured-code testimony contract](docs/runner-testimony.md); implementation
-  and qualification are pending, so their current runtime status is also UNRUN.
+  [measured-code testimony contract](docs/runner-testimony.md) with passing
+  synthetic pairs, an explicit report class and private artifact binding.
+  This supplies no live-source or production release qualification.
 
 - `authowner.New` now validates and reconciles `owner-*.json` before snapshots.
   Activation still needs protected fresh-enrolment checkpoints, an independently
@@ -61,9 +62,9 @@ Implementation integration questions:
   fixture rows have attested paired execution; the peer row needs an independently
   trusted inner-case waiter and image identity. Both runner rows now have the
   accepted measured-code testimony contract with an implemented post-Command
-  exchange and bounded parent effect observations, still without row credit.
-  The explicit report class, private artifact proof gate and qualification
-  remain pending. The peer authority decision remains open; no kernel-observed
+  exchange, bounded parent effect observations and private artifact proof gate.
+  Both synthetic pairs pass under the explicit measured-code testimony class;
+  live-source and production release qualification remain pending. The peer authority decision remains open; no kernel-observed
   Command call is claimed for the runner contract. Other rows stay pending, live
   execution remains refused, and no production tuple qualifies.
   See [qualification](docs/qualification.md). An interrupted-run fence, missing activation or recovered pending activation

@@ -116,9 +116,12 @@ func validateRow(root, digest string, generation uint64, c qualification.Case, p
 					expected := r.Execution
 					expected.attested = false
 					expected.artifact = ""
+					expected.runnerProof = nil
 					if reflect.DeepEqual(*a.Execution, expected) {
 						proved = true
 						a.Execution.attested = true
+						a.Execution.runnerProof = r.Execution.runnerProof
+						a.Execution.artifact = r.Execution.artifact
 					}
 				}
 			}
@@ -127,6 +130,15 @@ func validateRow(root, digest string, generation uint64, c qualification.Case, p
 			return qualification.ErrUnavailable
 		}
 		if a.Execution == nil || !a.Execution.credit(c.ID == "peer-denied") || a.Execution.CaseExit != x.ExitCode {
+			return qualification.ErrUnavailable
+		}
+		if runnerRow(c.ID) {
+			if !runnerArtifactMatches(a) || x.Verdict != runnerVerdict(*a.Execution) {
+				return qualification.ErrUnavailable
+			}
+			continue
+		}
+		if a.Execution.Runner != nil {
 			return qualification.ErrUnavailable
 		}
 		if x.Verdict == "passed" {
@@ -239,6 +251,12 @@ func (d driver) runRowObserved(parent context.Context, p policy.Policy, root, id
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	broker, e := os.Open("/proc/self/exe")
+	if observed != nil {
+		observed.accepted = d.runnerAcceptedImage
+		if d.rowExecutable == "" && e == nil {
+			observed.accepted, e = runnerParentImage(broker)
+		}
+	}
 	if d.rowExecutable != "" {
 		if broker != nil {
 			broker.Close()
@@ -246,6 +264,9 @@ func (d driver) runRowObserved(parent context.Context, p policy.Policy, root, id
 		broker, e = qualification.OpenExecutable(d.rowExecutable)
 	}
 	if e != nil {
+		if broker != nil {
+			broker.Close()
+		}
 		execution.Diagnostic = launchDiagnostic(e)
 		return
 	}
@@ -255,6 +276,7 @@ func (d driver) runRowObserved(parent context.Context, p policy.Policy, root, id
 		if e != nil {
 			return
 		}
+		observed.image = digest
 		observed.origin, e = egress.NewRunnerOrigin(broker, digest, []string{"/proc/self/fd/3", "qualification-case", id, side})
 		if e != nil {
 			return
@@ -279,7 +301,7 @@ func (d driver) runRowObserved(parent context.Context, p policy.Policy, root, id
 		return
 	}
 	defer func() {
-		if os.RemoveAll(scratch) != nil {
+		if os.RemoveAll(scratch) != nil || observed != nil && ctx.Err() != nil {
 			if observed != nil {
 				observed.available = false
 			}
@@ -481,6 +503,7 @@ func (d driver) runRowObserved(parent context.Context, p policy.Policy, root, id
 		if !observed.available {
 			execution.Diagnostic = "observation_invalid"
 		}
+		control = runnerArtifact(ctx, root, inputValue, observed, &execution, elapsed)
 		return
 	}
 	if len(origins) == 1 {
