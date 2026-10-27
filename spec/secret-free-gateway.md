@@ -1,6 +1,6 @@
 # Secret-free gateway
 
-**Document revision 1 — PROPOSED, inactive.** This specifies the request gateway
+**Document revision 2 — PROPOSED, inactive.** This specifies the request gateway
 for [secret-free mode](secret-free-mode.md), alongside the separate
 [adapter contract](secret-free-adapters.md). It is not an implementation,
 qualified release, deployment recipe or permission to use an account. The
@@ -294,6 +294,13 @@ mechanisms stay closed until their exact capabilities are qualified in the
 [adapter profile](secret-free-adapters.md#6-equal-provider-profiles). No
 GitHub-specific API or default is universal. Unknown remote effect/CAS result
 cannot be retried as a new write or called landed.
+
+The [sourced provider profiles and object-preservation rule](secret-free-adapters.md#6-equal-provider-profiles)
+distinguish documentary API facts from target qualification. A source-head field
+or guard alone does not establish an atomic target-head/check/review condition.
+Qualify the exact admitted method and original signed-object policy, or disable/
+refuse landing. No direct-push, force-merge or protection-bypass workaround is
+authorized when the provider cannot express the required accepted effect.
 
 ## 9. Revocation, stop and restart
 
