@@ -134,14 +134,28 @@ The [ptrace access algorithm](https://man7.org/linux/man-pages/man2/ptrace.2.htm
 also applies independently of any Yama exception. Making S dumpable or allowing
 P with `PR_SET_PTRACER` does not itself remove the base credential check.
 
-## Alternative attestation gates: owner choice pending
+## Approved launch direction; attestation backend unresolved
 
-Neither option is selected by this proposal. **Recommend A** if the owner accepts
-its explicit trust in sudo and current installation policy; it adds no new
-privileged program. If independent kernel observation of S's initial execution
-is required even when launch policy is misconfigured, choose B. A does not offer
-that stronger property. Both leave the row UNRUN until the owner approves the
-chosen trust model, implementation and controls.
+The owner has approved retaining sudo-rs for a supervisor-specific narrow launch
+rule, using a fully administrator-owned path, exact argv and a post-start image
+digest check by P. The existing test-role policy remains unchanged by this
+approval. This records design authority, not installation or qualification:
+`peer-denied` remains **UNRUN**.
+
+This is a path-protection variant of the sudo-policy direction, distinct from
+digest-bound descriptor execution in A and the privileged observer in B below.
+Those attestation requirements remain explicit. Approval establishes neither
+foreign live-image access nor evidence of initial argv/environment. Authority for
+observations, launch-chain binding and the closed initial environment remain
+unresolved. A post-start digest comparison cannot substitute for the required
+initial argv/environment binding. If these gates cannot be satisfied, the row
+remains UNRUN; no path-only hash, credential report or supervisor assertion may
+supply the missing evidence.
+
+The alternatives below remain design proposals. A relies on approved sudo
+enforcement; B requires a separately approved privileged observer. The approved
+launch direction establishes neither their installation nor qualification, and
+provides no automatic fallback.
 
 ### A: sudo policy is the trusted launch witness
 
