@@ -1,5 +1,8 @@
 # Connection request lifecycle
 
+> **Proposed secret-free mode (inactive):** Broker material-publication fencing below is distinct from outbound use/effect fencing. Gateway and action service must retain both authorities, queued/in-flight/stream closure and effect identity/recovery; broker acknowledgment does not prove external completion.
+> See [the separate contract](../spec/secret-free-mode.md#9-use-fences-effects-and-recovery).
+
 This contract specializes profile sections 4.1, 4.2 and 7. Request IDs correlate
 outstanding calls on one negotiated connection; they are not replay authority.
 Lease IDs and durable terminal receipts retain their separate lifetime.

@@ -1,5 +1,5 @@
 @startuml storage-layout
-title M-CB4: persistent storage / runtime socket - broker v0, design only
+title Legacy readable-token view: M-CB4: persistent storage / runtime socket - broker v0, design only
 
 component "swarma-credential-broker daemon\nunprivileged service UID\nLaunchDaemon UserName / systemd User" as Broker
 component "Operator command\nswarma-operator; no harness or shell" as Operator
@@ -174,4 +174,34 @@ note bottom of Freeze
   R-UNTRUSTED admission evidence retained for UID/generation; no binding/lease
   for untrusted or unavailable class. Encodings/codes unpublished (§18.16-§18.17).
 end note
+@enduml
+
+@startuml storage-layout-secret-free
+!theme plain
+title Proposed secret-free view: storage-layout — inactive
+component "Agent account\nplaceholder only" as A
+component "Broker lifecycle service" as B
+component "Separate gateway / action service" as G
+database "Protected broker custody\ncredentials + refresh owner\nservice/caller bindings and lease metadata\naccount hold + issued-version inventory\nrevocation/restore/stop evidence" as S
+database "Protected spending-service evidence\ncurrent authority / policy generation\nqueues, stream closure and effect outcomes\nbudgets survive restart" as U
+B --> S : durable state; lease metadata has no payload
+B --> G : admitted service lease material
+G --> U : retain fences and UNKNOWN outcomes
+A --> G : own current listener mapping only
+note bottom of S
+  All issued still-vendor-valid versions remain matchable,
+  even after refresh/release; expiry or confirmed invalidation ends validity.
+  Existing protected store/time/restore primitives unchanged.
+  No new filenames, record enums or transaction formats assigned.
+end note
+note bottom of A
+  No vendor credential/home/keyring/private service pipe access.
+  Outside-gateway matcher custody OPEN; no raw inventory to bridge/LLM.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml

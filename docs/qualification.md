@@ -1,5 +1,8 @@
 # Qualification records and command frame
 
+> **Proposed secret-free mode (inactive):** New mode requires a separate exact harness/auth-kind/source/channel/mode/adapter/API/platform/topology/model/policy tuple and published schema. Unknown/changed inputs refuse; current records and evidence publication confer no new-mode credit.
+> See [the separate contract](../spec/secret-free-mode.md#8-harness-endpoint-and-renewal-qualification).
+
 `qualify-codex` implements the protected record, publication and pending-row
 frame for the mandatory 0.163.0 procedure in profile §8.2. It measures the
 candidate's version, experimental schema and model catalog under the egress
@@ -523,6 +526,9 @@ hash-consistent envelope/counter changes or missing private proof;
 counts. Existing credited rows retain their original limits and artifact shape.
 
 ## Required row classification
+
+> **Proposed secret-free mode (inactive):** The new contract lists prospective negative witnesses with valid controls for caller/target/source, redirect, isolation, old-token leakage, refresh, account hold, revocation, crash and streams. They are all UNRUN for this mode; the existing rows below keep their original scope.
+> See [the separate contract](../spec/secret-free-mode.md#12-qualification-witnesses).
 
 The registry below has all 46 required IDs. “Next slice” means unexecuted,
 never a skipped pass. This implementation covers the harness, framing,

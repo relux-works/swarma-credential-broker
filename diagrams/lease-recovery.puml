@@ -1,5 +1,5 @@
 @startuml lease-recovery
-title M-CB2: lease refusals and recovery - v0 slice 0 / Codex slice 1, design only
+title Legacy readable-token view: M-CB2: lease refusals and recovery - v0 slice 0 / Codex slice 1, design only
 
 participant "Operator command\nswarma-operator: owner / operator\nno harness or shell" as Operator
 participant "curator-run / later session runner\nagent UID + active generation\nexecutor and broker client" as Executor
@@ -293,4 +293,38 @@ note over Executor,Broker
   Old lease cannot renew under new binding. Fresh-lease handoff OPEN;
   explicit park/restart keeps account until handoff is qualified (§18.11).
 end note
+@enduml
+
+@startuml lease-recovery-secret-free
+!theme plain
+title Proposed secret-free view: lease-recovery — inactive
+participant "Gateway / action service" as G
+participant "Broker" as B
+database "Durable authority / hold / stop / effect evidence" as S
+actor "Authorized recovery owner" as O
+G -> G : crash, lost reply, uncertain stream or stale authority
+G -> G : refuse new use; retain UNKNOWN; no blind replay
+G -> S : reconcile queues/streams/listeners and actual effect outcomes
+G -> B : fresh authenticated generation-bound service admission
+B -> S : current caller/service chains, vendor lifecycle, hold and restore fences
+alt any hold, freeze, prior writer/outcome or consumer closure unresolved
+  B --> G : refuse; remain unavailable across restart
+else every independent gate reconciled and recovery separately authorized
+  O -> S : durable explicit reopen evidence; no revival of queued work
+  B --> G : fresh lease subject to current authority at each use
+end
+note over G,S
+  Broker material fence is not outbound completion evidence.
+  Idempotency only where recipient supports it; fixed effect parameters.
+  Reconcile external effect with recipient/person before any retry.
+  Alert/broker unreachable: forwarding closed, outcomes honestly unknown.
+  Lifting account hold, session restart and vendor invalidation differ.
+  No time-provider/restore primitive changes or restart bypass.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml

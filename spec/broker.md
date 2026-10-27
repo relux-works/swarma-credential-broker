@@ -1,6 +1,6 @@
 # swarma-credential-broker: specification
 
-- **Status:** draft v0.12 (2026-10-13). Nothing is implemented.
+- **Status:** baseline draft v0.12; the [README](../README.md) scopes the experimental core and pending production qualification. The separately versioned [secret-free mode](secret-free-mode.md) is PROPOSED/inactive and does not extend the active v0 wire contract.
 - **Normative language:** MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 - **Companions:** [swarma-user-manager](https://github.com/relux-works/swarma-user-manager) (per-agent OS users, the launcher that starts processes under them, and per-UID firewall rules), [curator-network-profiles](https://github.com/relux-works/curator-network-profiles) (egress profiles), curator-spec CIP-0010 and CIP-0011 (the Curator side: credential sources, the protected credential binding, the executor capability, the launch-plan extension).
 
@@ -81,6 +81,9 @@ An architecture review on 2026-10-09 kept the design and asked for tighter contr
 
 ## 1. Purpose
 
+> **Proposed secret-free mode (inactive):** The readable-token baseline below remains; secrecy is a separately qualified mode, not a property of its token delivery. The minimal broker keeps lifecycle only and never forwards provider HTTP.
+> See [the separate contract](secret-free-mode.md#1-modes-and-admission).
+
 Agent systems run many harness processes (Claude Code, Codex, Muse, and others) on behalf of a few people. Each harness needs the credential of a person's subscription or API account. Today every managed home keeps its own login, which costs a browser login per home and, for refresh-token logins, lets parallel copies invalidate each other.
 
 The broker is a small service that:
@@ -116,6 +119,9 @@ The broker is a small service that:
 
 ## 3. Components
 
+> **Proposed secret-free mode (inactive):** A separate gateway/request adapter and the Runtime action service are credential holders. Lifecycle adapters stay broker-side; board and session hosts gain no broker client.
+> See [the separate contract](secret-free-mode.md#2-processes-and-custody).
+
 Figure [M-CB1 — broker components](../diagrams/components.puml) shows the process identities, internal components, persistent-state owners and phase boundaries defined here and in §4–§9.
 
 | Component | Runs as | Job |
@@ -146,6 +152,9 @@ The **board runner and session host do not embed broker clients**. They request 
 ## 4. Identities and trust
 
 ### 4.1 Peer identity and connections
+
+> **Proposed secret-free mode (inactive):** New service identities need generation-bound kernel admission, fixed-role fresh connections and protected server identity; static UID reachability cannot supply caller authority.
+> See [the separate contract](secret-free-mode.md#3-principals-connections-and-bindings).
 
 On every connection the broker MUST obtain the peer's effective UID from the kernel (`getpeereid` or `LOCAL_PEERCRED` on macOS and BSD, `SO_PEERCRED` on Linux) and MUST refuse the connection if the platform cannot provide it. A UID supplied in a request is never trusted.
 
@@ -207,6 +216,9 @@ For keeper integration, account retirement and identity revocation remain separa
 ## 5. Accounts
 
 ### 5.1 Record
+
+> **Proposed secret-free mode (inactive):** Mode and auth-kind qualification distinguish service-held vendor material from agent placeholders; no new account enum or v0 record field is assigned.
+> See [the separate contract](secret-free-mode.md#5-material-placeholders-and-lifetimes).
 
 Figure [M-CB3 — record states](../diagrams/record-states.puml) separates account states from binding, lease and grant validity, including the recovery gaps left unspecified in §9.4.
 
@@ -270,6 +282,9 @@ The superseded default/Keychain recommendations and “no acceptance decision”
 
 ### 5.3 Secret store
 
+> **Proposed secret-free mode (inactive):** Broker custody, person-completed enrollment and single refresh ownership remain. Enforced local network/IPC isolation and separate service holders are additional gates; a placeholder alone is insufficient.
+> See [the separate contract](secret-free-mode.md#6-credential-lifecycle-adapters).
+
 Figure [M-CB4 — storage layout](../diagrams/storage-layout.puml) distinguishes secret files, metadata, the broker-owned Codex home and the external runtime socket (§12.4, §15).
 
 Material is kept behind a secret-store interface (`put`, `get`, `delete`, `describe`). **v0 ships one backend: a file with mode 0600 in a 0700 directory owned by the broker user**, on macOS and Linux alike, written by atomic replacement in its own directory. Keychain or Secret Service backends MAY be added later; a backend that can prompt a person MUST NOT be used for launches that cannot answer a prompt.
@@ -304,6 +319,9 @@ An account belongs to the person who enrolled it. The broker MUST NOT issue a le
 ## 6. Grants
 
 ### 6.1 Format
+
+> **Proposed secret-free mode (inactive):** Service lease authority and original caller use authority must both remain current and narrowing for the actual operation/resource. The service/use extension needs its own published compatible dialect; these baseline envelopes are unchanged.
+> See [the separate contract](secret-free-mode.md#4-two-current-authorities-per-use).
 
 A grant is an envelope with a body, the body's identifier and a signature:
 
@@ -352,6 +370,9 @@ An agent is named in a grant by its helper account generation, `agent:<generatio
 
 ### 6.4 Revocation
 
+> **Proposed secret-free mode (inactive):** Gateway and action service are consumers of max(S + A, F) from signed publication. Their durable closure/earlier-authority expiry determines completion; broker intake or material-publication acknowledgment is insufficient.
+> See [the separate contract](secret-free-mode.md#9-use-fences-effects-and-recovery).
+
 Figures [M-CB2 — lease recovery](../diagrams/lease-recovery.puml) and [M-CB3 — record states](../diagrams/record-states.puml) show the durable publication boundary, refusal after unreadable state and the limits of recovery specified here.
 
 A revocation is an envelope of the same construction with the domain tag `swarma-credential-broker revocation/1`:
@@ -392,6 +413,9 @@ curator-trust (capabilities, delegation verification) and swarma-envelope (signe
 Broker lease grants are not board capabilities. Broker v0 MUST refuse roles, wildcards, human-presence conditions or other unsupported general predicates rather than silently weaken them (§6.2). No adapter is published or implemented here. Where platform forms differ, they take precedence through a versioned adapter or shared policy layer, and the broker format gains a version (§4.3); the v0 verifier is not promised to stay unchanged.
 
 ## 7. Bindings
+
+> **Proposed secret-free mode (inactive):** Service credential bindings and originating caller bindings are distinct. Replacement/retirement ends old service leases and use; fresh authority and retained outcome evidence are required, with unknown state closed.
+> See [the separate contract](secret-free-mode.md#3-principals-connections-and-bindings).
 
 ### 7.1 Record
 
@@ -448,6 +472,9 @@ UIDs are recycled when OS accounts are deleted, and labels can repeat. Neither c
 
 ### 8.1 Request
 
+> **Proposed secret-free mode (inactive):** Vendor material goes only to the admitted spending service. Its own live lease never replaces the caller chain checked at each use. All issued still-vendor-valid versions, including released or superseded values, remain matchable.
+> See [the separate contract](secret-free-mode.md#5-material-placeholders-and-lifetimes).
+
 ```
 lease.request/1
 { harness:   "claude_code",
@@ -500,6 +527,9 @@ R-TIME checks `authorized_until`, binding expiry, known account expiry and every
 
 ### 8.4 Delivery channels
 
+> **Proposed secret-free mode (inactive):** Only a qualified launch-bound placeholder reaches the agent. Service material delivery and caller use are distinct; release, use closure, account hold and vendor invalidation have separate effects. No placeholder channel is added to v0 here.
+> See [the separate contract](secret-free-mode.md#5-material-placeholders-and-lifetimes).
+
 The client library delivers material only into the process the executor starts:
 
 - `env`: the variable is set in the harness process environment at exec, never in the parent, argv, files or logs.
@@ -550,6 +580,9 @@ The broker never adopts an existing home, imports another login or exports a key
 
 ### 9.3 External-token mode
 
+> **Proposed secret-free mode (inactive):** This baseline still gives the runner real access tokens. In the new mode the gateway sees real upstream rejection and owns real-token renewal identity/same-account verification; placeholder callbacks and uncertain streams require separate harness qualification.
+> See [the separate contract](secret-free-mode.md#6-credential-lifecycle-adapters).
+
 - The agent-side executor starts a private `codex app-server` for this execution, remains alive as its client and lease holder (§8.5), initialises it with the experimental capability that external-token login requires, and logs in with `account/login/start { type: "chatgptAuthTokens", accessToken, chatgptAccountId }` from the lease payload. A failed initialisation refuses the launch (`external_token_init_failed`); lease cleanup after this refusal is open (§18.7).
 - When the app-server receives a 401 it asks its client with `account/chatgptAuthTokens/refresh`. The executor calls `lease.renew { lease_id, rejected_sha256 }`, verifies that the renewed payload names the same `chatgpt_account_id`, and answers with the new token and account id.
 - The app-server waits only a bounded time for that answer (about ten seconds in the vendor's documentation at the time of writing). The broker answers `lease.renew` within a configured deadline below that bound (default 8 seconds) or returns `renew_timeout`; the executor then answers the app-server with an error and the turn fails. No late or uncorrelated answer is sent, and nothing falls back to another login. Proactive refresh (§9.4) makes a 401-triggered refresh rare; it does not guarantee that every turn continues.
@@ -588,6 +621,9 @@ The mechanism is measured in relux-works/remote-worker-harness (`internal/authow
 
 ## 10. Other harnesses
 
+> **Proposed secret-free mode (inactive):** Claude, Codex and Muse placeholder behavior is separately qualified per kind/release/channel. Muse billing/rotation/lifetime remain unknown; Claude re-enrollment and vendor invalidation retain their own boundary.
+> See [the separate contract](secret-free-mode.md#8-harness-endpoint-and-renewal-qualification).
+
 ### 10.1 Claude Code
 
 A `claude-oauth-token` has no refresh. A surviving agent-side client can report a harness authentication failure on its lease (`credential_error`, §11). The env launch's exec-replaced executor cannot report after exec (§8.5); that path has no specified live reporter (§18.7). The account moves to `reauth_required` only on the owner's command. Recovery is re-enrolment and a restart; Claude Code resumes its transcript with `--resume`. Vendor-side revocation happens only in the vendor's web interface.
@@ -613,6 +649,9 @@ The explicit `api-key` lane through `META_API_KEY` or `exec --api-key-stdin` rem
 
 ## 11. Events
 
+> **Proposed secret-free mode (inactive):** Leak verdict, durable whole-account hold, service/session closure and vendor invalidation are separate typed outcomes. Narrow detector authority and an owned sanitized alert route need publication; a lease report is not account-wide power.
+> See [the separate contract](secret-free-mode.md#10-leak-matching-and-whole-account-containment).
+
 | Event | When | v0 surface |
 |---|---|---|
 | `lease_expiring` | a token with a known expiry expires within 5 minutes, or a Claude token with a stated issue date within 3 days | `status`, audit log |
@@ -628,6 +667,9 @@ Events carry typed metadata only, with no agent-controlled strings. Later delive
 
 ### 12.1 What a compromised agent can do
 
+> **Proposed secret-free mode (inactive):** The readable-token exception below belongs to exposed lanes. Qualified new-mode custody protects only admitted local launches; holder compromise and host root remain trusted-base limits, and finite scanning proves no secret absence.
+> See [the separate contract](secret-free-mode.md#1-modes-and-admission).
+
 An untrusted-class worker never receives a lease (R-UNTRUSTED); the broker refuses binding, lease issuance and renewal for that class (§4.2, §7–§8). The following readable-token exception applies only to a trusted-class local launch. It can read the credential leased to it and copy it within its OS account; this trusted-process posture is a scoped, owner-approved departure from the stronger secret-free agent model of curator-trust. It cannot obtain accounts outside its grants, cannot bind itself, cannot forge its UID, cannot read the broker's store, and cannot refresh a Codex account. A revocation or R-ALLSTOP freeze stops new leases and renewals; a token already delivered keeps its vendor lifetime and ends only at expiry or vendor revocation. Stronger non-extraction (injection at an egress proxy, or a credential the process cannot read) is a separate design.
 
 Operator custody is a slice-0 boundary: no harness session runs as `swarma-operator`, and agent accounts cannot read its mode-0600 root or replace its protected command/configuration. Widening authority requires the authenticated, content-confirmed operator path (§14), which refuses widening from an agent session. The phone key remains hardware-backed and presence-gated; terminal fallback cannot reuse a cached sudo ticket. `swarma-observer` reads confer no mutation or secret access. These are required design boundaries, not measured isolation claims.
@@ -639,6 +681,9 @@ The board accepts the result as a resource. The orchestrator uses the board's de
 **Export precedes retirement.** Workspace-capable allocations carry an export cleanup obligation: ordinary retirement performs declared-key cleanup and deletes the home only after export is recorded or an explicit operator act waives that obligation, for example after compromise. It is never silently dropped. The separate retirement metadata export remains limited to service-generated closed-schema data without agent-controlled strings, names, links or bodies; it does not replace the workspace result. Explicit home retention still needs authentication and exact content confirmation through `swarma-operator`, is refused inside agent sessions, and states that confidentiality is not guaranteed. The dispatcher owns workspace materialization/export and the user manager owns account-wide stopping/retirement; the broker owns neither. Their unpublished formats remain open (§18.19).
 
 ### 12.2 Protected binding and conflicting sources
+
+> **Proposed secret-free mode (inactive):** Retain protected source/endpoint binding, startup and later re-exec/child inheritance checks. No silent mode/account/billing/native-home fallback; only an exactly qualified endpoint and enforced boundary may carry a placeholder.
+> See [the separate contract](secret-free-mode.md#8-harness-endpoint-and-renewal-qualification).
 
 Broker mode implements CIP-0010's protected credential binding (`credential_binding/1`). The executor, running under the agent's account before exec, verifies the caller-composed plan and resolves the protected tuple destination-locally without composing or resolving profiles (§3.1): peer identity, profile, harness, account, channel, vendor endpoint, approved executable digest and policy generation. It checks the tuple before requesting the lease and again immediately before exec, and refuses on any change.
 
@@ -656,6 +701,9 @@ The broker's binding check (§8.2 step 6) keeps configuration consistent; it is 
 
 ### 12.3 The broker itself
 
+> **Proposed secret-free mode (inactive):** Lifecycle adapters stay inside the minimal broker; request adapters run in the separate gateway. Matcher custody outside that gateway remains open. No broker network listener/plugins or provider forwarding is introduced.
+> See [the separate contract](secret-free-mode.md#2-processes-and-custody).
+
 The broker holds every enrolled credential, so it stays minimal: one service user, no network listener, no plugins, no shell-outs except the approved Codex executable for enrolment and refresh, an append-only audit log, and rate limits per principal. R-SVC-EGRESS permits network only through the dedicated proxy listener (§3, §15.2); allowed vendor destinations may still carry data, so the allowlist reduces uncontrolled egress without proving store non-exfiltration. Resolver-mediated paths require their own qualification, since per-UID packet rules alone do not constrain a privileged resolver. The audit log records who, which account, which launch and which outcome as typed metadata; it never records material, raw protocol frames, secret-bearing errors or token hashes.
 
 ### 12.4 Files
@@ -667,6 +715,9 @@ All broker files are owned by the broker user; directories are 0700. Every state
 ## 13. Socket protocol `broker/1`
 
 ### 13.1 Transport
+
+> **Proposed secret-free mode (inactive):** Service principals, service leases, use-through-service and detector hold require a compatible separately versioned dialect and permissions. The existing transport/method tables are unchanged and confer none of that authority; R-LOCK still applies.
+> See [the separate contract](secret-free-mode.md#13-publication-and-activation-gates).
 
 A Unix-domain stream socket. Frames are a 4-byte big-endian length followed by a CCJ-1 canonical JSON object; the broker rejects frames over 64 KiB before reading them. The first exchange is `hello { versions: [1] }`; an unknown version closes the connection. Each request carries a client-chosen `request_id`; every response echoes it. Requests have deadlines: 2 seconds for administrative reads, 8 seconds for `lease.renew` (§9.3), 30 seconds for lease requests that wait for the auth owner.
 
@@ -748,6 +799,9 @@ Every refusal is a typed error `{ code, message, details }`; codes are listed in
 
 ## 14. Command line
 
+> **Proposed secret-free mode (inactive):** Enrollment/status must distinguish mode, holder, account hold, per-service closure and vendor validity. Operator authentication/confirmation and observer custody remain; this proposal assigns no new command.
+> See [the separate contract](secret-free-mode.md#11-operator-and-installation-boundaries).
+
 The standalone binary is **`swarma-credential-broker <verb>`**; through Curator's provider mechanism the same operations are available as `curator broker <verb>`. Repository, binary and service-account naming agree. `curator-broker` was the earlier design spelling, not a shipped compatibility alias. Nothing has shipped, so no CLI or signed-data migration is required.
 
 D-WIRE-NAMES explicitly replaces the earlier signing domains with `swarma-credential-broker grant/1` and `swarma-credential-broker revocation/1` (§6.1, §6.4). This is the owner-approved pre-release wire decision, separate from CLI naming. The peer-authenticated `broker/1` transport defines no broker request-signature domain (§13).
@@ -777,6 +831,9 @@ Agent leaves (`agent:<generation>`) are issued by the dispatcher when it binds a
 ## 15. Installation and lifecycle
 
 ### 15.1 Service user and time
+
+> **Proposed secret-free mode (inactive):** Separate holder identities, listener/client policy, custody, route and teardown need installation qualification. No new paths, interception trust material or time-provider activation is implied; unknown cleanup defers removal.
+> See [the separate contract](secret-free-mode.md#11-operator-and-installation-boundaries).
 
 The broker runs as the dedicated unprivileged service user `swarma-credential-broker`, created by swarma-user-manager (`user.create { kind: "service" }` from the installer principal); its home is `/opt/swarma/services/swarma-credential-broker`. The platform installer installs the binary, the service user and the service unit together.
 
@@ -810,6 +867,9 @@ Uninstall closes new lease/refresh admission, disables auto-start, stops the ser
 
 ### 15.4 Fenced local restore and reopen
 
+> **Proposed secret-free mode (inactive):** Gateway/action-service queues, cached leases, listeners, streams and account holds join durable closed recovery. Every independent stop/restore part remains required; process absence or restart alone never reopens use.
+> See [the separate contract](secret-free-mode.md#9-use-fences-effects-and-recovery).
+
 R-GEN companion procedures are owned by the [user manager's state-loss/restore contract](https://github.com/relux-works/swarma-user-manager/blob/main/spec/helper.md) and the [dispatcher's state-loss/restore contract](https://github.com/relux-works/swarma-dispatcher/blob/main/spec/dispatcher.md) (user manager §§4.5–4.6, dispatcher §7.1 and installation/recovery sections). Their ledger and allocation/effect records must reconcile with the broker's current bindings, tombstones and process receipts. A restored active ledger entry is not proof of generation freshness; missing history is unavailable, never absence. Keep affected authorization closed until all owning components reconcile, or explicitly retire/recreate under fresh random 128-bit generations and reissue authority. The broker does not reconstruct or reopen another component's state on its behalf.
 
 This is the supported manual operator procedure, not automatic stale-snapshot repair. The **restore mark** is durable operator-controlled evidence that authorization is closed. Its location, encoding and start-check integration would need publication before activation (§18.8); it MUST survive outside the state/failure domain being restored, persist across interruption and be checked by every supported service-start path. No broker namespace field or additional service is prescribed.
@@ -841,6 +901,9 @@ Recovery is explicit, never an automatic restart. The freeze survives daemon rep
 The full per-account egress-freeze lifecycle is v1/slice 2 publication work, not a v0 capability (§18.21). The node-wide R-ALLSTOP stays manual and distinct from watcher narrowing; watcher authority cannot reopen it.
 
 ## 16. Delivery order
+
+> **Proposed secret-free mode (inactive):** The new mode is a separate local-only delivery with its own positive/negative witnesses for adapters, caller/use authority, endpoint routing, refresh, containment and recovery. Existing baseline evidence qualifies none of it.
+> See [the separate contract](secret-free-mode.md#12-qualification-witnesses).
 
 1. **Formats.** `grant/1`, `revocation/1` and the `broker/1` frames are frozen with canonical and negative vectors; the verifier ships with its mutant suite (§6.2).
 2. **Slice 0: one protected Claude launch.** swarma-user-manager v0 and its launcher; installed `swarma-operator`/`swarma-observer` and qualified operator-command admission/custody (§4, §14–§15, §18.15); the broker daemon with the file store, local grants and revocation state, the fenced restore/start check and journaled R-ALLSTOP freeze with explicit recovery, mandatory R-UNTRUSTED refusal, bind and unbind with retained observation evidence, R-OUTCOME tables, R-REBIND binding replacement, durable R-TIME watermark and elapsed-removal gate, `effect.observe`, `revocation.check`, lease request and release, the `env` channel, protected binding and conflict refusal, audit; the broker client in `curator-run` under the agent account (§3.1, D-EXECUTOR). **The dispatcher is an unprivileged Unix-socket service from this first slice**, using the broker connection and framing rules (§4.1, §13.1); `curator agent-user` is its client. There is no dispatcher sudo entry, command mode, `SUDO_UID` dispatcher branch, detached-command bootstrap, external sweep timer or command-to-daemon conversion. Dispatcher-to-root user-manager/launcher rules remain. Recovery and readiness precede admission; an absent/unready dispatcher refuses with no command fallback. Initial capacity closure refuses; queueing, events, long waits and advanced integrations come later behind capability gates on this same transport. The board runner and session host call the dispatcher rather than embedding broker clients. Trusted-class local worker launches and operator-enrolled orchestrators form the first slice; slice 0 and user-manager v0 refuse the untrusted class; recursive orchestrator provisioning stays refused until the requester-signed bootstrap is published and qualified (R-DELEG). Hosted-runner acceptance exercises the deployed socket service, caller signatures, fresh principal/generation checks, server-UID verification, descriptor restrictions, durable effects/receipts and process-absence reconciliation. The dispatcher creates the account, binds with caller authorization and invokes the launcher; the executor leases and runs Claude. It MUST refuse another UID, retired generation, account/profile mismatch, expired/revoked grant, unavailable revocation evidence, fenced restore, conflicting source and unqualified harness. The token appears in no file, argv, log or child process the qualification covers. Required negative/recovery rows are below; publication gaps in §18 remain gates, not qualification claims.
@@ -898,6 +961,9 @@ These required vectors must drive dispatcher admission/activation and the broker
 
 ## 17. Later
 
+> **Proposed secret-free mode (inactive):** Endpoint injection now has a separate proposed specification, rather than an unscoped research alternative. Its implementation/qualification and outside-gateway matcher custody remain open; interception and gateway writes remain closed.
+> See [the separate contract](secret-free-mode.md#13-publication-and-activation-gates).
+
 - a key keeper as the trust root and agent identities as keys (§4.3);
 - grants and revocations from a shared registry (§6.5);
 - roles, wildcards and further grant conditions, including bounds on concurrent use per account;
@@ -906,6 +972,9 @@ These required vectors must drive dispatcher admission/activation and the broker
 - Windows.
 
 ## 18. Open questions
+
+> **Proposed secret-free mode (inactive):** New-mode decisions and remaining publication gates are owned separately; the baseline questions below retain v0/live-release/cleanup/time/stop/lock scope. No baseline method/format/refusal number is extended here.
+> See [the separate contract](secret-free-mode.md#13-publication-and-activation-gates).
 
 The following broker/provider choices and local publication gates remain open here. D-EXECUTOR resolves the launcher amendment direction and first consumer; D-WIRE-NAMES resolves the signing domains. Publication of the narrow executor intake remains with the launcher intake lane ([Decision 0021 amendment](https://github.com/relux-works/curator-spec/blob/main/decisions/0021-sessions-enter-through-curator-run.md); [curator-agent-launcher SPEC §10](https://github.com/relux-works/curator-agent-launcher/blob/main/SPEC.md#10-agent-account-one-shot-exec-contract-target-amendment)), not a new consumer-choice question.
 
@@ -916,7 +985,7 @@ The following broker/provider choices and local publication gates remain open he
 3. Ownership of one Codex vendor account across several machines (§9.5).
 4. **OWNER DECISION NEEDED — Codex personal-plan adoption/qualification (contract C4, CIP-0010 open question 2).** Options: adopt the single auth owner and external-token lane with named supported-release evidence (including the proposed 0.159.0 race-test precondition), or defer that provider lane. The broker slice-1 design and historical 0.155.x reference do not decide the current supported release or satisfy that precondition.
 5. **C7 DECIDED — prioritize Muse subscription qualification (owner, 2026-10-13); qualification OPEN.** The research outcome is the **PROPOSED** channel (b): a single minting owner leases the provider API key minted by device-code OAuth, never the OAuth tokens; children use `META_API_KEY` or `exec --api-key-stdin`, with no OAuth access-token injection or linked store. Fallback (c) applies if the env/stdin key is not subscription-billed or a re-mint revokes it (§10.2). Refresh trigger, rotation, lifetimes and billing remain UNKNOWN. The research has twelve qualification rows, still open; seven probes require a dedicated test account in its own OS user, provisioned by the operator. The API-key lane remains separate; no parity or supported-release claim is made.
-6. **Open research — provider proxy injection (audit A10.6).** Options: continue separate provider/channel qualification research, or defer traffic-side injection and retain the explicit harness-readable delivery model. No proxy path is an admitted substitute for native or broker authentication.
+6. **PROPOSED/inactive — secret-free endpoint mode.** The [separate contract](secret-free-mode.md) specifies minimal broker lifecycle, a separate injecting gateway and the action service. Endpoint-only local delivery is proposed; TLS interception is closed. Exposed lanes remain explicitly selected and separately qualified. Service/use dialect, custody, adapter and exact harness qualification remain activation gates; no proxy path is currently an admitted substitute for native or broker authentication.
 7. **OPEN — launch-time lease cleanup by channel (§8.4–§8.5, §9.3).** For `env`, choose between release by the owning executor before exec (and define whether release permits use of the already delivered payload), or retaining the lease until `authorized_until` / revocation / unbind (and define record transitions and reclamation). Successful exec leaves no executor broker client; disconnect and harness exit are not release. For `stdin`, publish whether a client survives delivery and its release point. For runner-held `external-token`, publish teardown/release ordering and cleanup on initialisation failure or runner loss. Also specify post-lease pre-exec refusal cleanup and whether a live client reports env-harness failures. No post-exec callback, inherited broker descriptor, exit watcher or new wire mechanism is specified here.
 8. **OPEN — restore/start and verdict publication (§6.4, §13.2, §15.4).** Would need the operator restore-mark location/encoding, trusted start-check and durable reconciliation/reopen evidence integration outside the restored failure domain; completeness rules for surviving journal/checkpoint evidence; any optional witness's pre-ack durability; and `revocation.check` exact request/response encoding, including how an unavailable sequence is represented. The three verdicts, contexts and access rule are fixed by R-VERDICT. No new refusal code or namespace field is assigned.
 9. **OPEN — receiver observation and retention publication (§7, §13.2).** Would need exact `effect.observe` wire encoding (including original effect ID versus the read's transport correlation), canonical-argument digest construction, protected journal/tombstone layout and recovery transaction ordering, unbind/conflict refusal mappings, and a bounded retry/admission rule that makes discarded identities permanently inadmissible before evidence reclamation. The six states and original-caller/operator access are fixed by R-OBS. Missing evidence must remain `unavailable`; these gaps gate activation.
@@ -940,6 +1009,9 @@ The following broker/provider choices and local publication gates remain open he
 23. **OPEN — trust/admission/review evidence publication and optional reviewer policies (§4.2, §12.1).** First consumers are trust/admission/review and the first board-delivery, donor-workplace and session-host role consumers. Would need protected membership, placement and review-role evidence, their provenance/current-read and change rules, and the consumer composition that checks positive class, placement and role predicates without deriving authority from circle membership. The existing class exception and the operator's power to classify further identities as untrusted stay; remote identities remain workplaces, and host loops require trusted class plus local agent placement. Review requires an admitted review-role grant, an eligible trusted-class local agent placement or person holding that role, exclusion of the untrusted class and a reviewer distinct from the producer. No record format, request member, refusal code or value is assigned. Two separate optional owner decisions remain open and off: whether to require local-only reviewers, and whether to exclude the orchestrator that requested the round from reviewing it. Neither policy follows from circle membership or the existing producer exclusion.
 
 ## Appendix A. Refusal codes
+
+> **Proposed secret-free mode (inactive):** No service/use/hold refusal numbers or v0 codes are assigned. The figures in Appendix B retain a labeled legacy view and add the inactive proposed view.
+> See [the separate contract](secret-free-mode.md#13-publication-and-activation-gates).
 
 `peer_identity_unavailable`, `server_identity_mismatch`, `principal_ledger_mismatch`, `principal_identity_changed`, `role_not_permitted`, `frame_too_large`, `version_unsupported`, `request_deadline_exceeded`, `account_exists`, `account_unknown`, `account_duplicate`, `account_store_keyring_refused`, `enrol_material_invalid`, `grant_malformed`, `grant_id_mismatch`, `grant_signature_invalid`, `grant_chain_malformed`, `grant_chain_broken`, `grant_not_narrowing`, `grant_root_unknown`, `grant_subject_invalid`, `grant_unsupported`, `grant_revoked`, `grant_expired`, `grant_not_yet_valid`, `revocation_not_authorised`, `revocation_state_unavailable`, `bind_not_dispatcher`, `bind_target_invalid`, `bind_request_conflict`, `lease_unbound`, `lease_grant_revoked`, `lease_not_authorised`, `lease_account_unknown`, `lease_harness_mismatch`, `lease_account_revoked`, `lease_reauth_required`, `lease_owner_unavailable`, `lease_channel_unsupported`, `lease_harness_unqualified`, `lease_binding_mismatch`, `lease_network_mismatch`, `lease_network_enforcement_unavailable`, `lease_not_owner`, `lease_not_active`, `lease_caller_revoked`, `grant_unconstructible`, `renew_not_current`, `renew_timeout`, `renew_failed`, `external_token_init_failed`, `credential_source_conflict`, `credential_injection_unavailable`.
 

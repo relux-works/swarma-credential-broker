@@ -1,5 +1,5 @@
 @startuml record-states
-title M-CB3: separate record states - broker v0 / Codex slice 1, design only
+title Legacy readable-token view: M-CB3: separate record states - broker v0 / Codex slice 1, design only
 hide empty description
 
 state "Account record: broker-owned persistent metadata (§5.1)" as Accounts {
@@ -136,7 +136,7 @@ end note
 
 legend bottom
   Four independent views, not one composite runtime state machine.
-  Current repository: draft, nothing implemented. Broker v0 software root;
+  Baseline statecharts are design contracts, not implementation evidence. Broker v0 software root;
   Claude slice 0; Codex slice 1 pending adoption / qualification (§18.4).
   SH1/SH2 activation unspecified in spec §3.1; source-policy v1/v2
   are separate policy versions (§5.2), not these record states.
@@ -166,4 +166,42 @@ note bottom of Leases
   partial/unknown node-wide evidence keeps admission closed (§15.5).
   Delivered tokens keep vendor lifetime; class/freeze codes/formats unpublished.
 end note
+@enduml
+
+@startuml record-states-secret-free
+!theme plain
+title Proposed secret-free view: record-states — inactive
+hide empty description
+state "Local account containment\nsemantic view, NOT new v0 enum" as H {
+  state "No account hold\nother gates still required" as Open
+  state "Durable whole-account hold\nall generations / launches" as Held
+  Open --> Held : possible leak: block + narrow authenticated trigger
+  Held --> Open : owner alone lifts hold; independent gates retained
+}
+state "External outcome\nsemantic evidence, not lease state" as E {
+  state "Not yet executed" as Ready
+  state "Recorded actual result" as Recorded
+  state "UNKNOWN" as Unknown
+  Ready --> Recorded : conclusive authorized effect result
+  Ready --> Unknown : lost response / partial stream / ambiguous effect
+  Unknown --> Recorded : conclusive recipient / operator reconciliation evidence
+}
+note right of H
+  Service lease + original caller authority are separately current at every use.
+  Release/expiry/replacement does not erase vendor-valid credential versions.
+  All issued versions matchable until actual expiry/confirmed invalidation.
+  Confirmed leak criteria OPEN; possible leak never triggers vendor action.
+end note
+note right of E
+  No blind replay from UNKNOWN; no generated success from intake ack.
+  Stream/queue closure and session stop are distinct durable outcomes.
+  Vendor validity is independent of local record state or account hold.
+  Concrete dialect, records and matcher/alert custody remain gates.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml

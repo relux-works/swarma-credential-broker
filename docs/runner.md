@@ -1,5 +1,8 @@
 # External-token runner integration
 
+> **Proposed secret-free mode (inactive):** The implementation below is legacy real external-token delivery. Only a separately qualified new-mode runner may receive placeholders; the separate service holds real material, while launch/FD3/plan and cleanup obligations remain.
+> See [the separate contract](../spec/secret-free-mode.md#5-material-placeholders-and-lifetimes).
+
 The Linux `internal/runner` package implements the one-turn lifecycle in
 [profile §6](../spec/v0-codex-refresher.md#6-external-token-delivery-and-one-shot-runner).
 The command dispatches `run-codex` with the [protected static authority and
@@ -80,6 +83,9 @@ not restrict later child opens or re-execution and grant no vendor qualification
 
 ## Source and output admission
 
+> **Proposed secret-free mode (inactive):** Source and endpoint conflicts remain terminal. A placeholder digest cannot stand for a rejected real token; the gateway owns same-account real-token renewal, and local callback/stream retry behavior requires exact-release qualification.
+> See [the separate contract](../spec/secret-free-mode.md#8-harness-endpoint-and-renewal-qualification).
+
 Launch homes must be owned by the effective user, mode 0700. Existing `auth.json`
 paths, including dangling symlinks, are inspected with metadata only and refused.
 Every reserved environment variable conflicts even when empty. The runner never
@@ -115,6 +121,9 @@ encoding can create temporary immutable copies, so physical memory erasure is
 not promised.
 
 ## Renewal and containment
+
+> **Proposed secret-free mode (inactive):** Runner cleanup, gateway/action-service use closure and account-wide hold must compose. A process-group stop or local lease release is not vendor invalidation; uncertain upstream work remains UNKNOWN without blind retry.
+> See [the separate contract](../spec/secret-free-mode.md#9-use-fences-effects-and-recovery).
 
 Each refresh callback is bound to the expected vendor account, original RPC ID
 and digest of the last delivered token. Renewal cannot extend authorization.

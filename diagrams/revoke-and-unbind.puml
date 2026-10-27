@@ -1,6 +1,6 @@
 @startuml revoke-and-unbind
 !theme plain
-title Broker v0, design only: ending access, grant revocation, task end, account withdrawal, R-ALLSTOP node-wide freeze
+title Legacy readable-token view: Broker v0, design only: ending access, grant revocation, task end, account withdrawal, R-ALLSTOP node-wide freeze
 
 actor "Person" as P
 participant "Phone app / operator device key\nsecure element; biometric presence" as Phone
@@ -176,4 +176,48 @@ note over D,B
   R-REBIND also ends old leases and retains old-binding tombstone;
   fresh-lease handoff remains open (§18.11).
 end note
+@enduml
+
+@startuml revoke-and-unbind-secret-free
+!theme plain
+title Proposed secret-free view: revoke-and-unbind — inactive
+actor "Authorized owner" as O
+participant "Broker" as B
+participant "Gateway" as G
+participant "Action service" as E
+participant "Session stop owner" as S
+participant "Vendor lifecycle adapter" as V
+O -> B : signed revocation / freeze / retirement / all-stop scope
+B -> B : durable broker fence; no new lease/renewal/final material delivery
+B --> O : broker part only; not consumer completion
+G -> G : close scoped listener sessions, queues, cached use and streams
+E -> E : close queued actions; interrupt started action if safe\notherwise finish and record actual outcome / UNKNOWN
+G --> O : durable closure or unknown
+E --> O : durable closure or unknown
+note over B,E
+  Propagation from signed publication: max(S + A, F), existing owning bounds.
+  Completion: each consumer durably acknowledges OR its earlier authority expired.
+  Intake ack, lease release and process stop are separate facts.
+end note
+== Independent possible-leak path ==
+G -> G : block before forwarding
+G -> B : narrowly authenticated detector trigger; not v0 lease report
+B -> B : durable WHOLE-account hold; all generations / launches\nlease and renew check under lock; restart cannot bypass
+G -> G : close all account listener sessions, queues and streams
+E -> E : close account uses; record actual started-action outcomes
+G -> S : authorized session stop; independently record outcome
+opt confirmed leak under separately published criteria/contract
+  B -> V : required vendor rotation / invalidation
+end
+note over O,V
+  Possible leak never defaults to confirmed or authorizes vendor action.
+  Only owner lifts hold; alerts cannot delay containment.
+  Local release / use closure / session stop / vendor validity distinct.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml

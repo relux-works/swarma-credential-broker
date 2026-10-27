@@ -1,5 +1,27 @@
 # Unresolved questions
 
+## Separately proposed secret-free mode
+
+The [new contract](spec/secret-free-mode.md) is **PROPOSED/inactive**, independent
+of v0 activation. Its settled dispositions are: API keys/test subscriptions
+first; configured endpoints with TLS interception closed; minimal lifecycle
+broker and separate gateway, action service as trusted effect executor; gateway
+model-provider/code-hosting classes only, every external shared-state write in
+the action service; whole-account possible-leak hold lifted only by the owner,
+confirmed leak additionally vendor rotation; local-only first, donor B/C closed
+as separate later steps. These are resolved choices, not questions reopened by
+the remaining implementation gates.
+
+[Publication and activation](spec/secret-free-mode.md#13-publication-and-activation-gates)
+still need the compatible service-principal/service-lease/use-authority dialect
+and hold trigger, protected service/client policy and installation, gateway and
+adapter implementations, exact harness qualification, matcher inventory/bounds,
+outside-gateway matcher custody, confirmed-leak criteria and owned alert route.
+None is assigned speculative active v0 fields or methods. Existing time, peer,
+release, cleanup and owner-account prerequisites below retain their scope.
+
+## Existing profile and integration gates
+
 The [Codex refresher v0 profile](spec/v0-codex-refresher.md#11-accepted-curator-rulings)
 has resolved curator rulings R1 and R2:
 

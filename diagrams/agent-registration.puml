@@ -1,6 +1,6 @@
 @startuml agent-registration
 !theme plain
-title First consumer: caller-composed plan, account, broker binding, curator-run under the agent UID
+title Legacy readable-token view: First consumer: caller-composed plan, account, broker binding, curator-run under the agent UID
 
 participant "Orchestrator" as O
 participant "swarma-dispatcher\n(service account swarma-dispatcher)" as D
@@ -86,4 +86,35 @@ note over O,B
   Workspace materialization/export belong to dispatcher R-TRANSFER;
   worker .git/history are never platform input; broker holds no workspace.
 end note
+@enduml
+
+@startuml agent-registration-secret-free
+!theme plain
+title Proposed secret-free view: agent-registration — inactive
+participant "Admitted launch / dispatcher" as D
+participant "Broker" as B
+participant "Spending service\nown kernel identity + generation" as G
+participant "Agent-side runner" as R
+D -> B : retain original caller narrowing chain / launch binding
+G -> B : fresh fixed-role connection; verify broker UID
+B -> B : compatible dialect; current service generation/class/placement\nservice authority and account; no hold/freeze/restore fence
+break missing dialect, retired identity or unavailable state
+  B --> G : refuse; no service material or activation
+end
+B --> G : own service lease; not caller authority
+R -> G : protected launch / profile / caller context
+G -> G : qualify listener owner/generation and served policy\nmap random placeholder to lease / generation / launch / account
+G --> R : placeholder only on qualified channel
+note over D,R
+  R-EXEC / FD3 / plan-object / startup and later re-exec checks remain.
+  Static UID allowance or circle membership is insufficient.
+  Workplaces: zero egress, no lease. Local-only first; donors B/C CLOSED.
+  Exact new binding/intake formats and permissions remain unpublished.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml

@@ -1,5 +1,8 @@
 # Socket permissions in the v0 profile
 
+> **Proposed secret-free mode (inactive):** New service roles require a published compatible admission/method policy. Filesystem reachability and static same-UID/R2 access do not establish service-generation or caller-use authority; the current permission and genuine-peer limits below remain.
+> See [the separate contract](../spec/secret-free-mode.md#3-principals-connections-and-bindings).
+
 The listener uses the socket mode **0666** specified by
 [broker deployment paths](../spec/broker.md#152-paths). Filesystem access lets a
 peer connect; Linux `SO_PEERCRED` supplies its UID, and the static per-account

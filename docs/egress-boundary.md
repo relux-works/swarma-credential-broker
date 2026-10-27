@@ -1,5 +1,8 @@
 # Candidate egress boundary
 
+> **Proposed secret-free mode (inactive):** This cooperative fixture boundary does not establish the enforced secret-free gateway boundary. The pointer-race limit remains; local fake-503 compatibility/version probes prove neither hostile isolation nor successful login. Exact endpoint, IPC and bypass witnesses remain UNRUN.
+> See [the separate contract](../spec/secret-free-mode.md#7-request-adapters-and-upstream-routing).
+
 `internal/egress` confines accidental traffic from a cooperative or careless
 candidate to explicitly configured local fakes. It is not a sandbox against a
 hostile binary. It requires Linux amd64, seccomp user notification, TSYNC,

@@ -7,6 +7,9 @@ its rulings and qualification gates are accepted. No implementation ships here.
 
 ## 1. Scope and relationship to the broker
 
+> **Proposed secret-free mode (inactive):** This static external-token extraction remains an exposed lane, including interim R2. It does not provide secret-free custody; existing real-account approval and release gates remain separate.
+> See [the separate contract](secret-free-mode.md#1-modes-and-admission).
+
 This profile extracts the slice-1 Codex auth owner and external-token delivery
 from [the broker specification](broker.md#9-codex-auth-owner), ahead of the
 slice-0 delivery order in [§16](broker.md#16-delivery-order). Its sole purpose is
@@ -69,6 +72,9 @@ existing native login MUST remain intact during research and qualification
 planning; only an explicitly approved maintenance cutover may retire it.
 
 ## 2. Interim authority and identities
+
+> **Proposed secret-free mode (inactive):** Static UID allowance/R2 does not authorize a spending-service generation or original caller use. New principal/binding/lease policy is a separate publication gate, not a reinterpretation of R1.
+> See [the separate contract](secret-free-mode.md#3-principals-connections-and-bindings).
 
 **Accepted curator ruling R1.** The daemon MUST load a protected, operator-owned
 static policy containing a never-reused random installation ID, monotonic policy generation,
@@ -241,6 +247,9 @@ its evidence is reconciled. Real-account/vendor-specific retirement semantics
 remain an owner-approved qualification step, not an assumed command.
 
 ## 4. Auth owner and renewal
+
+> **Proposed secret-free mode (inactive):** The new gateway may reuse the single-owner queue/deadline/writer guarantees, but must add real-rejection identity, same-account checks and end-to-end use/stop fencing; legacy renewal success is not use authority.
+> See [the separate contract](secret-free-mode.md#6-credential-lifecycle-adapters).
 
 The daemon MUST hold a singleton lifetime lock and a stable per-account lock
 beside the vendor home. Lock files MUST NOT be replaced or unlinked during
@@ -454,6 +463,9 @@ unavailable. Silent hostile rollback detection is not claimed.
 
 ## 6. External-token delivery and one-shot runner
 
+> **Proposed secret-free mode (inactive):** This v0 runner still receives real tokens. Agent placeholders, configured endpoint/source binding, callback meaning, safe stream handling and gateway-held renewal require independent qualification and ownership.
+> See [the separate contract](secret-free-mode.md#8-harness-endpoint-and-renewal-qualification).
+
 Experimental public command (implemented; an unqualified tuple refuses with
 status 69, `lease_harness_unqualified`):
 
@@ -565,6 +577,9 @@ historical native-resume observation as current qualification.
 
 ## 7. Profile-specific `broker/1` subset
 
+> **Proposed secret-free mode (inactive):** This closed wire subset remains unchanged: its negotiation, payloads, lease ownership and reports confer no service lease, caller use-through-service or detector-triggered whole-account hold.
+> See [the separate contract](secret-free-mode.md#13-publication-and-activation-gates).
+
 The transport is exactly [§13.1](broker.md#131-transport): Unix stream, four-byte
 unsigned big-endian byte length, then one CCJ-1 canonical JSON object; maximum
 payload 65536 bytes, rejected before payload allocation/read when larger
@@ -653,6 +668,9 @@ Administrative enrolment reuses account codes; it is not added to this transport
 Deferred grant/binding/platform refusal codes are not remapped to fake success.
 
 ## 8. Release qualification
+
+> **Proposed secret-free mode (inactive):** The separate mode has its own negative witnesses/valid controls. No v0, historical, synthetic or native observation below qualifies a placeholder, service actor, gateway isolation or real login in that mode.
+> See [the separate contract](secret-free-mode.md#12-qualification-witnesses).
 
 Unqualified executable/configuration/platform tuples MUST refuse
 `lease_harness_unqualified`. The mandatory v0 target is 0.163.0: its exact tuple
@@ -841,6 +859,9 @@ the case changes that premise. Every refusal requires zero material delivery.
 | Safe transient failure and durable reload | transient-ambiguous / transient-safe; positive non-rotation evidence before backoff |
 
 ## Appendix A. Owner action for dedicated-user isolation
+
+> **Proposed secret-free mode (inactive):** Leaving same-UID R2 is necessary for separate-UID custody but not sufficient for gateway secrecy. The new mode needs its own service/client policy, installation, custody and route acceptance; this migration grants none.
+> See [the separate contract](secret-free-mode.md#11-operator-and-installation-boundaries).
 
 **Accepted R2 exit path: dedicated service-user migration after review of the
 migration tool. No migration tool ships here.**

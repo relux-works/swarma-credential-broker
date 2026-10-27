@@ -1,6 +1,6 @@
 @startuml enrol
 !theme plain
-title Enrolment: a person enrols a subscription once, through the vendor's own flow; the material lands only in the broker's store
+title Legacy readable-token view: Enrolment: a person enrols a subscription once, through the vendor's own flow; the material lands only in the broker's store
 
 actor "Person" as P
 participant "Phone app / operator device key\nsecure element; biometric presence" as Phone
@@ -64,4 +64,34 @@ note over B,X
   R-FATE fate table: user manager §7; previous-writer fence unchanged.
   R-LOCK releases state lock for cross-service I/O (§13.1).
 end note
+@enduml
+
+@startuml enrol-secret-free
+!theme plain
+title Proposed secret-free view: enrol — inactive
+actor "Account owner" as O
+participant "Minimal broker\nlifecycle adapter" as B
+participant "Vendor enrollment flow" as V
+database "Protected broker custody" as S
+participant "Separate spending service" as G
+O -> B : fresh authenticated, content-confirmed enrollment act
+B -> B : selected account/kind/mode; prior writer/outcome resolved
+B -> V : fresh approved vendor ceremony; person completes login
+V --> B : material in broker custody only
+B -> S : protected credential and lifecycle evidence
+G -> B : separately admitted service-generation lease
+B --> G : leased vendor material; not to launch/home/bridge
+note over O,G
+  API keys + dedicated test subscriptions first.
+  Personal subscriptions CLOSED until exact test qualification.
+  Owner-account permission separate; no imported native home/account switch.
+  Real service/use dialect, installation and qualification remain gates.
+  Broker no listener/plugins/provider HTTP forwarding.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml

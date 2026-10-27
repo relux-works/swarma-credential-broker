@@ -1,5 +1,8 @@
 # Runner measured-code testimony contract
 
+> **Proposed secret-free mode (inactive):** Existing synthetic runner testimony does not prove gateway routing, service/caller authority, no credential extraction or real placeholder login. New credential-spending consumers require their own evidence; all measured-code ordering and limits below remain.
+> See [the separate contract](../spec/secret-free-mode.md#12-qualification-witnesses).
+
 This accepted contract covers only the synthetic `home-auth-present` and
 `source-conflict` pairs. The Linux/amd64 synthetic tests now pass both pairs with protected artifacts
 and the explicit evidence class below. `TestRunnerArtifactBinding` checks their

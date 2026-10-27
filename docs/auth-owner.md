@@ -1,5 +1,8 @@
 # Contained refresh owner
 
+> **Proposed secret-free mode (inactive):** An admitted gateway is a future service-holder consumer, not an agent impersonation. Broker-side lifecycle ownership, retained-chain checks, single-writer recovery and unknown-rotation refusal remain; request forwarding stays in a separate gateway.
+> See [the separate contract](../spec/secret-free-mode.md#6-credential-lifecycle-adapters).
+
 The Linux `authowner.Engine` implements `owner.Owner`. It accepts protected
 fresh-enrolment state, an approved executable tuple, a contained `Manager` and
 independent `Confidence`. It never adopts an existing login, performs OAuth

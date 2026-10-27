@@ -1,6 +1,6 @@
 @startuml codex-renewal
 !theme plain
-title Slice 1, qualification/adoption pending: Codex personal plan: one auth owner refreshes; launches use external tokens and renew within a deadline
+title Legacy readable-token view: Slice 1, qualification/adoption pending: Codex personal plan: one auth owner refreshes; launches use external tokens and renew within a deadline
 
 participant "Codex app-server\n(agent OS account, no auth.json)" as A
 participant "Live agent-side executor / later session runner\nagent OS account; lease holder and app-server client" as E
@@ -146,4 +146,40 @@ note over E,O
   Class encoding, freeze/recovery act records and refusal codes
   are unpublished (§18.16-§18.17); no new account/lease enum.
 end note
+@enduml
+
+@startuml codex-renewal-secret-free
+!theme plain
+title Proposed secret-free view: codex-renewal — inactive
+participant "Harness / agent client\nplaceholder only" as A
+participant "Separate gateway\nreal token holder" as G
+participant "Broker lifecycle / single refresh owner" as B
+participant "Qualified upstream" as P
+A -> G : admitted placeholder request
+G -> P : real credential after both current authorities
+P --> G : real upstream credential rejection
+G -> B : rejected REAL token identity; own service lease + caller scope
+B -> B : preserve queue/deadline / durable intent / single writer\nresolve prior writer/store/outcome before refresh
+alt resolved same-account renewal
+  B --> G : new real material, same account
+  G -> G : recheck current authorities, hold/freeze, route and deadline
+  opt request outcome conclusive and retry separately qualified
+    G -> P : permitted retry only before any stream begins
+  end
+else timeout, account mismatch or ambiguous rotation/outcome
+  G -> G : close use; UNKNOWN where uncertain; no blind retry
+end
+note over A,B
+  Placeholder digest is NOT rejected real-token identity.
+  Any mapping/local app-server callback meaning needs publication/qualification.
+  No real material or late uncorrelated callback goes to A.
+  Old issued vendor-valid versions remain matchable after renewal.
+  Existing external-token v0 real-token flow above is unchanged.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml

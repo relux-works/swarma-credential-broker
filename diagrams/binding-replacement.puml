@@ -1,6 +1,6 @@
 @startuml binding-replacement
 !theme plain
-title R-REBIND: binding replacement for an existing allocation - design only
+title Legacy readable-token view: R-REBIND: binding replacement for an existing allocation - design only
 actor "Authorised renewing principal\nalready in the retained chain" as P
 participant "swarma-dispatcher" as D
 participant "swarma-credential-broker" as B
@@ -53,4 +53,37 @@ note over D,B
   explicit recovery only, partial/unknown results keep admission closed.
   Delivered tokens retain vendor lifetime (§15.5); codes/formats unpublished.
 end note
+@enduml
+
+@startuml binding-replacement-secret-free
+!theme plain
+title Proposed secret-free view: binding-replacement — inactive
+participant "Authorized replacement owner" as D
+participant "Broker" as B
+participant "Gateway / action service" as G
+database "Durable binding / closure evidence" as S
+D -> B : same effect identity + fixed replacement parameters
+B -> B : current narrowing / generation / class / stop checks
+B -> S : retain intent and old removal/tombstone
+B -> B : end old-binding service leases; no inherited authority
+B -> G : fence old listener/queue/streams/use
+G -> S : durable closure / actual effect outcome or UNKNOWN
+alt authority and old closure conclusively reconciled
+  B -> S : fresh binding with current authority; no widening
+  G -> B : fresh service lease; new caller use checks still required
+else lost reply, unknown closure or retired generation
+  B -> B : stay closed; reconcile original effect, no blind replacement
+end
+note over D,G
+  Service and caller bindings are distinct.
+  Recycled UID / repeated label / stale lease cannot target replacement.
+  No seamless env/app-server continuation or speculative handoff format.
+  Copied/leaked credentials keep vendor validity independently.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml

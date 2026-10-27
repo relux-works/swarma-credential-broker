@@ -8,6 +8,17 @@ A credential broker for agent systems. It runs under its own OS user, holds subs
 
 ## What it is for
 
+These bullets describe the readable-token broker baseline. The separately
+versioned [secret-free mode proposal](spec/secret-free-mode.md) is **inactive**:
+only the broker and admitted credential-spending services hold vendor-valid
+material; a harness receives a launch-bound placeholder through a qualified
+configured endpoint. The minimal broker owns credential lifecycle; a separate
+gateway owns request adapters, and the action service owns all external
+shared-state writes. Service compromise remains in the trusted base. Legacy v0
+still delivers real external tokens; failed new-mode qualification grants no
+fallback. [Local-only scope and closed gates](spec/secret-free-mode.md#1-modes-and-admission)
+retain interception and donor B/C as closed, separate scopes.
+
 - One person, one subscription: a subscription is enrolled once and handed to the launches that person authorised, instead of a separate login per managed home.
 - Trusted local agents run as separate OS users; a launch asks the broker for a lease for its profile and harness, and receives the credential only in the launched process.
 - Authority is a signed grant (`credential.lease` on an account, for a profile, until a time), verifiable down to a root key; delegation can only narrow.
@@ -38,6 +49,18 @@ inactive. The approved [local handoff contract](docs/time-handoff.md), generic
 interfaces and gates without a codec or accepting adapter.
 
 ## How it fits
+
+For the inactive [new-mode topology](spec/secret-free-mode.md#2-processes-and-custody),
+credential-holding services authenticate as themselves and need their own lease
+**and** the originating caller's current narrowing authority for every use.
+The agent-side runner receives only a placeholder; board/session hosts retain
+the dispatcher boundary. Local release, service-use closure, account hold,
+session stop and vendor invalidation have distinct lifetimes and outcomes.
+The figures retain their legacy flow and add a separately labeled proposed
+flow; neither is qualification evidence. New-mode delivery has its own
+[publication gates](spec/secret-free-mode.md#13-publication-and-activation-gates)
+and [unrun qualification witnesses](spec/secret-free-mode.md#12-qualification-witnesses);
+existing synthetic, native, fake-503 and version evidence keeps its scope.
 
 - Curator composes the plan on the caller's side. The first broker consumer is [curator-run under the agent account](spec/broker.md#31-first-consumer-and-execution-boundary): its narrow one-shot mode verifies and executes that plan, obtains the lease and starts the harness (owner decision D-EXECUTOR, 2026-10-11). The board runner and session host ask swarma-dispatcher to launch through curator-run; they do not embed broker clients.
 - swarma-user-manager creates the per-agent OS users the broker identifies.
@@ -75,6 +98,14 @@ vendor-subtree absence evidence.
 The remaining pending rows still prevent production qualification.
 
 ## Tools
+
+For diagram-source validation, an installed PlantUML can render both labeled
+views in each source with `plantuml -o <absolute-scratch-directory> diagrams/*.puml`.
+Keep generated images and validation logs in private scratch, outside versioned
+source. This command is documentation validation, not runtime qualification;
+an unavailable renderer leaves rendering UNRUN. Python 3 temporary checks may
+validate local links, anchors and exact changed paths; finite text checks do not
+prove semantic correctness or absence of secrets.
 
 This repository contains specifications, PlantUML sources, declarative JSON
 vectors, a Linux Go daemon and runner with fixture tests, and a
@@ -163,6 +194,12 @@ test treats a started helper's inability to connect as an assertion failure; its
 positive control uses the same configuration and binary.
 
 ## Daemon configuration and current boundary
+
+This is the existing static extraction policy, not service-principal or
+use-through-service authorization. The proposed mode requires a separately
+published compatible [dialect and policy](spec/secret-free-mode.md#13-publication-and-activation-gates);
+no new configuration field, method or credential-holding service is enabled by
+these daemon commands.
 
 Run `swarma-credential-broker daemon --config <protected-config>` and
 `swarma-credential-broker status --config <protected-config>`. Use

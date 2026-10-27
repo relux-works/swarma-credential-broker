@@ -1,5 +1,8 @@
 # Runner broker client and protected authority
 
+> **Proposed secret-free mode (inactive):** This legacy client receives real payloads under static policy. A future agent client receives only placeholders; credential-holding services need separate protected policy and their own lease plus the original caller authority. Closed validation/cleanup remain; no new wire fields are admitted here.
+> See [the separate contract](../spec/secret-free-mode.md#4-two-current-authorities-per-use).
+
 The Linux runner uses `SocketClient` for the profile's Unix transport and
 `ProtectedDependencies` for static policy. The standalone command reads
 `/etc/swarma-credential-broker/config.json`; it has no policy, UID, socket or

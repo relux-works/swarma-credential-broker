@@ -1,5 +1,5 @@
 @startuml components
-title M-CB1: broker components - v0 software root, design only
+title Legacy readable-token view: M-CB1: broker components - v0 software root, design only
 skinparam componentStyle rectangle
 
 actor "Person" as Person
@@ -171,4 +171,36 @@ note bottom of Peer
   partial/unknown results keep closed. Delivered tokens keep vendor lifetime.
   Class encoding and node-wide act/records/codes unpublished (§18.16-§18.17).
 end note
+@enduml
+
+@startuml components-secret-free
+!theme plain
+title Proposed secret-free view: components — inactive
+skinparam componentStyle rectangle
+component "Agent / harness / bridge / LLM\nno vendor-valid material" as A
+component "Minimal broker\nown service account\nUnix socket; lifecycle only" as B
+component "Credential lifecycle adapter\nbroker side; single refresh owner" as L
+component "Injecting gateway\nseparate service account\nrequest adapters" as G
+component "Action service\nProtocol trusted effect executor" as E
+cloud "Declared model provider / code host" as V
+A --> G : launch-bound placeholder; qualified endpoint
+G --> B : own generation-bound service lease
+E --> B : own generation-bound service lease
+B --> L : enroll / refresh / revoke / recover
+B --> G : real material; never to A
+B --> E : real material; never to A
+G --> V : authorized non-shared-state-write use only
+E --> V : authorized shared-state writes; effect recovery
+note bottom of G
+  Every use needs service lease AND original caller's current narrowing chain.
+  Enforced network + IPC isolation denies bypass; no TLS interception.
+  Broker never forwards provider HTTP or loads request plugins.
+  Holder compromise exposes leased credentials; host root outside guarantee.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml

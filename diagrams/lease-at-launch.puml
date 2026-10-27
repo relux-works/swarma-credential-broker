@@ -1,6 +1,6 @@
 @startuml lease-at-launch
 !theme plain
-title Slice 0: curator-run verifies the caller-composed plan and protected binding, leases and starts Claude
+title Legacy readable-token view: Slice 0: curator-run verifies the caller-composed plan and protected binding, leases and starts Claude
 
 participant "curator-run\n(agent OS account, uid 30412)" as E
 participant "swarma-credential-broker\nunprivileged broker service UID" as B
@@ -69,4 +69,37 @@ note over E,B
   Partial/unknown recovery keeps admission closed; delivered tokens
   keep vendor lifetime (§15.5). Freeze code/record formats unpublished (§18.17).
 end note
+@enduml
+
+@startuml lease-at-launch-secret-free
+!theme plain
+title Proposed secret-free view: lease-at-launch — inactive
+participant "Runner / harness\nagent account" as A
+participant "Separate injecting gateway" as G
+participant "Minimal broker" as B
+participant "Qualified provider" as P
+A -> A : selected secret-free mode; qualified endpoint/channel\nprotected source/plan/child checks; no alternate login
+G -> B : own admitted service lease for account
+B --> G : real vendor material; agent receives none
+G --> A : random per-lease placeholder; generation / launch / account bound
+A -> G : request on own listener with placeholder
+G -> G : current service lease AND original caller chain\nactual operation/resource/account; class/policy/hold/stop checks\nmatch agent plaintext BEFORE legitimate injection
+alt all qualified and current
+  G -> P : own guarded dial + authenticated TLS; attach credential
+  P --> G : response
+  G --> A : response only if no credential reflection
+else source/authority/matcher/listener/route conflict
+  G --> A : refuse; no upstream credential attachment
+end
+note over A,P
+  Placeholder outside own listener is useless; port reuse grants nothing.
+  Enforced network/IPC boundary denies direct provider/store/other listener.
+  Endpoint mode only; TLS interception CLOSED, no exposed fallback by failure.
+end note
+
+legend bottom
+  Separate proposed secret-free mode, document revision 1: INACTIVE / UNQUALIFIED.
+  Semantic responsibilities only; no new v0 methods, fields, codes or record formats.
+  [[../spec/secret-free-mode.md Owning proposed contract and qualification gates]]
+endlegend
 @enduml
