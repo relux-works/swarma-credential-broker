@@ -18,6 +18,10 @@ shared-state writes. Service compromise remains in the trusted base. Legacy v0
 still delivers real external tokens; failed new-mode qualification grants no
 fallback. [Local-only scope and closed gates](spec/secret-free-mode.md#1-modes-and-admission)
 retain interception and donor B/C as closed, separate scopes.
+The separate proposed [gateway contract](spec/secret-free-gateway.md) and
+[equal provider adapter profiles](spec/secret-free-adapters.md) specify semantic
+write refusal, two current authorities per use and account-wide containment;
+all new-mode runtime witnesses remain UNRUN.
 
 - One person, one subscription: a subscription is enrolled once and handed to the launches that person authorised, instead of a separate login per managed home.
 - Trusted local agents run as separate OS users; a launch asks the broker for a lease for its profile and harness, and receives the credential only in the launched process.

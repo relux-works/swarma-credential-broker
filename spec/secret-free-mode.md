@@ -7,6 +7,11 @@ gates; it supplies no implementation, release qualification or live-account
 permission. The document revision is not a protocol version. The compatible
 wire dialect, grant extension, encodings and refusal mappings are unselected.
 
+The separate [gateway specification](secret-free-gateway.md) and
+[provider-agnostic adapter specification](secret-free-adapters.md) refine these
+responsibilities. Both are PROPOSED/inactive; provider capabilities and exact
+runtime qualification remain open.
+
 ## 1. Modes and admission
 
 In an admitted, qualified secret-free launch, the agent account, harness, home,
