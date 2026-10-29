@@ -6,17 +6,141 @@ import (
 	"context"
 	"errors"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/relux-works/swarma-credential-broker/brokerclient"
 )
+
+// Claim: EACH exported worker protocol method writes zero bytes without a
+// successful real server-UID verification, including after wrong/closed peer
+// verification. Valid inputs avoid confusing an input rejection with this gate.
+func TestWorkerPeerBeforeBytes(t *testing.T) {
+	for _, mode := range []string{"unverified", "wrong-server", "closed-verification"} {
+		for _, method := range []string{"hello", "request", "renew", "release"} {
+			t.Run(mode+"/"+method, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "s")
+				l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer l.Close()
+				type observed struct {
+					n   int
+					err error
+				}
+				done := make(chan observed, 1)
+				go func() {
+					c, e := l.AcceptUnix()
+					if e != nil {
+						done <- observed{-1, e}
+						return
+					}
+					defer c.Close()
+					c.SetReadDeadline(time.Now().Add(2 * time.Second))
+					var b [1]byte
+					n, e := c.Read(b[:])
+					done <- observed{n, e}
+				}()
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				worker, err := brokerclient.DialWorker(ctx, path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer worker.Close()
+				if mode == "wrong-server" {
+					err = worker.VerifyServer(ctx, uint32(os.Geteuid())+1)
+					if err == nil {
+						t.Fatal("wrong server verified")
+					}
+				}
+				if mode == "closed-verification" {
+					worker.Close()
+					if worker.VerifyServer(ctx, uint32(os.Geteuid())) == nil {
+						t.Fatal("closed verification succeeded")
+					}
+				}
+				switch method {
+				case "hello":
+					_, err = worker.Hello(ctx, brokerclient.HelloRequest{Versions: []int{1}, Profile: brokerclient.ProtocolProfile})
+				case "request":
+					_, err = worker.Request(ctx, brokerclient.LeaseRequest{Account: "example", Profile: "example", Harness: "codex_cli", Channel: "external-token", LaunchID: "synthetic", Executor: brokerclient.Executor{Capabilities: []string{"credential-injection/1"}, Version: "synthetic"}})
+				case "renew":
+					_, err = worker.Renew(ctx, brokerclient.RenewRequest{LeaseID: strings.Repeat("a", 32), RejectedSHA256: strings.Repeat("b", 64)})
+				case "release":
+					err = worker.Release(ctx, strings.Repeat("a", 32))
+				}
+				var refusal *brokerclient.Refusal
+				if !errors.As(err, &refusal) {
+					t.Fatal("unverified method did not return typed refusal")
+				}
+				worker.Close()
+				seen := <-done
+				if seen.n != 0 || !errors.Is(seen.err, io.EOF) {
+					t.Fatal("worker protocol bytes preceded verification")
+				}
+			})
+		}
+	}
+}
+
+// Claim: the exported worker accepts the correct kernel server UID and only
+// then sends valid hello bytes; an unavailable socket is a typed refusal.
+// The real synthetic lease lifecycle positive is TestAllowlistExactAndWorkerControl.
+func TestWorkerVerifiedPositive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s")
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	done := make(chan bool, 1)
+	go func() {
+		c, e := l.AcceptUnix()
+		if e != nil {
+			done <- false
+			return
+		}
+		defer c.Close()
+		c.SetDeadline(time.Now().Add(time.Second))
+		b, e := wire.Read(c)
+		var r wire.Request
+		if e != nil || wire.Decode(b, &r) != nil || r.Method != "hello" {
+			done <- false
+			return
+		}
+		e = wire.Write(c, map[string]any{"request_id": r.ID, "result": map[string]any{"version": 1, "profile": wire.Profile, "principal": map[string]any{"uid": uint32(os.Geteuid())}, "policy_generation": uint64(1)}})
+		done <- e == nil
+	}()
+	w, err := brokerclient.DialWorker(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if w.VerifyServer(context.Background(), uint32(os.Geteuid())) != nil {
+		t.Fatal("correct server rejected")
+	}
+	if _, err = w.Hello(context.Background(), brokerclient.HelloRequest{Versions: []int{1}, Profile: brokerclient.ProtocolProfile}); err != nil {
+		t.Fatal(err)
+	}
+	if !<-done {
+		t.Fatal("hello positive failed")
+	}
+	_, err = brokerclient.DialWorker(context.Background(), filepath.Join(t.TempDir(), "missing"))
+	var refusal *brokerclient.Refusal
+	if !errors.As(err, &refusal) || refusal.Code != "lease_owner_unavailable" {
+		t.Fatal("unavailable socket did not refuse")
+	}
+}
 
 // Claim: the zero/nil/failed observer API produces a closed typed error with a
 // zero result; its method set cannot acquire/renew/release or send arbitrary RPC.
