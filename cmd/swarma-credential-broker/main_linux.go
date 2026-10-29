@@ -59,7 +59,9 @@ func run(args []string, out, diagnostic io.Writer) int {
 		return 69
 	}
 	defer s.Close()
-	m, e := lease.New(c.Policy, s, owner.Stopped{}, lease.Options{Qualification: func(ctx context.Context, p policy.Policy) error {
+	m, e := lease.New(c.Policy, s, owner.Stopped{}, lease.Options{ObservePolicy: func(ctx context.Context, p policy.Policy) error {
+		return observeConfiguredPolicy(ctx, *config, c, p)
+	}, Qualification: func(ctx context.Context, p policy.Policy) error {
 		next, e := policy.Load(*config, p.BrokerUID)
 		if e != nil || !reflect.DeepEqual(next.Policy, p) {
 			return qualification.ErrUnavailable
@@ -110,4 +112,12 @@ func run(args []string, out, diagnostic io.Writer) int {
 		return 75
 	}
 	return 0
+}
+
+func observeConfiguredPolicy(ctx context.Context, path string, configured policy.Config, served policy.Policy) error {
+	next, err := policy.Load(path, served.BrokerUID)
+	if err != nil || ctx.Err() != nil || !reflect.DeepEqual(next, policy.Config{SocketPath: configured.SocketPath, StoreRoot: configured.StoreRoot, Policy: served}) {
+		return qualification.ErrUnavailable
+	}
+	return nil
 }

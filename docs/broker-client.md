@@ -1,5 +1,9 @@
 # Runner broker client and protected authority
 
+The existing worker contract is now importable through
+[`brokerclient`](brokerclient.md), alongside its separate read-only static-policy
+observer. That observer cannot acquire, renew or release a worker lease.
+
 > **Proposed secret-free mode (inactive):** This legacy client receives real payloads under static policy. A future agent client receives only placeholders; credential-holding services need separate protected policy and their own lease plus the original caller authority. Closed validation/cleanup remain; no new wire fields are admitted here.
 > See [the separate contract](../spec/secret-free-mode.md#4-two-current-authorities-per-use).
 

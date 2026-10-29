@@ -577,6 +577,13 @@ historical native-resume observation as current qualification.
 
 ## 7. Profile-specific `broker/1` subset
 
+The implemented [static allowlist observation extension](../docs/brokerclient.md)
+adds `allowlist.check` under separate protected observer UID authority. It echoes
+an exact target tuple and served static generation, never credential/lease
+material or reusable launch authority. Worker lease methods retain their existing
+ownership and wire shapes; the extension is not mutable revocation/grant
+evaluation or secret-free service admission.
+
 > **Proposed secret-free mode (inactive):** This closed wire subset remains unchanged: its negotiation, payloads, lease ownership and reports confer no service lease, caller use-through-service or detector-triggered whole-account hold.
 > See [the separate contract](secret-free-mode.md#13-publication-and-activation-gates).
 

@@ -26,6 +26,7 @@ type SocketClient struct {
 	once            sync.Once
 	verified, hello bool   // protected by gate
 	next            uint64 // monotonic IDs, protected by gate
+	generation      uint64 // negotiated served static policy, protected by gate
 }
 
 func DialBroker(ctx context.Context, path string) (*SocketClient, error) {
@@ -87,6 +88,8 @@ func (c *SocketClient) VerifyServer(ctx context.Context, expected uint32) error 
 
 func profileCode(code string) bool {
 	switch code {
+	case "allowlist_not_authorised", "allowlist_generation_mismatch", "allowlist_tuple_mismatch", "allowlist_unavailable":
+		return true
 	case "peer_identity_unavailable", "server_identity_mismatch", "role_not_permitted", "frame_too_large", "version_unsupported", "request_deadline_exceeded", "account_exists", "account_unknown", "account_duplicate", "account_store_keyring_refused", "enrol_material_invalid", "lease_not_authorised", "lease_account_unknown", "lease_harness_mismatch", "lease_account_revoked", "lease_reauth_required", "lease_owner_unavailable", "lease_channel_unsupported", "lease_harness_unqualified", "lease_binding_mismatch", "lease_network_enforcement_unavailable", "lease_not_owner", "lease_not_active", "renew_not_current", "renew_timeout", "renew_failed", "external_token_init_failed", "credential_source_conflict", "credential_injection_unavailable":
 		return true
 	}
@@ -103,6 +106,9 @@ type brokerReply struct {
 // cancellation callback before permitting any following exchange.
 func (c *SocketClient) exchange(parent context.Context, method string, params any, limit time.Duration, status int, decode func([]byte) bool) error {
 	failure := "credential_injection_unavailable"
+	if method == "allowlist.check" {
+		failure = "allowlist_unavailable"
+	}
 	if method == "lease.renew" {
 		failure = "renew_failed"
 	}
@@ -215,9 +221,28 @@ func (c *SocketClient) Hello(ctx context.Context, r HelloRequest) (HelloResult, 
 		}
 		out = HelloResult{h.Version, h.Profile, h.Principal.UID, h.Generation}
 		c.hello = true
+		c.generation = h.Generation
 		return true
 	})
 	return out, e
+}
+
+// CheckAllowlist uses the same authenticated, closed, bounded exchange as leases.
+// A result is metadata only and must bind every request field and the hello epoch.
+func (c *SocketClient) CheckAllowlist(ctx context.Context, r wire.AllowlistRequest) (wire.AllowlistResult, error) {
+	var out wire.AllowlistResult
+	err := c.exchange(ctx, "allowlist.check", r, 2*time.Second, 69, func(b []byte) bool {
+		var result wire.AllowlistResult
+		if wire.Decode(b, &result) != nil || result.Decision != "allow" || result.Tuple != r || result.Generation == 0 || result.Generation != r.ExpectedGeneration || result.Generation != c.generation {
+			return false
+		}
+		out = result
+		return true
+	})
+	if err != nil {
+		return wire.AllowlistResult{}, err
+	}
+	return out, nil
 }
 func (c *SocketClient) Request(ctx context.Context, r LeaseRequest) (Lease, error) {
 	b := r.CredentialBinding

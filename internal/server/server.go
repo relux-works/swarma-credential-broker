@@ -283,6 +283,12 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 		}
 		var params any
 		switch r.Method {
+		case "allowlist.check":
+			var v wire.AllowlistRequest
+			if wire.Decode(r.Params, &v) != nil {
+				return
+			}
+			params = v
 		case "status":
 			var empty struct{}
 			if wire.Decode(r.Params, &empty) != nil {

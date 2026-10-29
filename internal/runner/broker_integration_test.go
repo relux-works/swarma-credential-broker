@@ -266,7 +266,7 @@ func TestDaemonClientRelease(t *testing.T) {
 	_, e = broker.Hello(context.Background(), HelloRequest{[]int{1}, ProtocolProfile})
 	must(t, e)
 	b := p.BindingDigest
-	l, e := broker.Request(context.Background(), LeaseRequest{Harness: "codex_cli", Profile: p.Profile, Account: p.Account, Channel: "external-token", LaunchID: "fixture-launch", CredentialBinding: Binding{b, "codex_cli", p.Profile, p.Account, "external-token", p.Endpoint, p.ExecutableSHA256, p.PolicyGeneration}, Executor: Executor{[]string{"credential-injection/1"}, Version}})
+	l, e := broker.Request(context.Background(), LeaseRequest{Harness: "codex_cli", Profile: p.Profile, Account: p.Account, Channel: "external-token", LaunchID: "fixture-launch", CredentialBinding: Binding{Digest: b, Harness: "codex_cli", Profile: p.Profile, Account: p.Account, Channel: "external-token", Endpoint: p.Endpoint, ExecutableSHA256: p.ExecutableSHA256, PolicyGeneration: p.PolicyGeneration}, Executor: Executor{[]string{"credential-injection/1"}, Version}})
 	must(t, e)
 	defer l.erase()
 	must(t, broker.Release(context.Background(), l.ID))

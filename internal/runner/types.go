@@ -5,6 +5,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"github.com/relux-works/swarma-credential-broker/internal/wire"
 	"io"
 	"time"
 )
@@ -35,10 +36,7 @@ type HelloResult struct {
 	UID              uint32
 	PolicyGeneration uint64
 }
-type Binding struct {
-	Digest, Harness, Profile, Account, Channel, Endpoint, ExecutableSHA256 string
-	PolicyGeneration                                                       uint64
-}
+type Binding = wire.Binding
 type LeaseRequest struct {
 	Harness, Profile, Account, Channel, LaunchID string
 	CredentialBinding                            Binding
@@ -61,6 +59,10 @@ type Lease struct {
 }
 
 func (l *Lease) erase() { clear(l.Token); l.Token = nil; l.PlanType = ""; l.ChatGPTAccountID = "" }
+
+// Erase clears the caller-owned token bytes and drops material-bearing metadata.
+// It cannot erase strings/copies made by the embedding program or the Go runtime.
+func (l *Lease) Erase() { l.erase() }
 
 // Policy is supplied only by a protected authority, never CLI or environment.
 // Qualified means the full exact-release qualification/1 record was verified,

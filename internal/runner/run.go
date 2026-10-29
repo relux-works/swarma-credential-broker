@@ -187,7 +187,7 @@ func execute(ctx context.Context, o Options, prompt []byte, streams IO, d Depend
 	}
 	state.phase = phaseRequest
 	call, ccancel := context.WithTimeout(ctx, 30*time.Second)
-	lease, err := broker.Request(call, LeaseRequest{Harness: "codex_cli", Profile: o.Profile, Account: o.Account, Channel: "external-token", LaunchID: randomID(), CredentialBinding: Binding{policy.BindingDigest, "codex_cli", o.Profile, o.Account, "external-token", policy.Endpoint, policy.ExecutableSHA256, policy.PolicyGeneration}, Executor: Executor{[]string{"credential-injection/1"}, Version}})
+	lease, err := broker.Request(call, LeaseRequest{Harness: "codex_cli", Profile: o.Profile, Account: o.Account, Channel: "external-token", LaunchID: randomID(), CredentialBinding: Binding{Digest: policy.BindingDigest, Harness: "codex_cli", Profile: o.Profile, Account: o.Account, Channel: "external-token", Endpoint: policy.Endpoint, ExecutableSHA256: policy.ExecutableSHA256, PolicyGeneration: policy.PolicyGeneration}, Executor: Executor{[]string{"credential-injection/1"}, Version}})
 	ccancel()
 	if err != nil {
 		lease.erase()

@@ -16,6 +16,7 @@ type Error struct {
 func (e *Error) Error() string { return e.Code }
 func Refuse(code string) *Error {
 	switch code {
+	case "allowlist_not_authorised", "allowlist_generation_mismatch", "allowlist_tuple_mismatch", "allowlist_unavailable":
 	case "peer_identity_unavailable", "server_identity_mismatch", "role_not_permitted", "frame_too_large", "version_unsupported", "request_deadline_exceeded", "account_exists", "account_unknown", "account_duplicate", "account_store_keyring_refused", "enrol_material_invalid", "lease_not_authorised", "lease_account_unknown", "lease_harness_mismatch", "lease_account_revoked", "lease_reauth_required", "lease_owner_unavailable", "lease_channel_unsupported", "lease_harness_unqualified", "lease_binding_mismatch", "lease_network_enforcement_unavailable", "lease_not_owner", "lease_not_active", "renew_not_current", "renew_timeout", "renew_failed", "external_token_init_failed", "credential_source_conflict", "credential_injection_unavailable":
 	default:
 		code = "lease_owner_unavailable"
@@ -26,6 +27,23 @@ func Refuse(code string) *Error {
 type Hello struct {
 	Versions []int  `json:"versions"`
 	Profile  string `json:"profile"`
+}
+
+// AllowlistRequest asks only about the exact served static policy, not a lease.
+type AllowlistRequest struct {
+	TargetUID          uint32  `json:"target_uid"`
+	Account            string  `json:"account"`
+	Profile            string  `json:"profile"`
+	Harness            string  `json:"harness"`
+	Channel            string  `json:"channel"`
+	Binding            Binding `json:"credential_binding"`
+	ExpectedGeneration uint64  `json:"expected_policy_generation"`
+}
+
+type AllowlistResult struct {
+	Tuple      AllowlistRequest `json:"tuple"`
+	Generation uint64           `json:"policy_generation"`
+	Decision   string           `json:"decision"`
 }
 type Binding struct {
 	Digest           string `json:"digest"`

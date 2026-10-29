@@ -24,6 +24,9 @@ type Event struct {
 	At      time.Time
 }
 type Options struct {
+	// ObservePolicy checks the protected static source against the served snapshot.
+	// The standalone daemon installs it; nil supports immutable in-memory embedders.
+	ObservePolicy func(context.Context, policy.Policy) error
 	// Qualification re-reads protected evidence before issuance/refresh and again
 	// before delivery. The standalone daemon always installs this gate.
 	Qualification  func(context.Context, policy.Policy) error
@@ -288,6 +291,13 @@ func (m *Manager) Call(ctx context.Context, uid uint32, method string, params an
 	if failed {
 		return Outcome{Err: wire.Refuse("lease_owner_unavailable")}
 	}
+	// Exclude observers before looking up a lease ID or queuing owner work.
+	if p.Observer(uid) && method != "allowlist.check" {
+		return Outcome{Err: wire.Refuse("role_not_permitted"), Generation: p.Generation}
+	}
+	if method == "allowlist.check" {
+		return m.allowlist(ctx, p, uid, params)
+	}
 	op := &operation{arrival: arrival, method: method, uid: uid, generation: p.Generation, waiters: map[uint64]*waiter{}}
 	defer func() {
 		if m.options.Observe != nil {
@@ -413,7 +423,7 @@ func (m *Manager) Deadline(method string, arrival time.Time) time.Time {
 	if method == "lease.renew" {
 		timeout = m.options.RenewTimeout
 	}
-	if method == "lease.release" || method == "status" {
+	if method == "lease.release" || method == "status" || method == "allowlist.check" {
 		timeout = 2 * time.Second
 	}
 	return arrival.Add(timeout)

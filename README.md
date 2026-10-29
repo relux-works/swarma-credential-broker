@@ -8,6 +8,11 @@ A credential broker for agent systems. It runs under its own OS user, holds subs
 
 ## What it is for
 
+Linux integrations can import the [v0 worker client and separate static-policy
+observer](docs/brokerclient.md) at
+`github.com/relux-works/swarma-credential-broker/brokerclient`. The observer
+receives no lease material and its observation is not launch authority.
+
 These bullets describe the readable-token broker baseline. The separately
 versioned [secret-free mode proposal](spec/secret-free-mode.md) is **inactive**:
 only the broker and admitted credential-spending services hold vendor-valid
@@ -132,6 +137,7 @@ isolated helpers and that fake vendor, with fresh homes. No logged-in home is us
 | GNU coreutils / Linux process table | `sleep 0.05` bounds child-completion probes; `/proc/<pid>/stat` checks direct parent and start time before signaling. See the [operator guide](docs/service-user-migration.md) for tri-state observations and the remaining numeric PID race | Unconfirmed owned PIDs are reported on sanitized stderr; no process-table contents are copied |
 | strace (Linux fixture tests) | `MIGRATION_TEST_FILTER='ProcessLookup*' bash tests/migration/run <absolute-fresh-scratch-directory>` injects EACCES/EIO into actual process metadata syscalls; Python's standard-library `ctypes` enables a test-only subreaper for abandoned fixture children | Exact injected-call traces, child/reclose evidence and narrowing-control logs under the supplied scratch directory |
 | Git | Review whitespace with `git diff --check`; verify signed changes with `git log --format='%G? %an %s' origin/main..HEAD` | Terminal; capture private evidence in a scratch `.tmp` directory outside the versioned tree |
+| Go importable v0 client | `GO="$CURATOR_GO" "$CURATOR_GO" test ./brokerclient -count=1`; [API and observer protocol](docs/brokerclient.md) | Synthetic socket/external-module fixtures in test-owned `TMPDIR`; use a short isolated root for Unix socket limits and private logs outside Git. No provider or cross-UID deployment qualification |
 | Go 1.25+ | Build with `go build -o ../.tmp/swarma-credential-broker ./cmd/swarma-credential-broker`; build the fake with `go build -o ../.tmp/fake-app-server ./internal/runner/testdata/appserver`; check with `go vet ./internal/runner ./cmd/swarma-credential-broker`, `gofmt -l internal/runner cmd/swarma-credential-broker`, and `GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -count=1` | Set `CURATOR_GO` to the selected Go executable. Helper builds use explicit `GO` or the running toolchain GOROOT, and verify the same Go version. Binary in private scratch; tests build the fake app-server and command under `TMPDIR` (set it to a scratch directory outside the versioned tree) |
 | strace (Linux tests) | Reproduce real proc metadata disappearance with `GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -run 'Test(CommandProcDisappearance\|StopProcDisappearance)$' -count=1 -v`; development runs skip with `UNVERIFIED` when strace or ptrace permission is unavailable (a native typed-errno probe runs first). Require every observation row with `RUNNER_QUALIFICATION=1 GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -count=1`; unavailable strace/ptrace or a skipped required row fails with a named `UNVERIFIED` diagnostic | Test-owned syscall traces under `TMPDIR`; no errno substitution or live account access |
 | Python 3 / Linux seccomp (fixture control) | `GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -run '^TestTraceAvailability$' -count=1 -v`; the x86_64 `testdata/ptrace_denied.py` wrapper returns EPERM only for ptrace in its own subprocess tree | Named unavailable and applied-assertion controls in test output; no host policy changes |

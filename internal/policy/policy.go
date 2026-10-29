@@ -32,6 +32,7 @@ type Policy struct {
 	Executable       string           `json:"executable"`
 	ExecutableSHA256 string           `json:"executable_sha256"`
 	MaxLeaseSeconds  int64            `json:"max_lease_seconds"`
+	ObserverUIDs     []uint32         `json:"observer_uids,omitempty"`
 	Accounts         []Account        `json:"accounts"`
 }
 type Config struct {
@@ -64,7 +65,19 @@ func (p Policy) Validate(uid uint32) error {
 	}
 	labels := map[string]bool{}
 	vendors := map[string]bool{}
+	observers := map[uint32]bool{}
+	for _, observer := range p.ObserverUIDs {
+		if observer == p.BrokerUID || observers[observer] {
+			return wire.Refuse("lease_not_authorised")
+		}
+		observers[observer] = true
+	}
 	for _, a := range p.Accounts {
+		for _, worker := range a.AllowedUIDs {
+			if observers[worker] {
+				return wire.Refuse("lease_not_authorised")
+			}
+		}
 		if a.Label == "" || a.VendorID == "" || labels[a.Label] || vendors[a.VendorID] || !strings.HasPrefix(a.Endpoint, "https://") {
 			return wire.Refuse("lease_not_authorised")
 		}
@@ -93,6 +106,9 @@ func contains[T comparable](xs []T, x T) bool {
 	return false
 }
 func (p Policy) Peer(uid uint32) bool {
+	if p.Observer(uid) {
+		return true
+	}
 	for _, a := range p.Accounts {
 		if a.Enabled && contains(a.AllowedUIDs, uid) {
 			return true
@@ -100,8 +116,15 @@ func (p Policy) Peer(uid uint32) bool {
 	}
 	return false
 }
+
+// Observer authority is explicit and never confers worker lease authority.
+func (p Policy) Observer(uid uint32) bool { return contains(p.ObserverUIDs, uid) }
+
 func (p Policy) Visible(uid uint32) []Account {
 	out := []Account{}
+	if p.Observer(uid) {
+		return out
+	}
 	for _, a := range p.Accounts {
 		if a.Enabled && contains(a.AllowedUIDs, uid) {
 			out = append(out, a)
@@ -111,6 +134,9 @@ func (p Policy) Visible(uid uint32) []Account {
 }
 func (p Policy) Admit(uid uint32, label, profile string) (Account, error) {
 	var a Account
+	if p.Observer(uid) {
+		return a, wire.Refuse("lease_not_authorised")
+	}
 	profileAllowed := false
 	for _, v := range p.Accounts {
 		if v.Enabled && contains(v.AllowedUIDs, uid) && contains(v.Profiles, profile) {
