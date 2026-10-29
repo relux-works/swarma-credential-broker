@@ -269,6 +269,9 @@ func (o *CaseOrigin) entry(challenge []byte) error {
 	}
 	o.entered.Store(true)
 	_, err = unix.Write(int(o.parent.Fd()), []byte{1})
+	if err == nil {
+		o.observePhase(OriginEntered)
+	}
 	return err
 }
 
@@ -382,9 +385,11 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	cmd.Stderr = c.Stderr
 	cmd.ExtraFiles = append(append([]*os.File{child}, c.ExtraFiles...), o.child)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Ptrace: true, Setpgid: true, PidFD: &fd}
+	o.observePhase(OriginStarting)
 	if err = cmd.Start(); err != nil {
 		return
 	}
+	o.observePhase(OriginSupervising)
 	child.Close()
 	o.pid.Store(int64(cmd.Process.Pid))
 	if c.Started != nil {
@@ -392,7 +397,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	}
 	if fd < 0 {
 		_ = cmd.Process.Kill()
+		o.observePhase(OriginJoining)
 		_ = cmd.Wait()
+		o.observeWait(cmd.ProcessState)
 		if c.Waited != nil {
 			c.Waited(cmd.ProcessState)
 		}
@@ -450,7 +457,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 				time.Sleep(time.Millisecond)
 			}
 		}
+		o.observePhase(OriginJoining)
 		waitErr := cmd.Wait() // Exactly one consuming terminal wait, on this owner.
+		o.observeWait(cmd.ProcessState)
 		if cmd.ProcessState != nil {
 			o.joined.Store(true)
 		}
@@ -538,6 +547,7 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 		}
 		terminal = done
 		if terminal {
+			o.observePhase(OriginTerminal)
 			o.terminal.Store(true)
 			if o.verified.Load() {
 				err = o.entry(expected)

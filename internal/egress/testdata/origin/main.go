@@ -4,7 +4,10 @@
 package main
 
 import (
+	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strconv"
@@ -35,8 +38,10 @@ func main() {
 			if unix.Gettid() == unix.Getpid() {
 				os.Exit(125)
 			}
-			if _, err := unix.Write(6, []byte(strconv.Itoa(unix.Gettid()))); err != nil {
-				os.Exit(125)
+			if !strings.HasPrefix(mode, "owner-close-") {
+				if _, err := unix.Write(6, []byte(strconv.Itoa(unix.Gettid()))); err != nil {
+					os.Exit(125)
+				}
 			}
 			argv := []string{os.Args[0], "/proc/self/fd/4", "case", mode, status}
 			if strings.HasPrefix(mode, "owner-") || strings.HasPrefix(mode, "planned-") {
@@ -84,6 +89,34 @@ func main() {
 		}
 		if err != nil {
 			os.Exit(125)
+		}
+		if mode == "owner-close-clean" || mode == "owner-close-wait" {
+			// Fixed secret-free close fixture: real framed startup/close, then
+			// either normal exit or a read held until the supervisor cancels.
+			startup := []byte(`{"Data":"lease","Error":"","ID":1,"Op":"startup"}`)
+			var size [4]byte
+			binary.BigEndian.PutUint32(size[:], uint32(len(startup)))
+			if _, err := unix.Write(6, append(size[:], startup...)); err != nil {
+				os.Exit(125)
+			}
+			input := os.NewFile(8, "fixture-input")
+			if _, err := io.ReadFull(input, size[:]); err != nil || binary.BigEndian.Uint32(size[:]) > 4096 {
+				os.Exit(125)
+			}
+			body := make([]byte, binary.BigEndian.Uint32(size[:]))
+			var close struct {
+				ID int
+				Op string
+			}
+			if _, err := io.ReadFull(input, body); err != nil || json.Unmarshal(body, &close) != nil || close.ID != 1 || close.Op != "close" {
+				os.Exit(125)
+			}
+			if mode == "owner-close-wait" {
+				var extra [1]byte
+				_, _ = input.Read(extra[:])
+				os.Exit(1)
+			}
+			os.Exit(0)
 		}
 		if strings.HasPrefix(mode, "planned-") {
 			if _, err := unix.Write(6, []byte("entered")); err != nil {

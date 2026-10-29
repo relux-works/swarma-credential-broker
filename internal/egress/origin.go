@@ -18,6 +18,7 @@ type CaseOrigin struct {
 	verified, entered         atomic.Bool
 	joined, invalid, terminal atomic.Bool
 	nonleader, used           atomic.Bool
+	diagnostic                atomic.Uint32
 }
 
 // OriginFacts are parent observations, not child-supplied lifecycle claims.

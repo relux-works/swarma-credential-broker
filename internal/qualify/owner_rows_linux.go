@@ -235,17 +235,31 @@ func (s *ownerSession) call(op string, v any, want string) (wire.LeaseResult, er
 	return result, nil
 }
 func (s *ownerSession) close() error {
+	var snapshot ownerCloseSnapshot
+	timedOut := false
+	// Register delivery first so all the existing cleanup defers run before a
+	// test-installed callback. Capture itself never calls that callback.
+	defer func() {
+		if timedOut {
+			ownerDiagnosticClose(s.diagnosticContext, &snapshot)
+		}
+	}()
 	defer s.origin.Close()
 	defer s.ch.r.Close()
 	defer s.ch.w.Close()
 	defer s.cancel()
+	cancelIssued := false
 	if e := s.ch.send("close", nil, nil); e != nil {
 		s.cancel()
+		cancelIssued = true
 	}
 	select {
 	case <-s.done:
 	case <-time.After(2 * time.Second):
+		snapshot = s.closeSnapshot(cancelIssued)
+		timedOut = true
 		s.cancel()
+		cancelIssued = true
 		s.ch.r.Close()
 		s.ch.w.Close()
 		<-s.done
