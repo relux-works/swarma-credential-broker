@@ -392,16 +392,15 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	o.observePhase(OriginSupervising)
 	child.Close()
 	o.pid.Store(int64(cmd.Process.Pid))
-	if c.Started != nil {
-		c.Started(cmd.Process.Pid)
-	}
 	if fd < 0 {
-		_ = cmd.Process.Kill()
-		o.observePhase(OriginJoining)
-		_ = cmd.Wait()
-		o.observeWait(cmd.ProcessState)
-		if c.Waited != nil {
-			c.Waited(cmd.ProcessState)
+		defer func() {
+			_ = cmd.Process.Kill()
+			o.observePhase(OriginJoining)
+			w := originOwner{pid: cmd.Process.Pid, fd: -1, tasks: map[int]bool{cmd.Process.Pid: true}}
+			err = errors.Join(err, o.finishWait(cmd, c, &w))
+		}()
+		if c.Started != nil {
+			c.Started(cmd.Process.Pid)
 		}
 		return report, ErrUnavailable
 	}
@@ -458,14 +457,7 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 			}
 		}
 		o.observePhase(OriginJoining)
-		waitErr := cmd.Wait() // Exactly one consuming terminal wait, on this owner.
-		o.observeWait(cmd.ProcessState)
-		if cmd.ProcessState != nil {
-			o.joined.Store(true)
-		}
-		if c.Waited != nil {
-			c.Waited(cmd.ProcessState)
-		}
+		waitErr := o.finishWait(cmd, c, &w)
 		if o.termination != nil {
 			signal := 0
 			if cmd.ProcessState != nil {
@@ -477,6 +469,11 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 		}
 		err = errors.Join(err, waitErr)
 	}()
+	// Bookkeeping may unwind the call; actual owned-child cleanup is already
+	// installed before invoking any parent callback after Start.
+	if c.Started != nil {
+		c.Started(cmd.Process.Pid)
+	}
 	listener := -1
 	defer func() {
 		if listener >= 0 {
@@ -639,4 +636,142 @@ func originThread(tid, leader int) bool {
 		}
 	}
 	return false
+}
+
+// finishWait owns the one callback and fresh final wait for this invocation.
+// The caller has already attempted the normal trace drain. If Wait supplies a
+// nonterminal notification, refuse credit and finish actual owned-child cleanup
+// instead of treating that notification as an exit or leaving the tracee behind.
+func (o *CaseOrigin) finishWait(cmd *exec.Cmd, c Config, w *originOwner) error {
+	if !o.waited.CompareAndSwap(false, true) {
+		return ErrUnavailable
+	}
+	var state *os.ProcessState
+	var waitErr error
+	defer func() {
+		o.observeWait(state)
+		if state != nil {
+			o.joined.Store(true)
+		} else {
+			o.invalid.Store(true)
+		}
+		if c.Waited != nil {
+			c.Waited(state)
+		}
+	}()
+	if cmd.Process == nil || cmd.ProcessState != nil || w.pid != cmd.Process.Pid || o.pid.Load() != int64(w.pid) {
+		// No stale result or mismatched child may supply credit. Kill uses Cmd's
+		// own process handle, not the mismatched numeric identity.
+		if cmd.Process != nil && cmd.ProcessState != nil && !terminalWait(cmd.ProcessState) && cmd.ProcessState.Pid() == cmd.Process.Pid {
+			cleanup := originOwner{pid: cmd.Process.Pid, fd: -1, tasks: map[int]bool{cmd.Process.Pid: true}}
+			_, waitErr = cleanup.reapStopped()
+			cmd.ProcessState = nil
+		} else if cmd.Process != nil && cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			cleanup := originOwner{pid: cmd.Process.Pid, fd: -1, tasks: map[int]bool{cmd.Process.Pid: true}}
+			_, waitErr = cleanup.reapStopped()
+			waitErr = errors.Join(waitErr, cmd.Wait())
+		}
+		return errors.Join(ErrUnavailable, waitErr)
+	}
+	waitErr = cmd.Wait()
+	actual := cmd.ProcessState
+	if terminalWait(actual) && actual.Pid() == w.pid {
+		state = actual
+		return waitErr
+	}
+	// Only this fresh, real nonterminal result proves the child is unreaped and
+	// still pins its PID/group. A missing/consumed wait supplies no such custody.
+	if actual != nil && actual.Pid() == w.pid {
+		_, cleanupErr := w.reapStopped()
+		waitErr = errors.Join(waitErr, cleanupErr)
+	}
+	cmd.ProcessState = nil
+	return errors.Join(ErrUnavailable, waitErr)
+}
+
+// reapStopped is refusal cleanup only, never terminal-credit publication.
+// It is entered with an actual owned nonterminal wait or a fresh Cmd handle.
+// Each continuation selects a task that just supplied its own real stop. The
+// group is signaled only while the unreaped leader still pins the group ID.
+func (w *originOwner) reapStopped() (leader unix.WaitStatus, err error) {
+	if w.tasks == nil {
+		w.tasks = map[int]bool{}
+	}
+	w.tasks[w.pid] = true
+	var si unix.Siginfo
+	var e error
+	for {
+		e = unix.Waitid(unix.P_PID, w.pid, &si, unix.WEXITED|unix.WSTOPPED|unix.WNOHANG|unix.WNOWAIT|unix.WALL, nil)
+		if e != unix.EINTR {
+			break
+		}
+	}
+	if e != nil {
+		return leader, e
+	}
+	_ = unix.Kill(-w.pid, unix.SIGKILL)
+	if w.fd >= 0 {
+		_ = unix.PidfdSendSignal(w.fd, unix.SIGKILL, nil, 0)
+	} else {
+		_ = unix.Kill(w.pid, unix.SIGKILL)
+	}
+	leaderReaped := false
+	for len(w.tasks) > 0 {
+		if !leaderReaped {
+			entries, e := os.ReadDir(fmt.Sprintf("/proc/%d/task", w.pid))
+			if e == nil {
+				for _, entry := range entries {
+					if p, e := strconv.Atoi(entry.Name()); e == nil {
+						w.tasks[p] = true
+					}
+				}
+			}
+		}
+		progress := false
+		for p := range w.tasks {
+			var status unix.WaitStatus
+			n, e := unix.Wait4(p, &status, unix.WNOHANG|unix.WALL, nil)
+			if e == unix.EINTR {
+				continue
+			}
+			if e == unix.ECHILD {
+				delete(w.tasks, p)
+				if p == w.pid && !leaderReaped {
+					err = errors.Join(err, ErrUnavailable)
+				}
+				continue
+			}
+			if e != nil {
+				return leader, errors.Join(err, e)
+			}
+			if n == 0 {
+				continue
+			}
+			if n != p {
+				return leader, errors.Join(err, ErrUnavailable)
+			}
+			progress = true
+			if status.Exited() || status.Signaled() {
+				delete(w.tasks, p)
+				if p == w.pid {
+					leader = status
+					leaderReaped = true
+				}
+				continue
+			}
+			if status.Stopped() {
+				if e := unix.PtraceCont(p, int(unix.SIGKILL)); e != nil && e != unix.ESRCH {
+					return leader, errors.Join(err, e)
+				}
+			}
+		}
+		if !progress && len(w.tasks) > 0 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if !leaderReaped {
+		err = errors.Join(err, ErrUnavailable)
+	}
+	return leader, err
 }

@@ -79,13 +79,14 @@ func (c *TerminationController) joined(state *os.ProcessState, waitErr, supervis
 	f := &c.fact
 	f.TraceComplete = traceComplete
 	f.Waits++
-	if state != nil {
-		f.Joined = true
+	f.Joined = terminalWait(state) && state.Pid() == f.PID && f.Waits == 1
+	f.Exit = -1
+	if f.Joined {
 		f.Exit = state.ExitCode()
 	}
 	f.Signal = signal
 	if waitErr != nil {
 		f.WaitError = waitErr.Error()
 	}
-	f.valid = supervisionErr == nil && !c.origin.invalid.Load() && f.SignalSent
+	f.valid = supervisionErr == nil && !c.origin.invalid.Load() && f.SignalSent && f.Joined
 }

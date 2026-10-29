@@ -17,7 +17,7 @@ type CaseOrigin struct {
 	pid                       atomic.Int64
 	verified, entered         atomic.Bool
 	joined, invalid, terminal atomic.Bool
-	nonleader, used           atomic.Bool
+	nonleader, used, waited   atomic.Bool
 	diagnostic                atomic.Uint32
 }
 
@@ -48,4 +48,17 @@ func closeOriginFiles(files ...*os.File) (err error) {
 		}
 	}
 	return
+}
+
+// terminalWait excludes ptrace stops and continued/unavailable observations.
+// A nonzero exit or real signal death remains terminal despite a wait error.
+func terminalWait(state *os.ProcessState) bool {
+	if state == nil {
+		return false
+	}
+	if state.Exited() {
+		return true
+	}
+	status, ok := state.Sys().(interface{ Signaled() bool })
+	return ok && status.Signaled()
 }

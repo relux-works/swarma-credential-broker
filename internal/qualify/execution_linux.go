@@ -87,7 +87,12 @@ func executionControl(id, side string, e rowExecution, elapsed time.Duration) qu
 // Wait state is independent of observation/bootstrap errors. No status is
 // inferred from a generic error, and a launch failure has no wait state.
 func (e *rowExecution) waited(state *os.ProcessState) {
-	if state != nil {
+	e.Joined, e.HelperExit = false, -1
+	if state == nil {
+		return
+	}
+	signaled, ok := state.Sys().(interface{ Signaled() bool })
+	if state.Exited() || ok && signaled.Signaled() {
 		e.Joined = true
 		e.HelperExit = state.ExitCode()
 	}

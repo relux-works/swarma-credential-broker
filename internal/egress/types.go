@@ -32,8 +32,10 @@ type Config struct {
 	// Started reports the supervised child PID before bootstrap is released.
 	// It is parent-only bookkeeping and grants no network permission.
 	Started func(int)
-	// Waited reports the actual launcher wait state before Run returns, including
-	// bootstrap/supervision failures. It is independent of observation errors.
+	// Waited reports the actual terminal launcher wait before Run returns,
+	// including bootstrap/supervision failures. Nil means terminal evidence is
+	// unavailable; a traced stop is never reported as exit credit. A launch
+	// failure has no callback. It is independent of observation errors.
 	Waited func(*os.ProcessState)
 	// LauncherArgs precede Executable and Args, for an embedding executable's
 	// private bootstrap entry point. They are never passed to the candidate.
