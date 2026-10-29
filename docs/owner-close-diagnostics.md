@@ -17,8 +17,15 @@ owner close timeout close_cancel=not_issued supervisor=pending phase=entered exi
 |---|---|---|
 | `close_cancel` | `not_issued`, `issued` | Whether this close method had issued cancellation at capture; external context cancellation is not observed by this field. |
 | `supervisor` | `pending`, `returned`, `unavailable` | Nonblocking observation of the session's completion channel. |
-| `phase` | `unavailable`, `starting`, `supervising`, `entered`, `terminal`, `joining`, `joined` | Last progress published by the tracing supervisor: before launch, launched, challenge acknowledged, terminal status observed, before consuming wait, or wait returned a process state. |
-| `exit` | `unavailable`, `zero`, `nonzero`, `signaled` | Exit class from the consumed process state, available only with `phase=joined`. |
+| `phase` | `unavailable`, `starting`, `supervising`, `entered`, `terminal`, `joining`, `joined` | Last progress published by the tracing supervisor: before launch, launched, challenge acknowledged, terminal status observed, before consuming wait, or wait returned an actual normal exit or signal death. |
+| `exit` | `unavailable`, `zero`, `nonzero`, `signaled` | Exit class from the consumed terminal process state, available only with `phase=joined`. |
+
+A wait result becomes `joined` only for a normal exit (`ProcessState.Exited()`)
+or an actual signal death (the platform status explicitly reports `Signaled()`).
+A negative `ExitCode()` alone is insufficient: a ptrace stop also returns `-1`.
+Stopped, continued, unknown and nil results clear the diagnostic to unavailable;
+they do not publish `joined`. This changes diagnostic classification only. The
+supervisor's actual tracing, wait, Stop and qualification decisions are separate.
 
 Phase and exit are published as one atomic word. If that word changes around
 the completion-channel sample, all three observation fields are unavailable.
@@ -51,3 +58,15 @@ of an observed CI schedule. The concurrent atomic-word control can also run
 under `-race`. Fixture files live only under the test-owned temporary root;
 capture command logs in private scratch and honor the host's serialized test
 slot rules.
+
+The real-stop regression retains `TestReviewObserveWaitStopState` and its normal
+zero-exit control `TestReviewObserveWaitExitControl`. The stopped tracee is killed
+and reaped on every fixture path. `TestObserveWaitRealExitClasses` adds consumed
+normal-nonzero and actual SIGKILL controls; `TestObserveWaitNilUnavailable` checks
+that a missing result cannot retain an earlier terminal observation.
+
+`TestOwnerCloseSnapshotRacing` directly checks the coherence helper's rejection
+of changed scalar observations. It does not force a word change between the two
+reads in the production capture. Bypassing that helper call can still survive
+the current tests. This integration-coverage bound remains explicit; no blocking
+callback or test-only behavior is added to the pre-cancellation path to force it.

@@ -49,14 +49,24 @@ func (o *CaseOrigin) observePhase(p OriginPhase) {
 }
 
 func (o *CaseOrigin) observeWait(state *os.ProcessState) {
-	if state == nil {
-		return
+	e := ExitUnavailable
+	if state != nil {
+		if state.Exited() {
+			if code := state.ExitCode(); code == 0 {
+				e = ExitZero
+			} else if code > 0 {
+				e = ExitNonzero
+			}
+		} else if status, ok := state.Sys().(interface{ Signaled() bool }); ok && status.Signaled() {
+			// Unix WaitStatus distinguishes actual signal death from a ptrace
+			// stop. Both can have ExitCode -1; that value alone proves neither.
+			e = ExitSignaled
+		}
 	}
-	e := ExitNonzero
-	if state.ExitCode() == 0 {
-		e = ExitZero
-	} else if state.ExitCode() < 0 {
-		e = ExitSignaled
+	if e == ExitUnavailable {
+		// Do not retain a previous terminal observation for nil/non-exit input.
+		o.observePhase(OriginUnavailable)
+		return
 	}
 	o.diagnostic.Store(uint32(OriginJoined) | uint32(e)<<8)
 }
