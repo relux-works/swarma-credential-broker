@@ -140,6 +140,8 @@ func ownerDiagnosticInspect(err error) (chain string, held bool) {
 			label = "closed pipe"
 		case os.ErrDeadlineExceeded:
 			label = "I/O timeout"
+		default:
+			label = ownerDiagnosticLiteralLabel(e)
 		}
 		fmt.Fprintf(&b, "%T(%s)", e, label)
 		if joined, ok := e.(interface{ Unwrap() []error }); ok {
