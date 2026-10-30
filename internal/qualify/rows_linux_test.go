@@ -67,6 +67,9 @@ func TestRowsHarness(t *testing.T) {
 	for _, row := range r.Cases {
 		if rowImplemented(row.ID) && row.ID != "peer-denied" {
 			if !row.Positive.Executed || !row.Negative.Executed || row.Positive.Verdict != "passed" || row.Negative.Verdict != "passed" {
+				for _, diagnostic := range rowsFailureDiagnostics(row.ID, r.Executions) {
+					t.Log(diagnostic)
+				}
 				t.Fatal("attested pair unavailable", row)
 			}
 			credited++
