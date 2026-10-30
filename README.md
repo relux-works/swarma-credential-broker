@@ -109,6 +109,10 @@ The remaining pending rows still prevent production qualification.
 An [inactive immutable storage fixture](docs/immutable-storage.md) provides bounded
 content retention and exact reads; it has no production consumer or current-root authority.
 
+An [inactive generation selection fixture](docs/generation-cas.md) adds shared
+RAM-local comparison, attempt reconciliation and outcome fencing over retained
+immutable units. It grants no production currentness or durable recovery authority.
+
 ## Tools
 
 For diagram-source validation, an installed PlantUML can render both labeled
@@ -136,6 +140,7 @@ isolated helpers and that fake vendor, with fresh homes. No logged-in home is us
 | Tool | Purpose and command | Outputs |
 |---|---|---|
 | Go immutable storage fixture | `GOTOOLCHAIN=local GOMAXPROCS=2 GO="$CURATOR_GO" SWARMA_TEST_UNPRIVILEGED=1 "$CURATOR_GO" test -p=2 ./internal/freshstore ./internal/store -run '^(TestFresh\|TestImmutable)' -count=1`; [bounded contract and build command](docs/immutable-storage.md#focused-validation) | Synthetic files under isolated `TMPDIR`; full logs and overlay controls in private scratch outside Git |
+| Go generation selection fixture | `GOTOOLCHAIN=local GOMAXPROCS=2 go test -p=2 -count=1 -timeout=90s ./internal/generationcas`; [contract and focused validation](docs/generation-cas.md#focused-validation) | Synthetic files under isolated `TMPDIR`; full logs and overlay controls in private scratch outside Git |
 | Bash migration tool (5.3 or later) | `bash scripts/migrate-service-user close-admission <absolute-config>`, then operator reconciliation, then `bash scripts/migrate-service-user migrate <absolute-config>`; see the [operator guide](docs/service-user-migration.md) for prerequisites and required site driver | Protected run directory: preflight metadata, append-only intent/recovery journal and phase records; fixed sanitized stderr |
 | Bash / Python 3 fixture tests | `bash -n scripts/migrate-service-user`; `bash -n tests/migration/run`; `bash tests/migration/run <absolute-fresh-scratch-directory>`; Python standard-library doubles simulate privileged commands | Isolated account/filesystem/manager models, call records, canaries and narrowing-control logs in the supplied scratch directory |
 | GNU coreutils / Linux process table | `sleep 0.05` bounds child-completion probes; `/proc/<pid>/stat` checks direct parent and start time before signaling. See the [operator guide](docs/service-user-migration.md) for tri-state observations and the remaining numeric PID race | Unconfirmed owned PIDs are reported on sanitized stderr; no process-table contents are copied |
