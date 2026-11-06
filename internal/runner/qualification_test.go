@@ -45,9 +45,13 @@ func TestQualificationMode(t *testing.T) {
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				cmd := exec.CommandContext(ctx, self, "-test.run="+selector, "-test.v")
+				args := []string{"-test.run=" + selector, "-test.v"}
+				if kind == "missing-strace" {
+					args = append([]string{"--fixture-build-path", os.Getenv("PATH")}, args...)
+				}
+				cmd := exec.CommandContext(ctx, self, args...)
 				// Replace only these fixture variables; retain the selected
-				// absolute GO path for TestMain's ordinary helper builds.
+				// absolute GO path and the explicit helper-build PATH above.
 				for _, entry := range os.Environ() {
 					if strings.HasPrefix(entry, "RUNNER_QUALIFICATION=") || strings.HasPrefix(entry, "RUNNER_TEST_SKIP_REQUIRED_ROW=") || (kind == "missing-strace" && strings.HasPrefix(entry, "PATH=")) {
 						continue

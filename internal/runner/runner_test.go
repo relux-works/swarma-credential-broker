@@ -24,6 +24,13 @@ import (
 var fakePath, supervisorPath, buildDir string
 
 func TestMain(m *testing.M) {
+	// Missing-tool controls narrow the test PATH, but helper builds still need
+	// the parent's compiler toolchain. This argument affects builds only.
+	buildPath := ""
+	if len(os.Args) > 2 && os.Args[1] == "--fixture-build-path" {
+		buildPath = os.Args[2]
+		os.Args = append(os.Args[:1], os.Args[3:]...)
+	}
 	// A traced stop test reuses this parent process's already-built helpers.
 	// This is an explicit child-only invocation, not an ambient build override.
 	if len(os.Args) > 4 && os.Args[1] == "--fixture-tools" {
@@ -48,6 +55,14 @@ func TestMain(m *testing.M) {
 	}
 	for _, b := range []struct{ out, pkg string }{{fakePath, "./testdata/appserver"}, {supervisorPath, "../../cmd/swarma-credential-broker"}} {
 		cmd := exec.Command(goTool, "build", "-p=2", "-o", b.out, b.pkg)
+		if buildPath != "" {
+			for _, entry := range os.Environ() {
+				if !strings.HasPrefix(entry, "PATH=") {
+					cmd.Env = append(cmd.Env, entry)
+				}
+			}
+			cmd.Env = append(cmd.Env, "PATH="+buildPath)
+		}
 		data, e := cmd.CombinedOutput()
 		if e != nil {
 			fmt.Fprintf(os.Stderr, "helper build %s: %v\n%s", b.pkg, e, data)
