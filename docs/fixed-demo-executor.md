@@ -127,6 +127,11 @@ mutex orders local publication; it cannot synchronize a root process replacing
 files. Online root maintenance is not supported or claimed qualified. Stop the
 broker before root changes this authority, retaining its durable tombstones.
 
+Publication captures one absolute delivery deadline before entering the local
+admission gate. Gate contention uses that same deadline. Immediately before the
+material callback, the manager checks expiry and caller/release/replacement
+cancellation again; time spent waiting cannot extend the delivery interval.
+
 The existing phase bounds remain unchanged: peer negotiation 2 seconds, lease
 request 30 seconds, daemon renewal 8 seconds, client callback cutoff 8.5 seconds,
 callback reply before 9 seconds of the upstream 10-second bound, and local lease

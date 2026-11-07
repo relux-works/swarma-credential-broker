@@ -944,12 +944,18 @@ func (m *Manager) Publish(ctx context.Context, uid uint32, generation uint64, re
 			limit = bound
 		}
 	}
+	deliveryNow := time.Now()
 	now := m.options.Now()
 	if !now.Before(limit) {
 		a.mu.Unlock()
 		m.policyMu.Unlock()
 		return wire.Refuse("lease_not_active")
 	}
+	// Translate the policy clock once, before admission can block. Never add
+	// this remaining interval to a later clock reading after waiting in a gate.
+	deadline := deliveryNow.Add(limit.Sub(now))
+	delivery, deliveryCancel := context.WithDeadline(ctx, deadline)
+	defer deliveryCancel()
 	d := &publication{cancel: cancel, done: make(chan struct{})}
 	m.publications[d] = true
 	if a.publications[r.LeaseID] == nil {
@@ -959,13 +965,22 @@ func (m *Manager) Publish(ctx context.Context, uid uint32, generation uint64, re
 	a.mu.Unlock()
 	m.policyMu.Unlock()
 	defer m.finishPublication(a, r.LeaseID, d)
-	if ctx.Err() != nil {
-		return ctx.Err()
+	publish := func(gated context.Context) error {
+		if err := delivery.Err(); err != nil {
+			return err
+		}
+		if err := gated.Err(); err != nil {
+			return err
+		}
+		if !time.Now().Before(deadline) || !m.options.Now().Before(limit) {
+			return wire.Refuse("lease_not_active")
+		}
+		return write(delivery, deadline)
 	}
 	if m.options.DemoAdmission != nil {
-		return m.options.DemoAdmission.Publish(ctx, uid, r.LaunchID, func(delivery context.Context) error { return write(delivery, time.Now().Add(limit.Sub(now))) })
+		return m.options.DemoAdmission.Publish(delivery, uid, r.LaunchID, publish)
 	}
-	return write(ctx, time.Now().Add(limit.Sub(now)))
+	return publish(delivery)
 }
 func (m *Manager) checkPublication(a *account, p policy.Policy, uid uint32, result wire.LeaseResult, snapshot owner.Snapshot) error {
 	r, ok := a.records[result.LeaseID]

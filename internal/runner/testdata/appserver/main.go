@@ -26,6 +26,8 @@ type scenario struct {
 	InitFail, LoginFail, Hang, Spawn, Echo, PreviousMismatch, Duplicate, WrongTurn, Escape, RetryAfterError bool
 	LargeOutput, HashEcho, StopReadAfterThread                                                              bool
 	RefreshCount                                                                                            int
+	DelayAt                                                                                                 string
+	DelayUntil                                                                                              time.Time
 	Status                                                                                                  string
 	Approvals                                                                                               []string
 	Version                                                                                                 string
@@ -215,6 +217,9 @@ func main() {
 			continue
 		}
 		record(map[string]any{"method": m.Method})
+		if m.Method == s.DelayAt {
+			time.Sleep(time.Until(s.DelayUntil))
+		}
 		if m.Method == s.ExitAt {
 			return
 		}

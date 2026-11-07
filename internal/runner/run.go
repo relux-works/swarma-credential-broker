@@ -198,12 +198,16 @@ func execute(ctx context.Context, o Options, prompt []byte, streams IO, d Depend
 		return brokerFailure(err, 69)
 	}
 	defer lease.erase()
+	// The lease bound covers every app-server interaction, including startup
+	// and initialize. Execution and cleanup retain their independent contexts.
+	authority, authorityCancel := context.WithDeadline(ctx, lease.AuthorizedUntil)
+	defer authorityCancel()
 	stream := &textStream{out: contextWriter{ctx: ctx, out: streams.Out}}
 	defer stream.erase()
 	stream.addSecret(lease.Token)
 	var proc *process
 	var client *rpc
-	session := &session{ctx: ctx, broker: broker, lease: &lease, policy: policy, stream: stream, answered: map[string]bool{}, state: state}
+	session := &session{ctx: ctx, authority: authority, broker: broker, lease: &lease, policy: policy, stream: stream, answered: map[string]bool{}, state: state}
 	// Teardown always uses an independent, total five-second budget, including
 	// interrupt transport, descendant confirmation and the release receipt.
 	cleanup := func() error {
@@ -270,7 +274,7 @@ func execute(ctx context.Context, o Options, prompt []byte, streams IO, d Depend
 		if !validLease(lease, policy, nil) {
 			return nil, refuse("external_token_init_failed", 69)
 		}
-		latest, e := resolve(ctx, d, o)
+		latest, e := resolve(authority, d, o)
 		if e != nil {
 			return nil, e
 		}
@@ -285,11 +289,14 @@ func execute(ctx context.Context, o Options, prompt []byte, streams IO, d Depend
 			return nil, refuse("credential_source_conflict", 69)
 		}
 		state.phase = phaseInitialize
+		if authority.Err() != nil || !time.Now().Before(lease.AuthorizedUntil) {
+			return nil, session.initError(authority.Err())
+		}
 		proc, e = startProcess(d, o, h, policy, []string{"app-server", "--listen", "stdio://", "-c", `cli_auth_credentials_store="ephemeral"`})
 		if e != nil {
 			return nil, refuse("external_token_init_failed", 69)
 		}
-		client = newRPC(ctx, proc)
+		client = newRPC(authority, proc)
 		session.rpc = client
 		return session.drive(prompt, o)
 	}
@@ -396,6 +403,7 @@ func brokerFailure(err error, status int) error {
 
 type session struct {
 	ctx          context.Context
+	authority    context.Context
 	broker       BrokerClient
 	lease        *Lease
 	policy       Policy
@@ -408,12 +416,18 @@ type session struct {
 }
 
 func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
+	// Component callers also bind the same absolute bound before initialize.
+	if s.authority == nil {
+		var cancel context.CancelFunc
+		s.authority, cancel = context.WithDeadline(s.ctx, s.lease.AuthorizedUntil)
+		defer cancel()
+	}
 	s.state.phase = phaseInitialize
 	init := map[string]any{"clientInfo": map[string]any{"name": "swarma_credential_broker", "version": Version}, "capabilities": map[string]bool{"experimentalApi": true}}
-	if _, err := s.rpc.call(s.ctx, "initialize", init, s.callback); err != nil {
+	if _, err := s.rpc.call(s.authority, "initialize", init, s.callback); err != nil {
 		return nil, s.initError(err)
 	}
-	if err := s.rpc.notify(s.ctx, "initialized", map[string]any{}); err != nil {
+	if err := s.rpc.notify(s.authority, "initialized", map[string]any{}); err != nil {
 		return nil, s.initError(err)
 	}
 	s.state.phase = phaseLogin
@@ -421,7 +435,7 @@ func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
 	if s.lease.PlanType != "" {
 		login["chatgptPlanType"] = s.lease.PlanType
 	}
-	raw, err := s.rpc.call(s.ctx, "account/login/start", login, s.callback)
+	raw, err := s.rpc.call(s.authority, "account/login/start", login, s.callback)
 	delete(login, "accessToken")
 	if err != nil {
 		return nil, s.initError(err)
@@ -433,7 +447,7 @@ func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
 		return nil, refuse("external_token_init_failed", 69)
 	}
 	s.state.phase = phaseTurn
-	raw, err = s.rpc.call(s.ctx, "thread/start", map[string]any{"model": o.Model, "cwd": o.Cwd, "approvalPolicy": "untrusted", "allowProviderModelFallback": false}, s.callback)
+	raw, err = s.rpc.call(s.authority, "thread/start", map[string]any{"model": o.Model, "cwd": o.Cwd, "approvalPolicy": "untrusted", "allowProviderModelFallback": false}, s.callback)
 	if err != nil {
 		return nil, s.initError(err)
 	}
@@ -447,7 +461,7 @@ func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
 		return nil, refuse("external_token_init_failed", 69)
 	}
 	s.thread = thread.Thread.ID
-	raw, err = s.rpc.call(s.ctx, "turn/start", map[string]any{"threadId": s.thread, "model": o.Model, "effort": o.ReasoningEffort, "input": []any{map[string]any{"type": "text", "text": string(prompt)}}}, s.callback)
+	raw, err = s.rpc.call(s.authority, "turn/start", map[string]any{"threadId": s.thread, "model": o.Model, "effort": o.ReasoningEffort, "input": []any{map[string]any{"type": "text", "text": string(prompt)}}}, s.callback)
 	if err != nil {
 		return nil, s.initError(err)
 	}
@@ -472,17 +486,18 @@ func (s *session) drive(prompt []byte, o Options) ([]byte, error) {
 			}
 		}
 	}
-	authority, acancel := context.WithDeadline(s.ctx, s.lease.AuthorizedUntil)
-	defer acancel()
 	for {
+		if s.authority.Err() != nil || !time.Now().Before(s.lease.AuthorizedUntil) {
+			return nil, s.initError(s.authority.Err())
+		}
 		var m message
 		if len(s.rpc.queue) > 0 {
 			m = s.rpc.queue[0]
 			s.rpc.queue = s.rpc.queue[1:]
 		} else {
-			m, err = s.rpc.receive(authority)
+			m, err = s.rpc.receive(s.authority)
 			if err != nil {
-				if authority.Err() != nil && s.ctx.Err() == nil {
+				if s.authority.Err() != nil && s.ctx.Err() == nil {
 					return nil, refuse("lease_not_active", 75)
 				}
 				return nil, err
@@ -568,9 +583,21 @@ func (s *session) initError(err error) error {
 	if s.ctx.Err() != nil {
 		return s.ctx.Err()
 	}
+	if !time.Now().Before(s.lease.AuthorizedUntil) {
+		return refuse("lease_not_active", 75)
+	}
 	return refuse("external_token_init_failed", 69)
 }
 func (s *session) callback(m message) (result error) {
+	authority := s.authority
+	if authority == nil {
+		var cancel context.CancelFunc
+		authority, cancel = context.WithDeadline(s.ctx, s.lease.AuthorizedUntil)
+		defer cancel()
+	}
+	if authority.Err() != nil || !time.Now().Before(s.lease.AuthorizedUntil) {
+		return s.initError(authority.Err())
+	}
 	// Component callers can exercise callback deadlines without a Command.
 	// Command-owned sessions always supply the shared classification record.
 	if s.state != nil {
@@ -600,9 +627,9 @@ func (s *session) callback(m message) (result error) {
 		case "item/permissions/requestApproval":
 			result = map[string]any{"permissions": map[string]any{}, "scope": "turn"}
 		default:
-			return s.rpc.send(s.ctx, map[string]any{"id": m.ID, "error": map[string]any{"code": -32601, "message": "headless_request_denied"}})
+			return s.rpc.send(authority, map[string]any{"id": m.ID, "error": map[string]any{"code": -32601, "message": "headless_request_denied"}})
 		}
-		return s.rpc.send(s.ctx, map[string]any{"id": m.ID, "result": result})
+		return s.rpc.send(authority, map[string]any{"id": m.ID, "result": result})
 	}
 	// 8.5 s local cutoff includes the broker's 8 s budget and transport. A
 	// separate 0.5 s write reserve puts every reply before 9 s of the 10 s bound.
@@ -613,7 +640,7 @@ func (s *session) callback(m message) (result error) {
 		Previous *string `json:"previousAccountId"`
 	}
 	fail := func(code string) error {
-		reply, c := context.WithDeadline(s.ctx, replyLimit)
+		reply, c := context.WithDeadline(authority, replyLimit)
 		defer c()
 		s.rpc.send(reply, map[string]any{"id": m.ID, "error": map[string]any{"code": -32000, "message": code}})
 		return refuse(code, 75)
@@ -621,9 +648,9 @@ func (s *session) callback(m message) (result error) {
 	if json.Unmarshal(m.Params, &p) != nil || p.Reason != "unauthorized" || p.Previous != nil && *p.Previous != s.lease.ChatGPTAccountID {
 		return fail("renew_failed")
 	}
-	renew, cancel := context.WithDeadline(s.ctx, cutoff)
+	renew, cancel := context.WithDeadline(authority, cutoff)
 	defer cancel()
-	if !time.Now().Before(cutoff) {
+	if renew.Err() != nil || !time.Now().Before(cutoff) {
 		return fail("renew_timeout")
 	}
 	type response struct {
@@ -672,7 +699,7 @@ func (s *session) callback(m message) (result error) {
 		return fail("renew_failed")
 	}
 	s.stream.addSecret(renewed.Token)
-	reply, c := context.WithDeadline(s.ctx, replyLimit)
+	reply, c := context.WithDeadline(authority, replyLimit)
 	defer c()
 	payload := map[string]any{"accessToken": string(renewed.Token), "chatgptAccountId": renewed.ChatGPTAccountID}
 	if renewed.PlanType != "" {

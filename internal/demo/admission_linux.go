@@ -15,17 +15,41 @@ import (
 // refusal for this instance; an unadmitted caller cannot pin a missing launch.
 // The mutex orders local delivery and repeated snapshot checks, not root writes.
 type Admission struct {
-	mu        sync.Mutex
+	mu        admissionMutex
 	failed    bool
 	rosterSHA string
 	launches  map[string]LaunchRecord
 }
 
+// admissionMutex lets a delivery abandon contention at its original deadline.
+// No waiter goroutine may acquire the gate after its caller has returned.
+type admissionMutex struct {
+	once sync.Once
+	gate chan struct{}
+}
+
+func (m *admissionMutex) lock(ctx context.Context) error {
+	m.once.Do(func() { m.gate = make(chan struct{}, 1); m.gate <- struct{}{} })
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-m.gate:
+		if err := ctx.Err(); err != nil {
+			m.unlock()
+			return err
+		}
+		return nil
+	}
+}
+func (m *admissionMutex) unlock() { m.gate <- struct{}{} }
+
 func NewAdmission() *Admission { return &Admission{launches: map[string]LaunchRecord{}} }
 
 func (a *Admission) Peer(ctx context.Context, uid uint32) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	if err := a.mu.lock(ctx); err != nil {
+		return err
+	}
+	defer a.mu.unlock()
 	if a.failed || ctx.Err() != nil || uid < 30000 || uid > 30019 {
 		return ErrRefused
 	}
@@ -137,8 +161,10 @@ func (a *Admission) check(ctx context.Context, uid uint32, digest string) error 
 	return nil
 }
 func (a *Admission) Check(ctx context.Context, uid uint32, digest string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	if err := a.mu.lock(ctx); err != nil {
+		return err
+	}
+	defer a.mu.unlock()
 	_, pinned := a.launches[digest]
 	err := a.check(ctx, uid, digest)
 	if err != nil && pinned && ctx.Err() == nil {
@@ -147,13 +173,18 @@ func (a *Admission) Check(ctx context.Context, uid uint32, digest string) error 
 	return err
 }
 func (a *Admission) Publish(ctx context.Context, uid uint32, digest string, write func(context.Context) error) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	if err := a.mu.lock(ctx); err != nil {
+		return err
+	}
+	defer a.mu.unlock()
 	if e := a.check(ctx, uid, digest); e != nil {
 		if _, pinned := a.launches[digest]; pinned && ctx.Err() == nil {
 			a.failed = true
 		}
 		return e
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	return write(ctx)
 }

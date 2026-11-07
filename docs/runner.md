@@ -127,6 +127,11 @@ not promised.
 
 Each refresh callback is bound to the expected vendor account, original RPC ID
 and digest of the last delivered token. Renewal cannot extend authorization.
+The original lease deadline bounds app-server startup, initialize, login,
+thread/turn submission and every refresh operation and reply. It is installed
+before app-server startup; a slow initialize cannot grant a fresh interval.
+Lease expiry during initialization or login reports `lease_not_active` (75).
+Cleanup keeps its independent total five-second budget and release attempt.
 Duplicate callback IDs fail closed. The local cutoff is 8.5 seconds from callback
 receipt, leaving the broker its 8-second budget plus transport allowance. Error
 or success writes have a 9-second absolute deadline, reserving one second before
@@ -190,8 +195,8 @@ unwrap chains never establish provenance.
 | Hello | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | No lease or live child. Close connection, home lock and staging output. |
 | Lease request | Admission refusal, adapter/transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | A refused request grants no lease. A successfully returned lease requires exactly one release attempt even if execution is already stopped; close connection and staging output. |
 | Post-lease recheck | Catalog/admission/configuration refusal, adapter error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held, no runner leased application session. Isolated native catalog/schema measurements may run during the authority recheck. Release, erase material, close connection/home lock and remove staging output. |
-| App-server start / initialize | Qualification, spawn or initialization refusal, transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held; child may have started. Confirm descendants absent, release and erase; keep home fenced if absence is unknown. |
-| Login | Account/login refusal, transport error, independent adapter context error, unexpected error or panic: 69; own stop: 124/130 | Lease held and child started. Interrupt if active, confirm absence, release and erase. |
+| App-server start / initialize | Qualification, spawn or initialization refusal, transport error, independent adapter context error, unexpected error or panic: 69; authority expiry: 75; own stop: 124/130 | Lease held; child may have started. Confirm descendants absent, release and erase; keep home fenced if absence is unknown. |
+| Login | Account/login refusal, transport error, independent adapter context error, unexpected error or panic: 69; authority expiry: 75; own stop: 124/130 | Lease held and child started. Interrupt if active, confirm absence, release and erase. |
 | Turn | Matching completed turn: 0 provisionally; vendor failed/interrupted: 1; protocol/start/transport error, unexpected error or panic: 69; authority expiry: 75; own stop: 124/130 | Lease and child held. Close admission, interrupt if active, confirm absence, release and erase before publication. |
 | Refresh callback | Renewal/owner unavailable, cutoff, identity/authority mismatch, malformed/duplicate callback, adapter/transport error, independent adapter context error, unexpected error or panic: 75 | Lease and child held. One bounded reply to original ID, no late reply; interrupt, confirm absence, release and erase. Renewal failure dominates a simultaneous own stop. |
 | Output streaming | Writer-owned context error, output I/O, unexpected error or panic: 75; own descriptor/context stop: 124/130 | Lease and child may still be held. Interrupt, confirm absence, release and erase; preserve previous output file. |
