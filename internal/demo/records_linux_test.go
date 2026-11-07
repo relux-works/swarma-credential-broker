@@ -13,7 +13,7 @@ import (
 )
 
 func fixtureRoster() Roster {
-	r := Roster{Format: "swarma-user-manager demo-roster/1", SourceRevision: SourceRevision, BootID: "11111111-2222-3333-4444-555555555555", Operator: Service{"agent", 1001, 1001}, Dispatcher: Dispatcher{"swarma-demo-dispatcher", 1101, 1101, "swarma-demo-dispatcher", strings.Repeat("1", 32)}, Executor: Executor{"swarma-demo-executor", "/usr/local/libexec/swarma/swarma-demo-executor", strings.Repeat("a", 64)}, Runtime: Runtime{true, true, true, true}}
+	r := Roster{Format: "swarma-user-manager demo-roster/1", SourceRevision: FrozenCopySourceRevision, BootID: "11111111-2222-3333-4444-555555555555", Operator: Service{"agent", 1001, 1001}, Dispatcher: Dispatcher{"swarma-demo-dispatcher", 1101, 1101, "swarma-demo-dispatcher", strings.Repeat("1", 32)}, Executor: Executor{"swarma-demo-executor", "/usr/local/libexec/swarma/swarma-demo-executor", strings.Repeat("a", 64)}, Runtime: Runtime{true, true, true, true}}
 	for i, name := range []string{"swarma-demo-01", "swarma-demo-02", "swarma-demo-03"} {
 		r.Accounts = append(r.Accounts, Row{name, uint32(30000 + i), uint32(30000 + i), strings.Repeat(string(rune('2'+i)), 32), r.Dispatcher.Principal, "/srv/swarma-demo/home/" + name, "/srv/swarma-demo/work/" + name, strings.Repeat("b", 64)})
 	}
@@ -37,9 +37,9 @@ func TestCanonicalExecutorPairsAndRevision(t *testing.T) {
 		if err != nil || FixedExecutorApproved(decoded) != codex {
 			t.Fatalf("canonical executor pair codex=%t refused or misapproved: %v", codex, err)
 		}
-		r.SourceRevision = "7d705966aa92acaebea2d55060dcb84ddf7e5031"
+		r.SourceRevision = "bf72a78a2c02ca30d1238e218df2f3318a63b92b"
 		if _, err := DecodeRoster(raw(t, r)); err == nil {
-			t.Fatalf("old revision accepted for codex=%t", codex)
+			t.Fatalf("program revision accepted as wire revision for codex=%t", codex)
 		}
 	}
 }
@@ -65,9 +65,9 @@ func TestCanonicalRosterClosedAndBoundaries(t *testing.T) {
 			r.Executor.ID = "third-executor"
 			r.Executor.Path = "/usr/local/libexec/swarma/third-executor"
 		},
-		"codex-wrong-path":    func(r *Roster) { r.Executor.ID = ExecutorID },
-		"codex-wrong-id":      func(r *Roster) { r.Executor.Path = ExecutorPath },
-		"old-source-revision": func(r *Roster) { r.SourceRevision = "7d705966aa92acaebea2d55060dcb84ddf7e5031" },
+		"codex-wrong-path":                 func(r *Roster) { r.Executor.ID = ExecutorID },
+		"codex-wrong-id":                   func(r *Roster) { r.Executor.Path = ExecutorPath },
+		"program-pin-is-not-wire-revision": func(r *Roster) { r.SourceRevision = "bf72a78a2c02ca30d1238e218df2f3318a63b92b" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			v := fixtureRoster()

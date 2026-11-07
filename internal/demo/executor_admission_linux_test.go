@@ -21,16 +21,23 @@ import (
 func installExecutorRoster(t *testing.T, codex bool) (Roster, LaunchRecord) {
 	t.Helper()
 	publicRoot(t)
-	r := fixtureRoster()
+	name := "witness"
 	if codex {
-		r.Executor.ID, r.Executor.Path = ExecutorID, ExecutorPath
+		name = "codex"
 	}
-	b, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	b := canonicalP1Roster(t, name)
+	r, err := DecodeRoster(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.BootID = strings.TrimSpace(string(b))
-	putRoot(t, RosterPath, r, 0644)
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(boot)) != r.BootID {
+		t.Skip("requires the synthetic canonical P1 fixture boot ID mount")
+	}
+	putRosterBytes(t, b)
 	if err := os.MkdirAll(LaunchDirectory, 0755); err != nil {
 		t.Fatal(err)
 	}

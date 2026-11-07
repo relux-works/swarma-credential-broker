@@ -58,13 +58,24 @@ digest. A third executor, mixed ID/path pair, list or extra member refuses.
 Only the Codex row authorizes Codex leasing and running; a witness row grants
 no Codex lease. There is no transformed roster or second roster.
 
-This candidate requires roster `source_revision` to equal that same full
-`bf72a78a2c02ca30d1238e218df2f3318a63b92b` pin and refuses the older value.
-The actual landed PR75 validator and provisioner still require and emit
-`7d705966aa92acaebea2d55060dcb84ddf7e5031`, their private-copy baseline.
-Consequently an unmodified PR75 roster currently refuses here. These two
-revision meanings require an explicit contract decision before integration;
-source-schema compatibility alone does not establish interoperability.
+The wire `source_revision` in both the roster and P1 attempt is the frozen
+user-manager copy-source revision
+`7d705966aa92acaebea2d55060dcb84ddf7e5031`. The broker requires exactly this
+value in the roster; any other value, including the P1 program pin, refuses.
+P1 owns the attempt record; the broker consumes the protected launch projection
+above, which has no `source_revision` member.
+
+The separate out-of-band program qualification pin is
+`bf72a78a2c02ca30d1238e218df2f3318a63b92b`. It is recorded here and in
+`internal/demo/testdata/p1/manifest.json`, with byte-exact roster and attempt
+fixtures emitted by that unmodified program's validator, encoder and attempt
+constructor. It is never compared against a roster field. The PR76 receipt
+route (`e11b565c`) leaves the roster, `EXECUTORS` and `source_revision` unchanged,
+so that receipt-only successor preserves this qualification pin. Refusal of an
+old roster is by its content: an executor outside the two exact pairs, a third
+executor, a mixed pair, an unknown member, wrong format or wrong copy-source
+revision. A valid witness roster is schema-admitted but grants no Codex lease.
+
 The row's `owning_dispatcher` must match `dispatcher.principal`, and that service
 must be the canonical dispatcher at UID/GID 1101. The launch UID, generation and
 boot must match the roster, and the boot must be current. Runtime admission and
@@ -166,8 +177,9 @@ token: broker or worker crash may leave it valid until its own expiry.
 
 The canonical P1 validator approves the two exact executor pairs above. The
 fixed Codex executor still requires its own approved ID/path/digest, and both
-broker and consumer refuse Codex use of the witness-only roster. The revision
-contract mismatch described above blocks actual canonical-P1 admission.
+broker and consumer refuse Codex use of the witness-only roster. The unmodified
+canonical P1 fixture is admitted for each exact executor pair;
+only the Codex pair permits the Codex lease and runner authority paths.
 The launch-record writer belongs to P1, and dispatcher roster adoption remains
 with the dispatcher. No P1 or dispatcher file is edited here.
 

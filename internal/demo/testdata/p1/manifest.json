@@ -1,0 +1,24 @@
+{
+  "program_revision": "bf72a78a2c02ca30d1238e218df2f3318a63b92b",
+  "frozen_copy_source_revision": "7d705966aa92acaebea2d55060dcb84ddf7e5031",
+  "inputs": {
+    "swarma_demo.py": {
+      "git_blob": "a48caef93d84249c2c34711f8c46fef9524a8aa8",
+      "sha256": "66e0c2f5acf187191cdc01f6fa47da75e6da84ccb26550e8d1f0431c22e35c6d"
+    },
+    "provision.py": {
+      "git_blob": "a2f4451e7875722ba16b9ed0db17d4c1c66c5d59",
+      "sha256": "e87c573b8fd6c3c6b35538887cd9847b721e5269e0f4d9dd3c3754d30d4392c1"
+    },
+    "tests/test_demo.py": {
+      "git_blob": "8997d2e43f2542b36ed17d07d969df97114f8145",
+      "sha256": "1c1d2a78d7047dd9b67911a31b4ffff06bd4af866065260d2792fac720b81b4a"
+    }
+  },
+  "outputs": {
+    "witness-roster.json": "d7859beeedf726561a2082c0bc4751c502a4f569354a486f21a47223aab66bad",
+    "witness-attempt.json": "fbf38bb690c476a79b735f5858764e17e9b9d72cbf81082280b3fd5b721d579e",
+    "codex-roster.json": "6b5b25672f2e4dc3537a541969733a1204bf87214b63760993ad73da9f450532",
+    "codex-attempt.json": "087dc02d10f1157e5b3a9aba89cd6db068c039d53d6fdf4af4d0d52fbc4a9c3e"
+  }
+}

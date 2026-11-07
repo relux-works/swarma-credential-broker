@@ -55,7 +55,7 @@ func FixedExecutorApproved(r Roster) bool {
 // admitted. The source revision is pinned independently of these path checks.
 func DecodeRoster(raw []byte) (Roster, error) {
 	var r Roster
-	if len(raw) > 128*1024 || decodeClosed(raw, &r) != nil || r.Format != "swarma-user-manager demo-roster/1" || r.SourceRevision != SourceRevision || !boot.MatchString(r.BootID) || r.Operator != (Service{"agent", 1001, 1001}) {
+	if len(raw) > 128*1024 || decodeClosed(raw, &r) != nil || r.Format != "swarma-user-manager demo-roster/1" || r.SourceRevision != FrozenCopySourceRevision || !boot.MatchString(r.BootID) || r.Operator != (Service{"agent", 1001, 1001}) {
 		return Roster{}, ErrRefused
 	}
 	d := r.Dispatcher

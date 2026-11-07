@@ -30,8 +30,9 @@ const (
 	LaunchDirectory   = "/run/swarma-demo/launch-records"
 	ExecutorID        = "swarma-demo-codex-executor"
 	ExecutorPath      = "/usr/local/libexec/swarma/swarma-demo-codex-executor"
-	SourceRevision    = "bf72a78a2c02ca30d1238e218df2f3318a63b92b"
-	PlanMax           = 48 * 1024
+	// FrozenCopySourceRevision is P1's copied user-manager source, not its program pin.
+	FrozenCopySourceRevision = "7d705966aa92acaebea2d55060dcb84ddf7e5031"
+	PlanMax                  = 48 * 1024
 )
 
 var ErrRefused = errors.New("demo_authority_refused")
