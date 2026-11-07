@@ -22,18 +22,27 @@ import (
 // thread exits the group. The newborn's trace stop must not depend on receiving
 // the creator's clone event again. All waits/signals select this owned child.
 func TestOriginExitBeforeCloneRegistration(t *testing.T) {
-	originCloneExit(t, false, false)
+	originCloneExit(t, false, false, "")
 }
 
 func TestOriginCloneEventSurvivesGroupExit(t *testing.T) {
-	originCloneExit(t, true, false)
+	originCloneExit(t, true, false, "")
 }
 
 func TestOriginCreationRejectsProcess(t *testing.T) {
-	originCloneExit(t, false, true)
+	originCloneExit(t, false, true, "")
 }
 
-func originCloneExit(t *testing.T, delayedResume, process bool) {
+// Pipes force exit_group after the actual CLONE peek, either before the
+// production event read or after that read and before production consumption.
+// The stolen control consumes the same task's terminal status first.
+func TestOriginStopTerminalTransition(t *testing.T) {
+	for _, stage := range []string{"event-read", "stop-consume", "stolen-nonleader"} {
+		t.Run(stage, func(t *testing.T) { originCloneExit(t, false, false, stage) })
+	}
+}
+
+func originCloneExit(t *testing.T, delayedResume, process bool, transition string) {
 	t.Helper()
 	image := t.TempDir() + "/clone-exit"
 	build := exec.Command("gcc", "-O0", "-pthread", "-o", image, "testdata/clone-exit.c")
@@ -95,7 +104,11 @@ func originCloneExit(t *testing.T, delayedResume, process bool) {
 	if p, e := unix.Wait4(w.pid, &initial, unix.WALL, nil); e != nil || p != w.pid || !initial.Stopped() {
 		t.Fatal("initial exec stop", p, initial, e)
 	}
-	if err = unix.PtraceSetOptions(w.pid, unix.PTRACE_O_TRACECLONE|unix.PTRACE_O_TRACEFORK|unix.PTRACE_O_TRACEEXIT|unix.PTRACE_O_EXITKILL); err != nil {
+	options := unix.PTRACE_O_TRACECLONE | unix.PTRACE_O_TRACEFORK | unix.PTRACE_O_EXITKILL
+	if transition == "" {
+		options |= unix.PTRACE_O_TRACEEXIT
+	}
+	if err = unix.PtraceSetOptions(w.pid, options); err != nil {
 		t.Fatal(err)
 	}
 	if err = w.resume(w.pid, initial); err != nil {
@@ -205,6 +218,7 @@ func originCloneExit(t *testing.T, delayedResume, process bool) {
 	newborn := 0
 	creator := 0
 	var creation unix.WaitStatus
+	var creationPeek unix.Siginfo
 	for time.Now().Before(deadline) {
 		var p int
 		var s unix.WaitStatus
@@ -218,6 +232,7 @@ func originCloneExit(t *testing.T, delayedResume, process bool) {
 			var si unix.Siginfo
 			e = unix.Waitid(unix.P_PID, creatorThread, &si, unix.WSTOPPED|unix.WNOHANG|unix.WNOWAIT|unix.WALL, nil)
 			b := (*[128]byte)(unsafe.Pointer(&si))
+			creationPeek = si
 			if si.Code != 0 {
 				p = creatorThread
 				s = unix.WaitStatus(binary.LittleEndian.Uint32(b[24:28])<<8 | 0x7f)
@@ -249,6 +264,14 @@ func originCloneExit(t *testing.T, delayedResume, process bool) {
 	if newborn == 0 {
 		t.Fatal("no actual clone within bound")
 	}
+	if transition == "stop-consume" || transition == "stolen-nonleader" {
+		b, e := w.captureBirth(creator, creation)
+		if e != nil || b.pid != newborn || !b.thread {
+			t.Fatal("pinned production birth", b, e)
+		}
+		w.births = map[int]originBirth{creator: b}
+		w.tasks[newborn] = false
+	}
 	if _, err = exitW.Write([]byte{1}); err != nil {
 		t.Fatal(err)
 	}
@@ -277,6 +300,83 @@ func originCloneExit(t *testing.T, delayedResume, process bool) {
 				t.Fatal("lost already observed clone identity after group exit", err)
 			}
 		}
+	}
+	if transition != "" {
+		var p int
+		var s unix.WaitStatus
+		var done bool
+		var e error
+		if transition == "event-read" {
+			// This invokes the real GETEVENTMSG on the obsolete CLONE stop.
+			if _, e = unix.PtraceGetEventMsg(creator); e != unix.ESRCH {
+				t.Fatal("exit did not overtake event read", e)
+			}
+			p, s, done, e = w.observedTask(creator, creationPeek)
+		} else {
+			// The original stop-only consume fails on this exact owned task,
+			// while leaving its terminal status available to the repaired path.
+			var old unix.Siginfo
+			if e := unix.Waitid(unix.P_PID, creator, &old, unix.WSTOPPED|unix.WNOHANG|unix.WALL, nil); e != unix.ECHILD {
+				t.Fatal("original stop-only operation did not produce ECHILD", e)
+			}
+			if transition == "stolen-nonleader" {
+				var stolen unix.WaitStatus
+				if n, e := unix.Wait4(creator, &stolen, unix.WNOHANG|unix.WALL, nil); e != nil || n != creator || !stolen.Exited() {
+					t.Fatal("no actual stolen terminal status", n, stolen, e)
+				}
+			}
+			p, s, done, e = w.consumeTask(creator)
+		}
+		if transition == "stolen-nonleader" {
+			if e != unix.ECHILD || done || p != -1 && p != 0 {
+				t.Fatal("stolen task was accepted", p, s, done, e)
+			}
+			// This task supplied a genuine initial stop during startup. The
+			// normal inventory/peek path must refuse its theft as well, even
+			// if the leader's terminal state is already observable.
+			if !w.seen[creator] {
+				t.Fatal("negative control lacks a previously observed creator")
+			}
+			refused := false
+			for step := 0; step < 128 && time.Now().Before(deadline); {
+				p, s, done, e := w.next()
+				if e == unix.ECHILD && !done {
+					refused = true
+					break
+				}
+				if e != nil || done {
+					t.Fatal("normal next hid stolen task behind terminal leader", p, done, e)
+				}
+				if p == 0 {
+					// Wait only for this forced group exit's actual status;
+					// the fixed deadline also bounds idle observations.
+					time.Sleep(time.Millisecond)
+					continue
+				}
+				step++
+				if p == newborn {
+					seen[newborn] = true
+				}
+				if e = w.resume(p, s); e != nil {
+					t.Fatal(e)
+				}
+			}
+			if !refused {
+				t.Fatal("stolen task not refused within bounded event drain")
+			}
+			w.forgetTask(creator)
+			t.Log("actual nonleader terminal status stolen: ECHILD retained")
+		} else {
+			if e != nil || p != creator || !s.Exited() || s.ExitStatus() != 0 || done {
+				t.Fatal("owned stop-to-terminal transition lost", p, s, done, e)
+			}
+			if err = w.resume(p, s); err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("forced %s: same creator terminal consumed, leader unconsumed", transition)
+		}
+		// Inventory must recover a newborn even when the creator's event read
+		// was overtaken and therefore supplied no usable creation identity.
 	}
 	observed := seen[newborn]
 	for time.Now().Before(deadline) {

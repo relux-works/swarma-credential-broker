@@ -238,8 +238,7 @@ func runnerResume(w *originOwner, tid int, s unix.WaitStatus, result *RunnerTrac
 		delete(w.births, tid)
 	}
 	if s.Exited() || s.Signaled() {
-		delete(w.tasks, tid)
-		delete(w.births, tid)
+		w.forgetTask(tid)
 		return nil
 	}
 	if !w.tasks[tid] {
@@ -255,7 +254,7 @@ func runnerResume(w *originOwner, tid int, s unix.WaitStatus, result *RunnerTrac
 			if e := unix.PtraceDetach(tid); e != nil {
 				return e
 			}
-			delete(w.tasks, tid)
+			w.forgetTask(tid)
 			result.child(tid)
 			return nil
 		}
