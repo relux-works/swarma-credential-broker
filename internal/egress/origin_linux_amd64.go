@@ -151,9 +151,57 @@ type originOwner struct {
 	pid, fd int
 	tasks   map[int]bool
 	strict  bool
+	births  map[int]originBirth
+}
+
+type originBirth struct {
+	status unix.WaitStatus
+	pid    int
+	thread bool
+}
+
+func (w *originOwner) captureBirth(tid int, status unix.WaitStatus) (originBirth, error) {
+	p, err := unix.PtraceGetEventMsg(tid)
+	if err != nil {
+		return originBirth{}, err
+	}
+	if p == 0 {
+		return originBirth{}, ErrUnavailable
+	}
+	b := originBirth{status: status, pid: int(p), thread: originThread(int(p), w.pid)}
+	return b, nil
+}
+
+func (w *originOwner) consumeBirth(tid int, status unix.WaitStatus) (originBirth, error) {
+	if b, ok := w.births[tid]; ok && b.status == status {
+		delete(w.births, tid)
+		return b, nil
+	}
+	return w.captureBirth(tid, status)
 }
 
 func (w *originOwner) next() (tid int, status unix.WaitStatus, terminal bool, err error) {
+	// Group exit can overtake a creator's clone-event stop. Its newborn still
+	// belongs to this trace, and can hold the group at an unregistered stop.
+	// Inventory only this pinned child's threads before waiting for its leader.
+	entries, e := os.ReadDir(fmt.Sprintf("/proc/%d/task", w.pid))
+	if e != nil && !os.IsNotExist(e) {
+		return 0, 0, false, e
+	}
+	for _, entry := range entries {
+		p, e := strconv.Atoi(entry.Name())
+		// Cleanup may already have retired the leader.
+		if p == w.pid {
+			continue
+		}
+		_, known := w.tasks[p]
+		if e != nil || len(w.tasks) >= 128 && !known {
+			return 0, 0, false, ErrEvidenceLimit
+		}
+		if !known {
+			w.tasks[p] = false // Membership/stop validation remains with the caller.
+		}
+	}
 	for p := range w.tasks {
 		var si unix.Siginfo
 		err = unix.Waitid(unix.P_PID, p, &si, unix.WEXITED|unix.WSTOPPED|unix.WNOHANG|unix.WNOWAIT|unix.WALL, nil)
@@ -192,6 +240,29 @@ func (w *originOwner) next() (tid int, status unix.WaitStatus, terminal bool, er
 			}
 			return
 		}
+		// Read the creation identity while the observed event still exists.
+		// Another thread's group exit can replace this stop before resume.
+		peek := unix.WaitStatus(binary.LittleEndian.Uint32(b[24:28])<<8 | 0x7f)
+		cause := peek.TrapCause()
+		if cause == unix.PTRACE_EVENT_CLONE || cause == unix.PTRACE_EVENT_FORK || cause == unix.PTRACE_EVENT_VFORK {
+			birth, e := w.captureBirth(p, peek)
+			if e != nil {
+				return 0, 0, false, e
+			}
+			if w.births == nil {
+				w.births = map[int]originBirth{}
+			}
+			w.births[p] = birth
+			if _, known := w.tasks[birth.pid]; !known {
+				if len(w.tasks) >= 128 {
+					return 0, 0, false, ErrEvidenceLimit
+				}
+				w.tasks[birth.pid] = false
+			}
+			if w.strict && !birth.thread {
+				return 0, 0, false, ErrUnavailable
+			}
+		}
 		var stopped unix.Siginfo
 		err = unix.Waitid(unix.P_PID, p, &stopped, unix.WSTOPPED|unix.WNOHANG|unix.WALL, nil)
 		if err != nil {
@@ -207,28 +278,33 @@ func (w *originOwner) next() (tid int, status unix.WaitStatus, terminal bool, er
 			return
 		}
 		status = unix.WaitStatus(binary.LittleEndian.Uint32(b[24:28])<<8 | 0x7f)
+		if birth, ok := w.births[tid]; ok && birth.status != status {
+			delete(w.births, tid)
+		}
 
 		return
 	}
 	return
 }
+
 func (w *originOwner) resume(tid int, status unix.WaitStatus) error {
+	if birth, ok := w.births[tid]; ok && birth.status != status {
+		delete(w.births, tid)
+	}
 	if status.Exited() || status.Signaled() {
 		delete(w.tasks, tid)
+		delete(w.births, tid)
 		return nil
 	}
 	cause := status.TrapCause()
 	if cause == unix.PTRACE_EVENT_CLONE || cause == unix.PTRACE_EVENT_FORK || cause == unix.PTRACE_EVENT_VFORK {
-		p, e := unix.PtraceGetEventMsg(tid)
+		birth, e := w.consumeBirth(tid, status)
 		if e != nil {
 			return e
 		}
-		w.tasks[int(p)] = w.tasks[tid] && cause == unix.PTRACE_EVENT_CLONE
-		if w.strict {
-			w.tasks[int(p)] = originThread(int(p), w.pid)
-			if !w.tasks[int(p)] {
-				return ErrUnavailable
-			}
+		w.tasks[birth.pid] = birth.thread
+		if w.strict && !birth.thread {
+			return ErrUnavailable
 		}
 	}
 	sig := 0
@@ -582,6 +658,7 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 					delete(w.tasks, p)
 				}
 			}
+			w.births = nil
 			w.tasks[w.pid] = true
 			if err = originIdentity(w.pid, o.image, append([]string{c.Executable}, c.Args...)); err != nil {
 				return
@@ -608,7 +685,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 			if traceEvents > 4096 {
 				return report, ErrEvidenceLimit
 			}
-			if tid != w.pid && !status.Exited() && !status.Signaled() {
+			// A recorded thread birth remains this trace's identity through exit;
+			// only an unclassified stop needs a fresh procfs membership check.
+			if tid != w.pid && !w.tasks[tid] && !status.Exited() && !status.Signaled() {
 				if !originThread(tid, w.pid) {
 					o.invalid.Store(true)
 					return report, ErrUnavailable
