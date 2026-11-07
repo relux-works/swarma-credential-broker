@@ -27,6 +27,22 @@ func raw(t *testing.T, v any) []byte {
 	}
 	return b
 }
+func TestCanonicalExecutorPairsAndRevision(t *testing.T) {
+	for _, codex := range []bool{false, true} {
+		r := fixtureRoster()
+		if codex {
+			r.Executor.ID, r.Executor.Path = ExecutorID, ExecutorPath
+		}
+		decoded, err := DecodeRoster(raw(t, r))
+		if err != nil || FixedExecutorApproved(decoded) != codex {
+			t.Fatalf("canonical executor pair codex=%t refused or misapproved: %v", codex, err)
+		}
+		r.SourceRevision = "7d705966aa92acaebea2d55060dcb84ddf7e5031"
+		if _, err := DecodeRoster(raw(t, r)); err == nil {
+			t.Fatalf("old revision accepted for codex=%t", codex)
+		}
+	}
+}
 func TestCanonicalRosterClosedAndBoundaries(t *testing.T) {
 	r := fixtureRoster()
 	if _, e := DecodeRoster(raw(t, r)); e != nil {
@@ -45,7 +61,13 @@ func TestCanonicalRosterClosedAndBoundaries(t *testing.T) {
 		"owner": func(r *Roster) { r.Accounts[0].OwningDispatcher = "other" }, "dispatcher-uid": func(r *Roster) { r.Dispatcher.UID = 1102 }, "dispatcher-principal": func(r *Roster) { r.Dispatcher.Principal = "other" },
 		"duplicate-uid": func(r *Roster) { r.Accounts[1].UID = r.Accounts[0].UID; r.Accounts[1].GID = r.Accounts[0].GID }, "duplicate-generation": func(r *Roster) { r.Accounts[1].Generation = r.Accounts[0].Generation },
 		"zero-generation": func(r *Roster) { r.Accounts[0].Generation = strings.Repeat("0", 32) }, "source": func(r *Roster) { r.SourceRevision = strings.Repeat("c", 40) }, "workspace": func(r *Roster) { r.Accounts[0].Workspace = "/tmp" },
-		"new-executor-not-yet-canonical": func(r *Roster) { r.Executor.ID = ExecutorID; r.Executor.Path = ExecutorPath },
+		"third-executor": func(r *Roster) {
+			r.Executor.ID = "third-executor"
+			r.Executor.Path = "/usr/local/libexec/swarma/third-executor"
+		},
+		"codex-wrong-path":    func(r *Roster) { r.Executor.ID = ExecutorID },
+		"codex-wrong-id":      func(r *Roster) { r.Executor.Path = ExecutorPath },
+		"old-source-revision": func(r *Roster) { r.SourceRevision = "7d705966aa92acaebea2d55060dcb84ddf7e5031" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			v := fixtureRoster()

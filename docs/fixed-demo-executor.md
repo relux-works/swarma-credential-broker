@@ -45,13 +45,26 @@ wire `launch_id` (that digest) to exactly one protected record for the kernel
 peer UID, without adding a caller-controlled authority field to broker/1.
 Launch directories and every ancestor must be root-owned and non-writable by
 group or others; every component is opened without following links.
-P1 owns production of these records in a successor change. Source tests create
+P1 owns production of these records. Source tests create
 only synthetic records in a disposable user namespace.
 
-The broker consumes the exact P1 roster schema from `validate_roster` at source
-`09daa07220a207ae0f4eceb9169b2c30bf62c529`. Its `source_revision` remains the
-frozen private-copy baseline `7d705966aa92acaebea2d55060dcb84ddf7e5031`.
-There is no transformed roster, second roster or permissive union parser.
+The broker pins canonical P1 validator source
+`bf72a78a2c02ca30d1238e218df2f3318a63b92b` (landed PR75). The closed schema has
+one `executor` object with exactly `id`, `path`, and `sha256`. It admits only
+`swarma-demo-executor` at `/usr/local/libexec/swarma/swarma-demo-executor` or
+`swarma-demo-codex-executor` at
+`/usr/local/libexec/swarma/swarma-demo-codex-executor`, with a lowercase SHA-256
+digest. A third executor, mixed ID/path pair, list or extra member refuses.
+Only the Codex row authorizes Codex leasing and running; a witness row grants
+no Codex lease. There is no transformed roster or second roster.
+
+This candidate requires roster `source_revision` to equal that same full
+`bf72a78a2c02ca30d1238e218df2f3318a63b92b` pin and refuses the older value.
+The actual landed PR75 validator and provisioner still require and emit
+`7d705966aa92acaebea2d55060dcb84ddf7e5031`, their private-copy baseline.
+Consequently an unmodified PR75 roster currently refuses here. These two
+revision meanings require an explicit contract decision before integration;
+source-schema compatibility alone does not establish interoperability.
 The row's `owning_dispatcher` must match `dispatcher.principal`, and that service
 must be the canonical dispatcher at UID/GID 1101. The launch UID, generation and
 boot must match the roster, and the boot must be current. Runtime admission and
@@ -151,15 +164,12 @@ token: broker or worker crash may leave it valid until its own expiry.
 
 ## Current integration boundaries
 
-The exact canonical P1 validator currently approves only
-`swarma-demo-executor` at its witness path. The fixed Codex executor requires
-its own approved ID/path/digest. This candidate preserves both restrictions and
-therefore both broker and consumer refuse the witness-only roster. P1 must
-explicitly publish its successor approval, and the broker's pinned canonical
-validator must follow that exact successor. This candidate does not quietly
-reinterpret the current roster or admit a union of executor values.
-The launch-record writer likewise remains a P1 successor, and dispatcher roster
-adoption remains with the dispatcher. No P1 or dispatcher file is edited here.
+The canonical P1 validator approves the two exact executor pairs above. The
+fixed Codex executor still requires its own approved ID/path/digest, and both
+broker and consumer refuse Codex use of the witness-only roster. The revision
+contract mismatch described above blocks actual canonical-P1 admission.
+The launch-record writer belongs to P1, and dispatcher roster adoption remains
+with the dispatcher. No P1 or dispatcher file is edited here.
 
 The ordinary daemon's owner remains `owner.Stopped`. The existing owner package
 requires protected enrolment/checkpoint state, a contained manager, independent

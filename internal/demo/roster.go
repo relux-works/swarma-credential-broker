@@ -44,15 +44,15 @@ type Roster struct {
 	Accounts       []Row      `json:"accounts"`
 }
 
-// FixedExecutorApproved is deliberately separate from the frozen canonical
-// parser: that source currently approves the witness executor only. Both broker
-// and consumer refuse until the adjoining owner publishes a compatible approval.
+// FixedExecutorApproved restricts Codex leasing and execution to the Codex row.
+// The canonical P1 schema also permits a witness row, which grants no Codex use.
 func FixedExecutorApproved(r Roster) bool {
 	return r.Executor.ID == ExecutorID && r.Executor.Path == ExecutorPath && hash.MatchString(r.Executor.SHA256)
 }
 
-// DecodeRoster mirrors PR74 validate_roster at its frozen source, including the
-// witness executor restriction. No alternate/transformed roster is admitted.
+// DecodeRoster accepts the closed PR75 schema: one executor row selected from
+// the two exact ID/path pairs. No additional executor or alternate schema is
+// admitted. The source revision is pinned independently of these path checks.
 func DecodeRoster(raw []byte) (Roster, error) {
 	var r Roster
 	if len(raw) > 128*1024 || decodeClosed(raw, &r) != nil || r.Format != "swarma-user-manager demo-roster/1" || r.SourceRevision != SourceRevision || !boot.MatchString(r.BootID) || r.Operator != (Service{"agent", 1001, 1001}) {
@@ -62,7 +62,9 @@ func DecodeRoster(raw []byte) (Roster, error) {
 	if d.Name != "swarma-demo-dispatcher" || d.Principal != d.Name || d.UID != 1101 || d.GID != 1101 || !Generation(d.Generation) {
 		return Roster{}, ErrRefused
 	}
-	if r.Executor.ID != "swarma-demo-executor" || r.Executor.Path != "/usr/local/libexec/swarma/swarma-demo-executor" || !hash.MatchString(r.Executor.SHA256) || len(r.Accounts) != 3 {
+	witness := r.Executor.ID == "swarma-demo-executor" && r.Executor.Path == "/usr/local/libexec/swarma/swarma-demo-executor"
+	codex := r.Executor.ID == ExecutorID && r.Executor.Path == ExecutorPath
+	if (!witness && !codex) || !hash.MatchString(r.Executor.SHA256) || len(r.Accounts) != 3 {
 		return Roster{}, ErrRefused
 	}
 	names := map[string]bool{}

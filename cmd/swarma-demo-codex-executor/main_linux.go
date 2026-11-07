@@ -70,8 +70,7 @@ func run(ctx context.Context, args []string) int {
 	if e != nil {
 		return 69
 	}
-	// Preserve the exact canonical validator. The adjoining P1 successor must
-	// explicitly approve the new executor; the current witness-only row refuses.
+	// A canonical witness row never authorizes the fixed Codex executor.
 	if !demo.FixedExecutorApproved(roster) {
 		return 69
 	}
