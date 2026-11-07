@@ -21,13 +21,15 @@ type ownerCloseSnapshot struct {
 	cancelIssued bool // Only this close method's cancellation, not its parent.
 	completion   ownerCompletion
 	origin       egress.OriginDiagnostic
+	operation    egress.OriginOperation
+	child        egress.OriginChildProgress
 }
 
 // This is the entire pre-cancel observation: two atomic loads and a nonblocking
 // channel sample, with no callback, lock, I/O, wait or retry loop.
 func (s *ownerSession) closeSnapshot(cancelIssued bool) ownerCloseSnapshot {
 	v := ownerCloseSnapshot{cancelIssued: cancelIssued}
-	first := s.origin.Diagnostic()
+	first := s.origin.Observation()
 	if s.done != nil {
 		select {
 		case <-s.done:
@@ -36,14 +38,15 @@ func (s *ownerSession) closeSnapshot(cancelIssued bool) ownerCloseSnapshot {
 			v.completion = ownerPending
 		}
 	}
-	v.origin = s.origin.Diagnostic()
+	last := s.origin.Observation()
+	v.origin, v.operation, v.child = last.OriginDiagnostic, last.Operation, last.Child
 	return stableCloseSnapshot(first, v)
 }
 
-func stableCloseSnapshot(first egress.OriginDiagnostic, v ownerCloseSnapshot) ownerCloseSnapshot {
-	if first != v.origin {
-		v.completion = ownerCompletionUnavailable
-		v.origin = egress.OriginDiagnostic{}
+func stableCloseSnapshot(first egress.OriginObservation, v ownerCloseSnapshot) ownerCloseSnapshot {
+	last := egress.OriginObservation{OriginDiagnostic: v.origin, Operation: v.operation, Child: v.child}
+	if !first.Valid() || !last.Valid() || first == (egress.OriginObservation{}) || first != last {
+		v = ownerCloseSnapshot{cancelIssued: v.cancelIssued}
 	}
 	return v
 }
@@ -52,6 +55,10 @@ func ownerDiagnosticClose(ctx context.Context, v *ownerCloseSnapshot) {
 	sink := ownerDiagnostics(ctx)
 	if sink == nil || v == nil {
 		return
+	}
+	observed := egress.OriginObservation{OriginDiagnostic: v.origin, Operation: v.operation, Child: v.child}
+	if !observed.Valid() || observed == (egress.OriginObservation{}) {
+		v = &ownerCloseSnapshot{cancelIssued: v.cancelIssued}
 	}
 	cancel := "not_issued"
 	if v.cancelIssued {
@@ -94,5 +101,9 @@ func ownerDiagnosticClose(ctx context.Context, v *ownerCloseSnapshot) {
 			exit = "signaled"
 		}
 	}
-	sink.emit(fmt.Sprintf("owner close timeout close_cancel=%s supervisor=%s phase=%s exit=%s", cancel, completion, phase, exit))
+	// Index only after closed validation. No numeric, caller-provided or OS text
+	// reaches the sink; these labels describe observations, never execution credit.
+	operations := [...]string{"unavailable", "start", "started_callback", "bootstrap_receive", "bootstrap_ack", "notification", "entry_receive", "entry_ack", "task_inventory", "wait_peek", "terminal_peek", "birth_read", "stop_consume", "resume", "trace_options", "exec_read", "identity", "ready_callback", "challenge", "membership", "terminate", "final_wait", "refusal_cleanup", "waited_callback", "pause"}
+	children := [...]string{"unavailable", "started", "stop_observed", "terminal_observed", "wait_returned"}
+	sink.emit(fmt.Sprintf("owner close timeout close_cancel=%s supervisor=%s phase=%s exit=%s operation=%s child=%s", cancel, completion, phase, exit, operations[v.operation], children[v.child]))
 }
