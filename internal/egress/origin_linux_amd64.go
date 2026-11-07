@@ -145,13 +145,18 @@ func originIdentity(pid int, image *os.File, argv []string) error {
 	return nil
 }
 
-// This owner is locked to the Start thread. WSTOPPED consumes only stops;
-// terminal case state stays waitable for the sole final cmd.Wait.
+// This owner is locked to the Start thread. Only nonleader task waits may
+// consume terminal state; the leader stays waitable for the sole cmd.Wait.
 type originOwner struct {
 	pid, fd int
+	origin  *CaseOrigin // Diagnostic publisher only; never used for trace decisions.
 	tasks   map[int]bool
 	strict  bool
 	births  map[int]originBirth
+	seen    map[int]bool // An observed task can no longer be an unready newborn.
+	// A vanished event may precede publication of its replacement exit. Keep
+	// that exact task pending, but never excuse ECHILD after observing its stop.
+	overtaken map[int]error
 }
 
 type originBirth struct {
@@ -161,6 +166,7 @@ type originBirth struct {
 }
 
 func (w *originOwner) captureBirth(tid int, status unix.WaitStatus) (originBirth, error) {
+	w.origin.observeOperation(OperationBirthRead)
 	p, err := unix.PtraceGetEventMsg(tid)
 	if err != nil {
 		return originBirth{}, err
@@ -181,9 +187,11 @@ func (w *originOwner) consumeBirth(tid int, status unix.WaitStatus) (originBirth
 }
 
 func (w *originOwner) next() (tid int, status unix.WaitStatus, terminal bool, err error) {
+	defer w.origin.observeOperation(OperationUnavailable)
 	// Group exit can overtake a creator's clone-event stop. Its newborn still
 	// belongs to this trace, and can hold the group at an unregistered stop.
 	// Inventory only this pinned child's threads before waiting for its leader.
+	w.origin.observeOperation(OperationTaskInventory)
 	entries, e := os.ReadDir(fmt.Sprintf("/proc/%d/task", w.pid))
 	if e != nil && !os.IsNotExist(e) {
 		return 0, 0, false, e
@@ -202,12 +210,34 @@ func (w *originOwner) next() (tid int, status unix.WaitStatus, terminal bool, er
 			w.tasks[p] = false // Membership/stop validation remains with the caller.
 		}
 	}
+	// Drain nonleaders before accepting a terminal leader. In particular, a
+	// previously observed task's stolen status must not be hidden by map order.
+	order := make([]int, 0, len(w.tasks))
 	for p := range w.tasks {
+		if p != w.pid {
+			order = append(order, p)
+		}
+	}
+	if _, owned := w.tasks[w.pid]; owned {
+		order = append(order, w.pid)
+	}
+	missing := false
+	for _, p := range order {
 		var si unix.Siginfo
+		w.origin.observeOperation(OperationWaitPeek)
 		err = unix.Waitid(unix.P_PID, p, &si, unix.WEXITED|unix.WSTOPPED|unix.WNOHANG|unix.WNOWAIT|unix.WALL, nil)
 		// A clone event can precede the new task becoming waitable. Retain it
 		// until its actual status; dropping it can strand the exec/exit group.
-		if err == unix.ECHILD && p != w.pid || err == unix.EINTR {
+		if err == unix.ECHILD && p != w.pid {
+			// A nonleader exec can retire its former TID and its siblings
+			// before the leader's EXEC stop is published. Keep the missing
+			// identity pending for that validated exec, but refuse terminal
+			// success if it remains missing. No status is inferred here.
+			missing = missing || w.seen[p] || w.overtaken[p] != nil
+			err = nil
+			continue
+		}
+		if err == unix.EINTR {
 			err = nil
 			continue
 		}
@@ -224,76 +254,172 @@ func (w *originOwner) next() (tid int, status unix.WaitStatus, terminal bool, er
 			err = ErrUnavailable
 			return
 		}
-		if si.Code >= 1 && si.Code <= 3 && p == w.pid { // CLD_EXITED/KILLED/DUMPED
+		if p == w.pid && si.Code >= 1 && si.Code <= 3 && missing {
+			return 0, 0, false, unix.ECHILD
+		}
+		tid, status, terminal, err = w.observedTask(p, si)
+		if err != nil || tid != 0 || terminal {
+			return
+		}
+	}
+	if _, leaderOwned := w.tasks[w.pid]; !leaderOwned && missing {
+		return 0, 0, false, unix.ECHILD
+	}
+	return
+}
+
+// observedTask handles an actual WNOWAIT observation of this owned task.
+func (w *originOwner) observedTask(p int, si unix.Siginfo) (tid int, status unix.WaitStatus, terminal bool, err error) {
+	if _, owned := w.tasks[p]; !owned || p <= 0 {
+		return 0, 0, false, ErrUnavailable
+	}
+	b := (*[128]byte)(unsafe.Pointer(&si))
+	if int(binary.LittleEndian.Uint32(b[16:20])) != p {
+		return 0, 0, false, ErrUnavailable
+	}
+	if w.seen == nil {
+		w.seen = map[int]bool{}
+	}
+	w.seen[p] = true
+	if si.Code >= 1 && si.Code <= 3 { // CLD_EXITED/KILLED/DUMPED
+		delete(w.overtaken, p)
+		if p == w.pid {
 			var again unix.Siginfo
+			w.origin.observeOperation(OperationTerminalPeek)
 			err = unix.Waitid(unix.P_PIDFD, w.fd, &again, unix.WEXITED|unix.WNOWAIT, nil)
 			if err == nil && si != again {
 				err = ErrUnavailable
 			}
 			terminal = err == nil
-			return
-		}
-		if si.Code >= 1 && si.Code <= 3 { // Only non-case thread terminal states.
-			tid, err = unix.Wait4(p, &status, unix.WNOHANG|unix.WALL, nil)
-			if err == nil && tid != p {
-				err = ErrUnavailable
+			if terminal {
+				w.origin.observeChild(ChildTerminalObserved)
 			}
 			return
 		}
-		// Read the creation identity while the observed event still exists.
-		// Another thread's group exit can replace this stop before resume.
-		peek := unix.WaitStatus(binary.LittleEndian.Uint32(b[24:28])<<8 | 0x7f)
-		cause := peek.TrapCause()
-		if cause == unix.PTRACE_EVENT_CLONE || cause == unix.PTRACE_EVENT_FORK || cause == unix.PTRACE_EVENT_VFORK {
-			birth, e := w.captureBirth(p, peek)
-			if e != nil {
-				return 0, 0, false, e
-			}
-			if w.births == nil {
-				w.births = map[int]originBirth{}
-			}
-			w.births[p] = birth
-			if _, known := w.tasks[birth.pid]; !known {
-				if len(w.tasks) >= 128 {
-					return 0, 0, false, ErrEvidenceLimit
-				}
-				w.tasks[birth.pid] = false
-			}
-			if w.strict && !birth.thread {
-				return 0, 0, false, ErrUnavailable
-			}
+		tid, status, terminal, err = w.consumeTask(p)
+		if err == nil && tid != p {
+			err = ErrUnavailable
 		}
+		return
+	}
+	if si.Code != 4 && si.Code != 5 {
+		return 0, 0, false, ErrUnavailable
+	}
+	if e := w.overtaken[p]; e != nil {
+		// A failed event read is excused only by disappearance of the stop,
+		// followed by an actual terminal observation, never by the same stop.
+		return 0, 0, false, e
+	}
+	// Read the creation identity while the observed event still exists.
+	// Another thread's group exit can replace this stop before resume.
+	peek := unix.WaitStatus(binary.LittleEndian.Uint32(b[24:28])<<8 | 0x7f)
+	cause := peek.TrapCause()
+	if cause == unix.PTRACE_EVENT_CLONE || cause == unix.PTRACE_EVENT_FORK || cause == unix.PTRACE_EVENT_VFORK {
+		birth, e := w.captureBirth(p, peek)
+		if e != nil {
+			if e == unix.ESRCH {
+				return w.stopOvertaken(p, e)
+			}
+			return 0, 0, false, e
+		}
+		if w.births == nil {
+			w.births = map[int]originBirth{}
+		}
+		w.births[p] = birth
+		if _, known := w.tasks[birth.pid]; !known {
+			if len(w.tasks) >= 128 {
+				return 0, 0, false, ErrEvidenceLimit
+			}
+			w.tasks[birth.pid] = false
+		}
+		if w.strict && !birth.thread {
+			return 0, 0, false, ErrUnavailable
+		}
+	}
+	return w.consumeTask(p)
+}
+
+// stopOvertaken requires a fresh wait relationship with this exact task. A
+// missing/stolen terminal status still fails. A no-status result retains the
+// task until a later real observation; it publishes no stop, exit or join.
+func (w *originOwner) stopOvertaken(p int, cause error) (int, unix.WaitStatus, bool, error) {
+	if _, owned := w.tasks[p]; !owned || p <= 0 {
+		return 0, 0, false, ErrUnavailable
+	}
+	var si unix.Siginfo
+	w.origin.observeOperation(OperationWaitPeek)
+	err := unix.Waitid(unix.P_PID, p, &si, unix.WEXITED|unix.WSTOPPED|unix.WNOHANG|unix.WNOWAIT|unix.WALL, nil)
+	if err != nil {
+		return 0, 0, false, errors.Join(cause, err)
+	}
+	b := (*[128]byte)(unsafe.Pointer(&si))
+	observed := int(binary.LittleEndian.Uint32(b[16:20]))
+	if observed == p && si.Code >= 1 && si.Code <= 3 {
+		return w.observedTask(p, si)
+	}
+	if observed != 0 {
+		return 0, 0, false, cause
+	}
+	if w.overtaken == nil {
+		w.overtaken = map[int]error{}
+	}
+	w.overtaken[p] = cause
+	return 0, 0, false, nil
+}
+
+func (w *originOwner) consumeTask(p int) (tid int, status unix.WaitStatus, terminal bool, err error) {
+	if _, owned := w.tasks[p]; !owned || p <= 0 {
+		return 0, 0, false, ErrUnavailable
+	}
+	w.origin.observeOperation(OperationStopConsume)
+	if p != w.pid {
+		// Unlike a WSTOPPED-only wait, this atomically consumes either the
+		// observed stop or the exit that replaced it. Never select the leader.
+		tid, err = unix.Wait4(p, &status, unix.WNOHANG|unix.WALL, nil)
+		if err != nil || tid == 0 {
+			return
+		}
+		if tid != p || !status.Stopped() && !status.Exited() && !status.Signaled() {
+			return 0, 0, false, ErrUnavailable
+		}
+	} else {
 		var stopped unix.Siginfo
 		err = unix.Waitid(unix.P_PID, p, &stopped, unix.WSTOPPED|unix.WNOHANG|unix.WALL, nil)
+		if err == unix.ECHILD {
+			return w.stopOvertaken(p, err)
+		}
 		if err != nil {
 			return
 		}
-		b = (*[128]byte)(unsafe.Pointer(&stopped))
+		b := (*[128]byte)(unsafe.Pointer(&stopped))
 		tid = int(binary.LittleEndian.Uint32(b[16:20]))
 		if tid == 0 {
-			continue
+			return
 		} // SIGKILL may have overtaken the peeked stop.
 		if tid != p || stopped.Code != 4 && stopped.Code != 5 {
 			err = ErrUnavailable
 			return
 		}
 		status = unix.WaitStatus(binary.LittleEndian.Uint32(b[24:28])<<8 | 0x7f)
-		if birth, ok := w.births[tid]; ok && birth.status != status {
-			delete(w.births, tid)
-		}
-
-		return
 	}
+	if status.Stopped() {
+		w.origin.observeChild(ChildStopObserved)
+	}
+	if birth, ok := w.births[tid]; ok && birth.status != status {
+		delete(w.births, tid)
+	}
+
 	return
 }
 
 func (w *originOwner) resume(tid int, status unix.WaitStatus) error {
+	w.origin.observeOperation(OperationResume)
+	defer w.origin.observeOperation(OperationUnavailable)
 	if birth, ok := w.births[tid]; ok && birth.status != status {
 		delete(w.births, tid)
 	}
 	if status.Exited() || status.Signaled() {
-		delete(w.tasks, tid)
-		delete(w.births, tid)
+		w.forgetTask(tid)
 		return nil
 	}
 	cause := status.TrapCause()
@@ -311,6 +437,7 @@ func (w *originOwner) resume(tid int, status unix.WaitStatus) error {
 	if status.StopSignal() != unix.SIGTRAP && status.StopSignal() != unix.SIGSTOP {
 		sig = int(status.StopSignal())
 	}
+	w.origin.observeOperation(OperationResume)
 	err := unix.PtraceCont(tid, sig)
 	if err == unix.ESRCH {
 		return nil
@@ -318,7 +445,16 @@ func (w *originOwner) resume(tid int, status unix.WaitStatus) error {
 	return err
 }
 
+func (w *originOwner) forgetTask(tid int) {
+	delete(w.tasks, tid)
+	delete(w.births, tid)
+	delete(w.seen, tid)
+	delete(w.overtaken, tid)
+}
+
 func (o *CaseOrigin) entry(challenge []byte) error {
+	o.observeOperation(OperationEntryReceive)
+	defer o.observeOperation(OperationUnavailable)
 	b, control := make([]byte, 33), make([]byte, unix.CmsgSpace(unix.SizeofUcred))
 	n, sz, flags, _, err := unix.Recvmsg(int(o.parent.Fd()), b, control, unix.MSG_DONTWAIT|unix.MSG_CMSG_CLOEXEC)
 	if err == unix.EAGAIN || err == unix.EINTR {
@@ -344,6 +480,7 @@ func (o *CaseOrigin) entry(challenge []byte) error {
 		return ErrUnavailable
 	}
 	o.entered.Store(true)
+	o.observeOperation(OperationEntryAck)
 	_, err = unix.Write(int(o.parent.Fd()), []byte{1})
 	if err == nil {
 		o.observePhase(OriginEntered)
@@ -401,6 +538,7 @@ func originNotify(listener int, p Policy, report *Report, start time.Time) error
 func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	report.Summary = map[string]Counts{}
 	o := c.Origin
+	defer o.observeOperation(OperationUnavailable)
 	defer func() {
 		if err != nil {
 			if o.ownerContext != "" {
@@ -462,9 +600,12 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	cmd.ExtraFiles = append(append([]*os.File{child}, c.ExtraFiles...), o.child)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Ptrace: true, Setpgid: true, PidFD: &fd}
 	o.observePhase(OriginStarting)
+	o.observeOperation(OperationStart)
 	if err = cmd.Start(); err != nil {
 		return
 	}
+	o.observeOperation(OperationUnavailable)
+	o.observeChild(ChildStarted)
 	o.observePhase(OriginSupervising)
 	child.Close()
 	o.pid.Store(int64(cmd.Process.Pid))
@@ -472,15 +613,17 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 		defer func() {
 			_ = cmd.Process.Kill()
 			o.observePhase(OriginJoining)
-			w := originOwner{pid: cmd.Process.Pid, fd: -1, tasks: map[int]bool{cmd.Process.Pid: true}}
+			w := originOwner{pid: cmd.Process.Pid, fd: -1, tasks: map[int]bool{cmd.Process.Pid: true}, origin: o}
 			err = errors.Join(err, o.finishWait(cmd, c, &w))
 		}()
 		if c.Started != nil {
+			o.observeOperation(OperationStartedCallback)
 			c.Started(cmd.Process.Pid)
+			o.observeOperation(OperationUnavailable)
 		}
 		return report, ErrUnavailable
 	}
-	w := originOwner{pid: cmd.Process.Pid, fd: fd, tasks: map[int]bool{cmd.Process.Pid: true}, strict: o.ownerContext != ""}
+	w := originOwner{pid: cmd.Process.Pid, fd: fd, tasks: map[int]bool{cmd.Process.Pid: true}, strict: o.ownerContext != "", origin: o}
 	defer unix.Close(fd)
 	terminal := false
 	defer func() {
@@ -489,12 +632,14 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 			o.invalid.Store(true)
 		}
 		// Signal while the unreaped group leader still pins this owned group.
+		o.observeOperation(OperationTerminate)
 		_ = unix.Kill(-w.pid, unix.SIGKILL)
 		_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
 		for len(w.tasks) != 0 {
 			if !terminal {
 				// SIGKILL can overtake a clone event before its new TID was
 				// reported. Drain every thread of this still-pinned case group.
+				o.observeOperation(OperationTaskInventory)
 				entries, e := os.ReadDir(fmt.Sprintf("/proc/%d/task", w.pid))
 				if e != nil {
 					err = errors.Join(err, e)
@@ -529,7 +674,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 				}
 			}
 			if tid == 0 && !done {
+				o.observeOperation(OperationPause)
 				time.Sleep(time.Millisecond)
+				o.observeOperation(OperationUnavailable)
 			}
 		}
 		o.observePhase(OriginJoining)
@@ -548,7 +695,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 	// Bookkeeping may unwind the call; actual owned-child cleanup is already
 	// installed before invoking any parent callback after Start.
 	if c.Started != nil {
+		o.observeOperation(OperationStartedCallback)
 		c.Started(cmd.Process.Pid)
+		o.observeOperation(OperationUnavailable)
 	}
 	listener := -1
 	defer func() {
@@ -571,7 +720,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 				if !o.Live(w.pid) {
 					return report, ErrUnavailable
 				}
+				o.observeOperation(OperationTerminate)
 				e := unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
+				o.observeOperation(OperationUnavailable)
 				o.termination.sent(gate, e == nil)
 				if e != nil {
 					return report, e
@@ -581,7 +732,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 		}
 		if listener < 0 {
 			b, control := make([]byte, 1), make([]byte, unix.CmsgSpace(4))
+			o.observeOperation(OperationBootstrapReceive)
 			n, sz, flags, _, e := unix.Recvmsg(pair[0], b, control, unix.MSG_DONTWAIT|unix.MSG_CMSG_CLOEXEC)
+			o.observeOperation(OperationUnavailable)
 			if e != nil && e != unix.EAGAIN && e != unix.EINTR {
 				return report, e
 			}
@@ -598,15 +751,19 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 					return report, ErrUnavailable
 				}
 				listener = fds[0]
+				o.observeOperation(OperationBootstrapAck)
 				if _, e = unix.Write(pair[0], []byte{1, 6, 0}); e != nil {
 					return report, e
 				}
+				o.observeOperation(OperationUnavailable)
 			}
 		}
 		if listener >= 0 {
+			o.observeOperation(OperationNotification)
 			if err = originNotify(listener, c.Policy, &report, start); err != nil {
 				return
 			}
+			o.observeOperation(OperationUnavailable)
 		}
 		if o.verified.Load() {
 			if err = o.entry(expected); err != nil {
@@ -631,7 +788,9 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 			return
 		}
 		if tid == 0 {
+			o.observeOperation(OperationPause)
 			time.Sleep(time.Millisecond)
+			o.observeOperation(OperationUnavailable)
 			continue
 		}
 		if !birth {
@@ -639,16 +798,20 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 				return report, ErrUnavailable
 			}
 			birth = true
+			o.observeOperation(OperationTraceOptions)
 			if err = unix.PtraceSetOptions(w.pid, unix.PTRACE_O_TRACEEXEC|unix.PTRACE_O_TRACECLONE|unix.PTRACE_O_TRACEFORK|unix.PTRACE_O_TRACEVFORK|unix.PTRACE_O_TRACEEXIT|unix.PTRACE_O_EXITKILL); err != nil {
 				return
 			}
+			o.observeOperation(OperationUnavailable)
 		}
 		if status.TrapCause() == unix.PTRACE_EVENT_EXEC {
 			if o.verified.Load() || tid != w.pid {
 				o.invalid.Store(true)
 				return report, ErrUnavailable
 			}
+			o.observeOperation(OperationExecRead)
 			former, e := unix.PtraceGetEventMsg(tid)
+			o.observeOperation(OperationUnavailable)
 			if e != nil {
 				return report, e
 			}
@@ -659,14 +822,19 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 				}
 			}
 			w.births = nil
+			w.seen = nil
+			w.overtaken = nil
 			w.tasks[w.pid] = true
+			o.observeOperation(OperationIdentity)
 			if err = originIdentity(w.pid, o.image, append([]string{c.Executable}, c.Args...)); err != nil {
 				return
 			}
 			o.verified.Store(true)
+			o.observeOperation(OperationReadyCallback)
 			if err = o.ready(); err != nil {
 				return
 			}
+			o.observeOperation(OperationChallenge)
 			if _, err = rand.Read(challenge); err != nil {
 				return
 			}
@@ -679,6 +847,7 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 			if _, err = unix.Write(int(o.parent.Fd()), challenge); err != nil {
 				return
 			}
+			o.observeOperation(OperationUnavailable)
 		}
 		if o.ownerContext != "" {
 			traceEvents++
@@ -688,11 +857,13 @@ func runOrigin(ctx context.Context, c Config) (report Report, err error) {
 			// A recorded thread birth remains this trace's identity through exit;
 			// only an unclassified stop needs a fresh procfs membership check.
 			if tid != w.pid && !w.tasks[tid] && !status.Exited() && !status.Signaled() {
+				o.observeOperation(OperationMembership)
 				if !originThread(tid, w.pid) {
 					o.invalid.Store(true)
 					return report, ErrUnavailable
 				}
 				w.tasks[tid] = true
+				o.observeOperation(OperationUnavailable)
 			}
 		}
 		if err = w.resume(tid, status); err != nil {
@@ -735,10 +906,13 @@ func (o *CaseOrigin) finishWait(cmd *exec.Cmd, c Config, w *originOwner) error {
 			o.invalid.Store(true)
 		}
 		if c.Waited != nil {
+			o.observeOperation(OperationWaitedCallback)
 			c.Waited(state)
+			o.observeOperation(OperationUnavailable)
 		}
 	}()
 	if cmd.Process == nil || cmd.ProcessState != nil || w.pid != cmd.Process.Pid || o.pid.Load() != int64(w.pid) {
+		o.observeOperation(OperationRefusalCleanup)
 		// No stale result or mismatched child may supply credit. Kill uses Cmd's
 		// own process handle, not the mismatched numeric identity.
 		if cmd.Process != nil && cmd.ProcessState != nil && !terminalWait(cmd.ProcessState) && cmd.ProcessState.Pid() == cmd.Process.Pid {
@@ -753,7 +927,9 @@ func (o *CaseOrigin) finishWait(cmd *exec.Cmd, c Config, w *originOwner) error {
 		}
 		return errors.Join(ErrUnavailable, waitErr)
 	}
+	o.observeOperation(OperationFinalWait)
 	waitErr = cmd.Wait()
+	o.observeOperation(OperationUnavailable)
 	actual := cmd.ProcessState
 	if terminalWait(actual) && actual.Pid() == w.pid {
 		state = actual
@@ -762,6 +938,7 @@ func (o *CaseOrigin) finishWait(cmd *exec.Cmd, c Config, w *originOwner) error {
 	// Only this fresh, real nonterminal result proves the child is unreaped and
 	// still pins its PID/group. A missing/consumed wait supplies no such custody.
 	if actual != nil && actual.Pid() == w.pid {
+		o.observeOperation(OperationRefusalCleanup)
 		_, cleanupErr := w.reapStopped()
 		waitErr = errors.Join(waitErr, cleanupErr)
 	}

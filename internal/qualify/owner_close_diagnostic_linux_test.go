@@ -135,7 +135,7 @@ func TestOwnerCloseTimeoutSnapshot(t *testing.T) {
 				return
 			}
 			want := "owner close timeout close_cancel=not_issued supervisor=pending phase=entered exit=unavailable"
-			if len(records) != 1 || records[0] != want {
+			if len(records) != 1 || !strings.HasPrefix(records[0], want+" operation=") || !strings.Contains(records[0], " child=") {
 				t.Fatal("pre-cancel snapshot missing or changed", records)
 			}
 			if time.Since(start) < 2*time.Second {
@@ -161,7 +161,7 @@ func TestOwnerCloseDiagnosticUnavailable(t *testing.T) {
 		ownerDiagnosticClose(ctx, &value)
 	}
 	for _, record := range records {
-		if record != "owner close timeout close_cancel=not_issued supervisor=unavailable phase=unavailable exit=unavailable" || len(record) > 160 || strings.Contains(record, "sentinel") {
+		if record != "owner close timeout close_cancel=not_issued supervisor=unavailable phase=unavailable exit=unavailable operation=unavailable child=unavailable" || len(record) > 200 || strings.Contains(record, "sentinel") {
 			t.Fatal("unavailable/closed diagnostic widened", record)
 		}
 	}
@@ -182,14 +182,22 @@ func TestOwnerCloseDiagnosticContract(t *testing.T) {
 			v := ownerCloseSnapshot{cancelIssued: true, completion: ownerReturned, origin: egress.OriginDiagnostic{Phase: egress.OriginPhase(p), Exit: egress.OriginExit(e)}}
 			ownerDiagnosticClose(ctx, &v)
 			wantPhase, wantExit := phase, "unavailable"
+			wantCompletion := "returned"
+			if p == 0 {
+				wantCompletion = "unavailable"
+			}
+			if p != int(egress.OriginJoined) && e != 0 {
+				wantPhase, wantCompletion = "unavailable", "unavailable"
+			}
 			if p == int(egress.OriginJoined) {
 				if e == 0 {
 					wantPhase = "unavailable"
+					wantCompletion = "unavailable"
 				} else {
 					wantExit = exit
 				}
 			}
-			want := fmt.Sprintf("owner close timeout close_cancel=issued supervisor=returned phase=%s exit=%s", wantPhase, wantExit)
+			want := fmt.Sprintf("owner close timeout close_cancel=issued supervisor=%s phase=%s exit=%s operation=unavailable child=unavailable", wantCompletion, wantPhase, wantExit)
 			if got != want {
 				t.Fatalf("closed enum %d/%d: %q, want %q", p, e, got, want)
 			}
@@ -205,11 +213,11 @@ func TestOwnerCloseSnapshotRacing(t *testing.T) {
 	entered := egress.OriginDiagnostic{Phase: egress.OriginEntered}
 	joined := egress.OriginDiagnostic{Phase: egress.OriginJoined, Exit: egress.ExitZero}
 	stable := ownerCloseSnapshot{cancelIssued: true, completion: ownerReturned, origin: joined}
-	if got := stableCloseSnapshot(joined, stable); got != stable {
+	if got := stableCloseSnapshot(egress.OriginObservation{OriginDiagnostic: joined}, stable); got != stable {
 		t.Fatal("stable positive discarded", got)
 	}
 	for _, first := range []egress.OriginDiagnostic{entered, {}} {
-		got := stableCloseSnapshot(first, stable)
+		got := stableCloseSnapshot(egress.OriginObservation{OriginDiagnostic: first}, stable)
 		if got.completion != ownerCompletionUnavailable || got.origin != (egress.OriginDiagnostic{}) || !got.cancelIssued {
 			t.Fatal("racing sample gained completion", got)
 		}
