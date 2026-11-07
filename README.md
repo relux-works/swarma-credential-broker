@@ -13,6 +13,11 @@ observer](docs/brokerclient.md) at
 `github.com/relux-works/swarma-credential-broker/brokerclient`. The observer
 receives no lease material and its observation is not launch authority.
 
+The [fixed demo executor](docs/fixed-demo-executor.md) adds sealed FD3 intake,
+protected P1 launch-record consumption and durable demo renewal caps. It is not
+curator-run; P1 executor approval, protected owner enrolment and live qualification
+remain required before execution.
+
 These bullets describe the readable-token broker baseline. The separately
 versioned [secret-free mode proposal](spec/secret-free-mode.md) is **inactive**:
 only the broker and admitted credential-spending services hold vendor-valid

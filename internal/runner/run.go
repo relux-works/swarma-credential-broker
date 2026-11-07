@@ -187,7 +187,11 @@ func execute(ctx context.Context, o Options, prompt []byte, streams IO, d Depend
 	}
 	state.phase = phaseRequest
 	call, ccancel := context.WithTimeout(ctx, 30*time.Second)
-	lease, err := broker.Request(call, LeaseRequest{Harness: "codex_cli", Profile: o.Profile, Account: o.Account, Channel: "external-token", LaunchID: randomID(), CredentialBinding: Binding{Digest: policy.BindingDigest, Harness: "codex_cli", Profile: o.Profile, Account: o.Account, Channel: "external-token", Endpoint: policy.Endpoint, ExecutableSHA256: policy.ExecutableSHA256, PolicyGeneration: policy.PolicyGeneration}, Executor: Executor{[]string{"credential-injection/1"}, Version}})
+	launchID := d.LaunchID
+	if launchID == "" {
+		launchID = randomID()
+	}
+	lease, err := broker.Request(call, LeaseRequest{Harness: "codex_cli", Profile: o.Profile, Account: o.Account, Channel: "external-token", LaunchID: launchID, CredentialBinding: Binding{Digest: policy.BindingDigest, Harness: "codex_cli", Profile: o.Profile, Account: o.Account, Channel: "external-token", Endpoint: policy.Endpoint, ExecutableSHA256: policy.ExecutableSHA256, PolicyGeneration: policy.PolicyGeneration}, Executor: Executor{[]string{"credential-injection/1"}, Version}})
 	ccancel()
 	if err != nil {
 		lease.erase()
@@ -225,6 +229,13 @@ func execute(ctx context.Context, o Options, prompt []byte, streams IO, d Depend
 		}
 		if client != nil {
 			close(client.closed)
+		}
+		if d.BeforeRelease != nil {
+			if e := cleanupAttempt(func() error {
+				return d.BeforeRelease(stop, lease.ID, failure == nil && state.failure == nil && ctx.Err() == nil)
+			}); e != nil {
+				failure = &exitFailure{phaseTeardown, originCleanup, "teardown_unconfirmed"}
+			}
 		}
 		release, c := context.WithTimeout(stop, 2*time.Second)
 		e := cleanupAttempt(func() error { return broker.Release(release, lease.ID) })

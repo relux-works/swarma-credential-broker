@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/relux-works/swarma-credential-broker/internal/demo"
 	"github.com/relux-works/swarma-credential-broker/internal/lease"
 	"github.com/relux-works/swarma-credential-broker/internal/owner"
 	"github.com/relux-works/swarma-credential-broker/internal/policy"
@@ -59,7 +60,7 @@ func run(args []string, out, diagnostic io.Writer) int {
 		return 69
 	}
 	defer s.Close()
-	m, e := lease.New(c.Policy, s, owner.Stopped{}, lease.Options{ObservePolicy: func(ctx context.Context, p policy.Policy) error {
+	options := lease.Options{ObservePolicy: func(ctx context.Context, p policy.Policy) error {
 		return observeConfiguredPolicy(ctx, *config, c, p)
 	}, Qualification: func(ctx context.Context, p policy.Policy) error {
 		next, e := policy.Load(*config, p.BrokerUID)
@@ -68,7 +69,11 @@ func run(args []string, out, diagnostic io.Writer) int {
 		}
 		_, _, e = next.Qualified(ctx, *config, nil)
 		return e
-	}}, *initialize)
+	}}
+	if c.Policy.BrokerUID == 1102 {
+		options = demo.BrokerOptions(options)
+	}
+	m, e := lease.New(c.Policy, s, owner.Stopped{}, options, *initialize)
 	if e != nil {
 		fmt.Fprintln(diagnostic, "lease_owner_unavailable")
 		return 69

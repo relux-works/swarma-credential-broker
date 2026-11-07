@@ -118,7 +118,10 @@ type rpcResult struct {
 
 // managed performs no OAuth exchange. Only the approved vendor receives this
 // bounded, token-free request sequence; response message/data is discarded.
-func managed(ctx context.Context, r *os.File, w *os.File, classifier Classifier) rpcResult {
+func managed(ctx context.Context, r *os.File, w *os.File, classifier Classifier, expectedReference ...string) rpcResult {
+	if len(expectedReference) > 1 || len(expectedReference) == 1 && expectedReference[0] == "" {
+		return rpcResult{Outcome: Unknown}
+	}
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		return rpcResult{Outcome: Unknown}
@@ -187,6 +190,11 @@ func managed(ctx context.Context, r *os.File, w *os.File, classifier Classifier)
 		return rpcResult{Outcome: Unknown}
 	}
 	if rpc != nil {
+		if len(expectedReference) == 1 {
+			// No account/read identity was returned for this demo refresh.
+			// A generic safe-error classification cannot stand in for the match.
+			return rpcResult{Outcome: Unknown}
+		}
 		if classifier != nil {
 			d := classifier.Classify(*rpc)
 			if d == Safe || d == Rejected {
@@ -198,11 +206,15 @@ func managed(ctx context.Context, r *os.File, w *os.File, classifier Classifier)
 	var v struct {
 		Requires *bool `json:"requiresOpenaiAuth"`
 		Account  *struct {
-			Type string `json:"type"`
-			Plan string `json:"planType"`
+			Type  string  `json:"type"`
+			Plan  string  `json:"planType"`
+			Email *string `json:"email"`
 		} `json:"account"`
 	}
 	if json.Unmarshal(result, &v) != nil || v.Requires == nil || !*v.Requires || v.Account == nil || v.Account.Type != "chatgpt" || !validPlan(v.Account.Plan) {
+		return rpcResult{Outcome: Unknown}
+	}
+	if len(expectedReference) == 1 && (v.Account.Email == nil || *v.Account.Email != expectedReference[0]) {
 		return rpcResult{Outcome: Unknown}
 	}
 	return rpcResult{Committed, v.Account.Plan}

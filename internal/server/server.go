@@ -168,7 +168,7 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 		return
 	}
 	p := s.Manager.Policy()
-	if !p.Peer(uid) {
+	if !s.Manager.Peer(parent, uid) {
 		terminal(c, "role_not_permitted")
 		return
 	}
