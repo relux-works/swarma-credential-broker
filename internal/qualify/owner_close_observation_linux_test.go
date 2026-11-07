@@ -72,3 +72,42 @@ func TestOwnerCloseObservationClosedOutput(t *testing.T) {
 		t.Fatal("pending operation invented completed wait", got)
 	}
 }
+
+func TestOwnerCloseWaitedUnknownObservation(t *testing.T) {
+	first := egress.OriginObservation{Operation: egress.OperationWaitedCallback}
+	v := ownerCloseSnapshot{cancelIssued: true, completion: ownerPending, operation: first.Operation}
+	want := v
+	want.completion = ownerCompletionUnavailable
+	if got := stableCloseSnapshot(first, v); got != want {
+		t.Fatal("entered callback discarded with unknown wait phase", got)
+	}
+	var got string
+	ctx := withOwnerDiagnostics(context.Background(), func(s string) { got = s })
+	ownerDiagnosticClose(ctx, &v)
+	if got != "owner close timeout close_cancel=issued supervisor=unavailable phase=unavailable exit=unavailable operation=waited_callback child=unavailable" {
+		t.Fatal("known callback or unknown wait evidence lost", got)
+	}
+	v.completion = ownerReturned
+	if got := stableCloseSnapshot(first, v); got != want {
+		t.Fatal("unknown wait phase retained returned completion", got)
+	}
+	ownerDiagnosticClose(ctx, &v)
+	if got != "owner close timeout close_cancel=issued supervisor=unavailable phase=unavailable exit=unavailable operation=waited_callback child=unavailable" {
+		t.Fatal("formatter retained unknown completion", got)
+	}
+	// A different endpoint or stale terminal/child evidence still clears the
+	// whole observation and the separately sampled completion value.
+	for _, last := range []ownerCloseSnapshot{
+		{cancelIssued: true, completion: ownerReturned},
+		{cancelIssued: true, completion: ownerReturned, operation: first.Operation, origin: egress.OriginDiagnostic{Exit: egress.ExitZero}},
+		{cancelIssued: true, completion: ownerReturned, operation: first.Operation, child: egress.ChildWaitReturned},
+	} {
+		if got := stableCloseSnapshot(first, last); got != (ownerCloseSnapshot{cancelIssued: true}) {
+			t.Fatal("mixed or invalid callback sample retained completion", got)
+		}
+		ownerDiagnosticClose(ctx, &last)
+		if got != "owner close timeout close_cancel=issued supervisor=unavailable phase=unavailable exit=unavailable operation=unavailable child=unavailable" {
+			t.Fatal("malformed callback sample retained output", got)
+		}
+	}
+}

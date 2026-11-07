@@ -87,10 +87,15 @@ type OriginObservation struct {
 // Valid also checks synthetic formatter inputs; enum neighbours cannot turn a
 // malformed observation into a completed wait.
 func (v OriginObservation) Valid() bool {
+	if v.Phase == OriginUnavailable {
+		// A refused final wait clears phase, exit and child evidence. Its
+		// entered Waited(nil) callback is still known until that call returns.
+		return v.Exit == ExitUnavailable && v.Child == ChildUnavailable &&
+			(v.Operation == OperationUnavailable || v.Operation == OperationWaitedCallback)
+	}
 	return v.Phase <= OriginJoined && v.Exit <= ExitSignaled &&
 		v.Operation <= OperationPause && v.Child <= ChildWaitReturned &&
 		(v.Phase == OriginJoined) == (v.Exit != ExitUnavailable) &&
-		(v.Phase != OriginUnavailable || v == (OriginObservation{})) &&
 		(v.Child != ChildWaitReturned || v.Phase == OriginJoined) &&
 		(v.Phase != OriginJoined || (v.Operation == OperationUnavailable || v.Operation == OperationWaitedCallback) && (v.Child == ChildUnavailable || v.Child == ChildWaitReturned))
 }

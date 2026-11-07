@@ -47,6 +47,9 @@ func stableCloseSnapshot(first egress.OriginObservation, v ownerCloseSnapshot) o
 	last := egress.OriginObservation{OriginDiagnostic: v.origin, Operation: v.operation, Child: v.child}
 	if !first.Valid() || !last.Valid() || first == (egress.OriginObservation{}) || first != last {
 		v = ownerCloseSnapshot{cancelIssued: v.cancelIssued}
+	} else if first.Phase == egress.OriginUnavailable {
+		// Keep the known callback operation, without a lifecycle/completion claim.
+		v.completion = ownerCompletionUnavailable
 	}
 	return v
 }
@@ -65,11 +68,13 @@ func ownerDiagnosticClose(ctx context.Context, v *ownerCloseSnapshot) {
 		cancel = "issued"
 	}
 	completion := "unavailable"
-	switch v.completion {
-	case ownerPending:
-		completion = "pending"
-	case ownerReturned:
-		completion = "returned"
+	if v.origin.Phase != egress.OriginUnavailable {
+		switch v.completion {
+		case ownerPending:
+			completion = "pending"
+		case ownerReturned:
+			completion = "returned"
+		}
 	}
 	phase := "unavailable"
 	if v.origin.Phase == egress.OriginJoined && (v.origin.Exit == egress.ExitUnavailable || v.origin.Exit > egress.ExitSignaled) {
