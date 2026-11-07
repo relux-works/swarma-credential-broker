@@ -84,22 +84,6 @@ func runnerChild(pid int) error {
 // runnerNext preserves originOwner's exact PID/pidfd peek and stop consumption.
 // ECHILD, including a terminal status taken by another waiter, is unavailable.
 func runnerNext(w *originOwner) (int, unix.WaitStatus, bool, error) {
-	// A dying group can lose the parent's clone-event stop while the new
-	// thread remains trace-owned. Discover it before waiting for the leader;
-	// otherwise its unreaped terminal status can block the whole group.
-	entries, scanErr := os.ReadDir(fmt.Sprintf("/proc/%d/task", w.pid))
-	if scanErr != nil && !os.IsNotExist(scanErr) {
-		return 0, 0, false, errors.Join(ErrRunnerOriginUnavailable, scanErr)
-	}
-	for _, entry := range entries {
-		p, e := strconv.Atoi(entry.Name())
-		if e != nil || len(w.tasks) > 128 {
-			return 0, 0, false, ErrRunnerOriginUnavailable
-		}
-		if _, known := w.tasks[p]; !known {
-			w.tasks[p] = false
-		}
-	}
 	p, s, done, e := w.next()
 	if e != nil {
 		e = errors.Join(ErrRunnerOriginUnavailable, e)
@@ -250,8 +234,12 @@ func TraceRunner(ctx context.Context, c RunnerTraceConfig) (result RunnerTraceRe
 }
 
 func runnerResume(w *originOwner, tid int, s unix.WaitStatus, result *RunnerTraceResult) error {
+	if birth, ok := w.births[tid]; ok && birth.status != s {
+		delete(w.births, tid)
+	}
 	if s.Exited() || s.Signaled() {
 		delete(w.tasks, tid)
+		delete(w.births, tid)
 		return nil
 	}
 	if !w.tasks[tid] {
@@ -274,17 +262,18 @@ func runnerResume(w *originOwner, tid int, s unix.WaitStatus, result *RunnerTrac
 	}
 	cause := s.TrapCause()
 	if cause == unix.PTRACE_EVENT_CLONE || cause == unix.PTRACE_EVENT_FORK || cause == unix.PTRACE_EVENT_VFORK {
-		p, e := unix.PtraceGetEventMsg(tid)
-		if e != nil || p == 0 || len(w.tasks) >= 128 {
+		birth, e := w.consumeBirth(tid, s)
+		if e != nil || len(w.tasks) > 128 {
 			return ErrRunnerOriginUnavailable
 		}
+		p := birth.pid
 		// Count creation before the parent resumes, even if group exit overtakes
 		// the newborn stop. Deduplication also covers stop-before-event ordering.
-		if !w.tasks[int(p)] && (cause != unix.PTRACE_EVENT_CLONE || !originThread(int(p), w.pid)) {
-			result.child(int(p))
+		if !birth.thread {
+			result.child(p)
 		}
-		if _, known := w.tasks[int(p)]; !known {
-			w.tasks[int(p)] = false
+		if _, known := w.tasks[p]; !known {
+			w.tasks[p] = false
 		}
 	}
 	sig := 0
