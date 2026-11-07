@@ -77,6 +77,10 @@ type TimeEvidence struct {
 	Trusted, Fresh      bool
 }
 type Config struct {
+	// AccountReference re-reads the protected human-confirmed account/read
+	// reference before each managed refresh. Demo integration requires it;
+	// absence preserves the separately qualified ordinary owner contract.
+	AccountReference                                       func(context.Context, string) (string, error)
 	Installation, DaemonInstance, DaemonUnit, WriterPrefix string
 	PolicyGeneration                                       uint64
 	Executable, ExecutableSHA256, QualificationID          string

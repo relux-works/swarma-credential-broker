@@ -23,7 +23,19 @@ type Event struct {
 	Arrival time.Time
 	At      time.Time
 }
+
+// DemoAdmission binds a fixed-demo launch digest to protected P1 evidence.
+// Check is called again after owner I/O; Publish holds its immutable snapshot
+// gate through the material write. Implementations must refuse missing evidence.
+type DemoAdmission interface {
+	Peer(context.Context, uint32) error
+	Check(context.Context, uint32, string) error
+	Publish(context.Context, uint32, string, func(context.Context) error) error
+}
+
 type Options struct {
+	DemoAdmission DemoAdmission
+
 	// ObservePolicy checks the protected static source against the served snapshot.
 	// The standalone daemon installs it; nil supports immutable in-memory embedders.
 	ObservePolicy func(context.Context, policy.Policy) error
@@ -78,6 +90,7 @@ type Record struct {
 	ObservedDigest     string       `json:"client_observed_digest"`
 	OfferedGeneration  uint64       `json:"last_offered_generation"`
 	ObservedGeneration uint64       `json:"client_observed_generation"`
+	RenewalAdmissions  uint32       `json:"renewal_admissions,omitempty"`
 	State              string       `json:"state"`
 }
 type Outcome struct {
@@ -120,6 +133,8 @@ type account struct {
 	wake         chan struct{}
 }
 type Manager struct {
+	demoMu       sync.Mutex
+	demoLaunches map[string]bool
 	policyMu     sync.RWMutex
 	policy       policy.Policy
 	policyFailed bool
@@ -157,7 +172,7 @@ func New(p policy.Policy, s *store.Store, o owner.Owner, options Options, initia
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{publications: map[*publication]bool{}, policy: p.Clone(), owner: o, store: s, accounts: map[string]*account{}, options: options, instance: RandomID(), ctx: ctx, cancel: cancel}
+	m := &Manager{demoLaunches: map[string]bool{}, publications: map[*publication]bool{}, policy: p.Clone(), owner: o, store: s, accounts: map[string]*account{}, options: options, instance: RandomID(), ctx: ctx, cancel: cancel}
 	for _, entry := range p.Accounts {
 		disk, e := s.Account(entry.Label, initialize)
 		if e != nil {
@@ -176,7 +191,7 @@ func New(p policy.Policy, s *store.Store, o owner.Owner, options Options, initia
 				continue
 			}
 			var rec Record
-			if wire.Decode(b, &rec) != nil || rec.Kind != "lease-record/1" || rec.Installation != p.Installation || rec.Account != entry.Label || rec.Revision == 0 || rec.PolicyGeneration > p.Generation || !validID(rec.LeaseID) || name != store.LeaseName(rec.LeaseID) || !policy.Hash(rec.OfferedDigest) || !policy.Hash(rec.ObservedDigest) || (rec.State != "active" && rec.State != "released" && rec.State != "expired") {
+			if wire.Decode(b, &rec) != nil || rec.Kind != "lease-record/1" || rec.Installation != p.Installation || rec.Account != entry.Label || rec.Revision == 0 || rec.RenewalAdmissions > 2 && options.DemoAdmission != nil || rec.PolicyGeneration > p.Generation || !validID(rec.LeaseID) || name != store.LeaseName(rec.LeaseID) || !policy.Hash(rec.OfferedDigest) || !policy.Hash(rec.ObservedDigest) || (rec.State != "active" && rec.State != "released" && rec.State != "expired") {
 				cancel()
 				return nil, store.ErrUnavailable
 			}
@@ -188,6 +203,29 @@ func New(p policy.Policy, s *store.Store, o owner.Owner, options Options, initia
 				if e = disk.Put(name, prior, rec); e != nil {
 					cancel()
 					return nil, e
+				}
+			}
+			if options.DemoAdmission != nil {
+				if !policy.Hash(rec.LaunchID) {
+					cancel()
+					return nil, store.ErrUnavailable
+				}
+				if m.demoLaunches[rec.LaunchID] {
+					cancel()
+					return nil, store.ErrUnavailable
+				}
+				m.demoLaunches[rec.LaunchID] = true
+				// Restart cannot establish whether an admitted refresh finished or its reply
+				// escaped. Old records remain tombstones; no renewal allowance is restored.
+				if rec.State == "active" {
+					rec.State = "expired"
+					prior := rec.Revision
+					rec.Revision++
+					rec.DaemonInstance = m.instance
+					if e = disk.Put(name, prior, rec); e != nil {
+						cancel()
+						return nil, e
+					}
 				}
 			}
 			a.records[rec.LeaseID] = rec
@@ -213,6 +251,16 @@ func (m *Manager) Policy() policy.Policy {
 	m.policyMu.RLock()
 	defer m.policyMu.RUnlock()
 	return m.policy.Clone()
+}
+
+// Peer preserves observer metadata access while applying the immutable demo
+// roster to worker connections before the server accepts protocol requests.
+func (m *Manager) Peer(ctx context.Context, uid uint32) bool {
+	p := m.Policy()
+	if !p.Peer(uid) {
+		return false
+	}
+	return p.Observer(uid) || m.options.DemoAdmission == nil || m.options.DemoAdmission.Peer(ctx, uid) == nil
 }
 
 // WithGeneration orders a callback before replacement without holding state
@@ -319,6 +367,11 @@ func (m *Manager) Call(ctx context.Context, uid uint32, method string, params an
 		}
 		if _, e := p.Check(uid, r); e != nil {
 			return Outcome{Err: e}
+		}
+		if m.options.DemoAdmission != nil {
+			if e := m.options.DemoAdmission.Check(ctx, uid, r.LaunchID); e != nil {
+				return Outcome{Err: wire.Refuse("lease_not_authorised")}
+			}
 		}
 		if m.options.Qualification != nil {
 			if e := m.options.Qualification(ctx, p); e != nil {
@@ -589,6 +642,47 @@ func (m *Manager) execute(label string, a *account, op *operation) Outcome {
 			return Outcome{Err: wire.Refuse("renew_not_current")}
 		}
 	}
+	if m.options.DemoAdmission != nil {
+		launch := rec.LaunchID
+		if op.method == "lease.request" {
+			launch = op.request.LaunchID
+		}
+		if op.method == "proactive" || m.options.DemoAdmission.Check(m.ctx, op.uid, launch) != nil {
+			return Outcome{Err: wire.Refuse("lease_not_authorised")}
+		}
+		if op.method == "lease.renew" {
+			if rec.DaemonInstance != m.instance || rec.RenewalAdmissions >= 2 {
+				return Outcome{Err: wire.Refuse("renew_failed")}
+			}
+			rec.RenewalAdmissions++
+			// Consume before any Snapshot/Refresh; failed and unknown operations count.
+			if e := m.persist(a, rec); e != nil {
+				return Outcome{Err: e}
+			}
+			a.mu.Lock()
+			rec = a.records[rec.LeaseID]
+			a.mu.Unlock()
+		}
+		if op.method == "lease.request" {
+			// Serialize reservation across accounts, not just within an account queue.
+			// Persist an existing-format expired tombstone before any owner work.
+			m.demoMu.Lock()
+			if m.demoLaunches[launch] {
+				m.demoMu.Unlock()
+				return Outcome{Err: wire.Refuse("lease_not_authorised")}
+			}
+			m.demoLaunches[launch] = true
+			rec = Record{Kind: "lease-record/1", LeaseID: op.id, Installation: p.Installation, UID: op.uid, Account: label, Profile: op.request.Profile, PolicyGeneration: p.Generation, Binding: op.request.Binding, LaunchID: launch, AuthorizedUntil: m.options.Now().UTC().Truncate(time.Second), OfferedDigest: strings.Repeat("0", 64), ObservedDigest: strings.Repeat("0", 64), State: "expired"}
+			e := m.persist(a, rec)
+			m.demoMu.Unlock()
+			if e != nil {
+				return Outcome{Err: e}
+			}
+			a.mu.Lock()
+			rec = a.records[rec.LeaseID]
+			a.mu.Unlock()
+		}
+	}
 	snapshot, err := m.owner.Snapshot(m.ctx, label)
 	if err != nil {
 		return Outcome{Err: wire.Refuse("lease_owner_unavailable")}
@@ -655,7 +749,11 @@ func (m *Manager) execute(label string, a *account, op *operation) Outcome {
 		if active >= m.options.MaxActive {
 			return Outcome{Err: wire.Refuse("lease_not_authorised")}
 		}
-		until := m.options.Now().Add(time.Duration(p.MaxLeaseSeconds) * time.Second)
+		seconds := p.MaxLeaseSeconds
+		if m.options.DemoAdmission != nil && seconds > 300 {
+			seconds = 300
+		}
+		until := m.options.Now().Add(time.Duration(seconds) * time.Second)
 		for _, bound := range []time.Time{snapshot.ExpiresAt, snapshot.AuthorityUntil} {
 			if !bound.IsZero() && bound.Before(until) {
 				until = bound
@@ -665,10 +763,21 @@ func (m *Manager) execute(label string, a *account, op *operation) Outcome {
 		if !m.options.Now().Before(until) {
 			return Outcome{Err: wire.Refuse("lease_owner_unavailable")}
 		}
-		rec = Record{Kind: "lease-record/1", LeaseID: op.id, Installation: p.Installation, UID: op.uid, Account: label, Profile: request.Profile, PolicyGeneration: p.Generation, Binding: request.Binding, LaunchID: request.LaunchID, AuthorizedUntil: until, OfferedDigest: Digest(snapshot.AccessToken), ObservedDigest: Digest(snapshot.AccessToken), OfferedGeneration: snapshot.Generation, ObservedGeneration: snapshot.Generation, State: "active"}
+		priorRevision := rec.Revision
+		rec = Record{Revision: priorRevision, Kind: "lease-record/1", LeaseID: op.id, Installation: p.Installation, UID: op.uid, Account: label, Profile: request.Profile, PolicyGeneration: p.Generation, Binding: request.Binding, LaunchID: request.LaunchID, AuthorizedUntil: until, OfferedDigest: Digest(snapshot.AccessToken), ObservedDigest: Digest(snapshot.AccessToken), OfferedGeneration: snapshot.Generation, ObservedGeneration: snapshot.Generation, State: "active"}
 	} else {
 		if !m.options.Now().Before(rec.AuthorizedUntil) {
 			return Outcome{Err: wire.Refuse("lease_not_active")}
+		}
+		if m.options.DemoAdmission != nil {
+			// The existing consumer requires an unchanged authority deadline.
+			// Refuse rather than hand it material whose current confidence or
+			// provider bound ends earlier than that immutable deadline.
+			for _, bound := range []time.Time{snapshot.ExpiresAt, snapshot.AuthorityUntil} {
+				if !bound.IsZero() && bound.Truncate(time.Second).Before(rec.AuthorizedUntil) {
+					return Outcome{Err: wire.Refuse("lease_not_active")}
+				}
+			}
 		}
 		if op.rejected == rec.OfferedDigest {
 			rec.ObservedDigest = rec.OfferedDigest
@@ -676,6 +785,9 @@ func (m *Manager) execute(label string, a *account, op *operation) Outcome {
 		}
 		rec.OfferedDigest = Digest(snapshot.AccessToken)
 		rec.OfferedGeneration = snapshot.Generation
+	}
+	if m.options.DemoAdmission != nil && m.options.DemoAdmission.Check(m.ctx, op.uid, rec.LaunchID) != nil {
+		return Outcome{Err: wire.Refuse("lease_not_authorised")}
 	}
 	if e := m.persist(a, rec); e != nil {
 		return Outcome{Err: e}
@@ -832,12 +944,18 @@ func (m *Manager) Publish(ctx context.Context, uid uint32, generation uint64, re
 			limit = bound
 		}
 	}
+	deliveryNow := time.Now()
 	now := m.options.Now()
 	if !now.Before(limit) {
 		a.mu.Unlock()
 		m.policyMu.Unlock()
 		return wire.Refuse("lease_not_active")
 	}
+	// Translate the policy clock once, before admission can block. Never add
+	// this remaining interval to a later clock reading after waiting in a gate.
+	deadline := deliveryNow.Add(limit.Sub(now))
+	delivery, deliveryCancel := context.WithDeadline(ctx, deadline)
+	defer deliveryCancel()
 	d := &publication{cancel: cancel, done: make(chan struct{})}
 	m.publications[d] = true
 	if a.publications[r.LeaseID] == nil {
@@ -847,10 +965,22 @@ func (m *Manager) Publish(ctx context.Context, uid uint32, generation uint64, re
 	a.mu.Unlock()
 	m.policyMu.Unlock()
 	defer m.finishPublication(a, r.LeaseID, d)
-	if ctx.Err() != nil {
-		return ctx.Err()
+	publish := func(gated context.Context) error {
+		if err := delivery.Err(); err != nil {
+			return err
+		}
+		if err := gated.Err(); err != nil {
+			return err
+		}
+		if !time.Now().Before(deadline) || !m.options.Now().Before(limit) {
+			return wire.Refuse("lease_not_active")
+		}
+		return write(delivery, deadline)
 	}
-	return write(ctx, time.Now().Add(limit.Sub(now)))
+	if m.options.DemoAdmission != nil {
+		return m.options.DemoAdmission.Publish(delivery, uid, r.LaunchID, publish)
+	}
+	return publish(delivery)
 }
 func (m *Manager) checkPublication(a *account, p policy.Policy, uid uint32, result wire.LeaseResult, snapshot owner.Snapshot) error {
 	r, ok := a.records[result.LeaseID]
@@ -871,6 +1001,13 @@ func (m *Manager) checkPublication(a *account, p policy.Policy, uid uint32, resu
 	}
 	if err := usable(p, m.options.Now(), snapshot, r.Account); err != nil {
 		return err
+	}
+	if m.options.DemoAdmission != nil {
+		for _, bound := range []time.Time{snapshot.ExpiresAt, snapshot.AuthorityUntil} {
+			if !bound.IsZero() && bound.Truncate(time.Second).Before(r.AuthorizedUntil) {
+				return wire.Refuse("lease_not_active")
+			}
+		}
 	}
 	if Digest(snapshot.AccessToken) != Digest(result.Payload.AccessToken) {
 		return wire.Refuse("lease_owner_unavailable")

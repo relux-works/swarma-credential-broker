@@ -22,6 +22,7 @@ type Server struct {
 	listener          *net.UnixListener
 	wg                sync.WaitGroup
 	closed            bool
+	cancel            context.CancelFunc
 	peer              func(*net.UnixConn) (uint32, error)
 	qualification     bool
 	qualificationCall func(string) bool
@@ -61,7 +62,10 @@ func Listen(path string) (*net.UnixListener, error) {
 	return l, nil
 }
 func (s *Server) Serve(ctx context.Context, l *net.UnixListener) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	s.mu.Lock()
+	s.cancel = cancel
 	s.listener = l
 	s.socketPath = l.Addr().String()
 	s.socketInfo, _ = os.Lstat(s.socketPath)
@@ -87,6 +91,9 @@ func (s *Server) Serve(ctx context.Context, l *net.UnixListener) error {
 			}
 			return wire.Refuse("lease_owner_unavailable")
 		}
+		// Capture the monotonic first-frame cutoff at accept, before scheduling
+		// or demo admission can consume any of its two-second budget.
+		firstDeadline := time.Now().Add(2 * time.Second)
 		s.mu.Lock()
 		if s.closed || len(s.connections) >= 256 {
 			s.mu.Unlock()
@@ -99,13 +106,16 @@ func (s *Server) Serve(ctx context.Context, l *net.UnixListener) error {
 		go func() {
 			defer s.wg.Done()
 			defer func() { c.Close(); s.mu.Lock(); delete(s.connections, c); s.mu.Unlock() }()
-			s.serve(ctx, c)
+			s.serve(ctx, c, firstDeadline)
 		}()
 	}
 }
 func (s *Server) Close() {
 	s.mu.Lock()
 	s.closed = true
+	if s.cancel != nil {
+		s.cancel()
+	}
 	if s.listener != nil {
 		s.listener.Close()
 		current, err := os.Lstat(s.socketPath)
@@ -130,8 +140,7 @@ func terminal(c *net.UnixConn, code string) {
 	_ = c.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	_ = wire.Write(c, map[string]any{"request_id": nil, "error": wire.Refuse(code)})
 }
-func read(c *net.UnixConn, first bool) ([]byte, time.Time, error) {
-	firstDeadline := time.Now().Add(2 * time.Second)
+func read(c *net.UnixConn, first bool, firstDeadline time.Time) ([]byte, time.Time, error) {
 	if first {
 		_ = c.SetReadDeadline(firstDeadline)
 	} else {
@@ -161,15 +170,23 @@ func (r *byteReader) Read(p []byte) (int, error) {
 	r.b = r.b[n:]
 	return n, nil
 }
-func (s *Server) serve(parent context.Context, c *net.UnixConn) {
+func (s *Server) serve(parent context.Context, c *net.UnixConn, firstDeadline time.Time) {
+	first, stopFirst := context.WithDeadline(parent, firstDeadline)
+	defer stopFirst()
 	uid, e := s.peer(c)
 	if e != nil {
 		terminal(c, "peer_identity_unavailable")
 		return
 	}
 	p := s.Manager.Policy()
-	if !p.Peer(uid) {
+	if !s.Manager.Peer(first, uid) {
+		if first.Err() != nil {
+			return
+		}
 		terminal(c, "role_not_permitted")
+		return
+	}
+	if first.Err() != nil || !time.Now().Before(firstDeadline) {
 		return
 	}
 	ctx, cancel := context.WithCancel(parent)
@@ -239,7 +256,7 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 	var calls sync.WaitGroup
 	defer func() { cancel(); calls.Wait() }()
 	for {
-		b, arrival, e := read(c, !hello)
+		b, arrival, e := read(c, !hello, firstDeadline)
 		if e != nil {
 			cancel()
 			if errors.Is(e, wire.ErrTooLarge) {
@@ -252,6 +269,14 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn) {
 				}
 			}
 			return
+		}
+		if !hello {
+			if first.Err() != nil || !time.Now().Before(firstDeadline) {
+				return
+			}
+			// Later frames use their own arrival budget; the accept deadline
+			// must never cancel an already negotiated connection.
+			stopFirst()
 		}
 		var r wire.Request
 		if wire.Decode(b, &r) != nil || !wire.ASCII(r.ID, 64) {

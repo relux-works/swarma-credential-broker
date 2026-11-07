@@ -90,6 +90,12 @@ type Dependencies struct {
 	// Supervisor is the embedding executable, which must dispatch SupervisorMain
 	// before parsing ordinary commands. It never receives token material in argv.
 	Supervisor string
+	// LaunchID is a protected integration's independently admitted plan digest.
+	// Empty retains the ordinary runner's random correlation identifier.
+	LaunchID string
+	// BeforeRelease records a bounded turn outcome after child absence and before
+	// local lease release. It must not log the error or any credential material.
+	BeforeRelease func(context.Context, string, bool) error
 }
 type IO struct {
 	In       io.Reader

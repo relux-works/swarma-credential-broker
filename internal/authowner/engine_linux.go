@@ -471,7 +471,14 @@ func (e *Engine) attempt(ctx context.Context, a *account) (resultErr error) {
 			rpcctx, c = context.WithDeadline(rpcctx, d)
 			defer c()
 		}
-		result = managed(rpcctx, read, write, e.classifier)
+		if e.config.AccountReference != nil {
+			reference, referenceErr := e.config.AccountReference(rpcctx, a.config.Label)
+			if referenceErr == nil && reference != "" {
+				result = managed(rpcctx, read, write, e.classifier, reference)
+			}
+		} else {
+			result = managed(rpcctx, read, write, e.classifier)
+		}
 		rpccancel()
 	}
 	if err := e.evidence(runtime, a, b, "stopping", o, "unknown", result.Outcome, Unknown, 0, result.Plan); err != nil {
