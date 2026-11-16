@@ -1,8 +1,12 @@
 # swarma-credential-broker: specification
 
-- **Status:** baseline draft v0.12; the [README](../README.md) scopes the experimental core and pending production qualification. The separately versioned [secret-free mode](secret-free-mode.md) is PROPOSED/inactive and does not extend the active v0 wire contract.
+- **Status:** baseline draft v0.13; the [README](../README.md) scopes the experimental core and pending production qualification. The separately versioned [secret-free mode](secret-free-mode.md) is PROPOSED/inactive; its service dialect for the v0 scope in [secret-free service v0](secret-free-service-v0.md) is published by this revision and does not make the mode active.
 - **Normative language:** MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 - **Companions:** [swarma-user-manager](https://github.com/relux-works/swarma-user-manager) (per-agent OS users, the launcher that starts processes under them, and per-UID firewall rules), [curator-network-profiles](https://github.com/relux-works/curator-network-profiles) (egress profiles), curator-spec CIP-0010 and CIP-0011 (the Curator side: credential sources, the protected credential binding, the executor capability, the launch-plan extension).
+
+### Revision 0.13
+
+- Publishes [the secret-free service dialect v0](secret-free-service-v0.md): on the existing `broker/1` socket, a fixed-role service principal, operator-made service bindings, service leases issued only to that principal after checks of both the service binding and the originating caller, a service revocation poll and a narrow whole-account hold, for one host, one service name (`credential-gateway`) and kind `claude-oauth-token`. For a launch whose machine policy selects secret-free mode that contract wins; the readable-token channels in §5.2 and §8.4 remain the separately selected, separately qualified exposed lane and are never a fallback from a failed secret-free admission. The mode stays PROPOSED/inactive, the activation gates in [secret-free mode §13](secret-free-mode.md#13-publication-and-activation-gates) stay except the dialect publication this revision fills for that scope, and no implementation, qualification or activation is claimed.
 
 ### Revision 0.12
 
@@ -241,13 +245,15 @@ The record never contains secret material.
 
 ### 5.2 Kinds
 
-| Kind | Material | Refresh | Delivery channels (§8.4) |
-|---|---|---|---|
-| `claude-oauth-token` | the one-year token printed by `claude setup-token` | none: a new token and a restart | environment `CLAUDE_CODE_OAUTH_TOKEN` |
-| `codex-chatgpt` | a Codex ChatGPT login held by the auth owner | the auth owner only (§9) | Codex app-server external tokens only |
-| `codex-access-token` | a Business or Enterprise access token | none in the broker (admin-issued) | environment `CODEX_ACCESS_TOKEN`; later, outside the first release |
-| `api-key` | a vendor API key (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`, `META_API_KEY`, `GEMINI_API_KEY`, …) | none | environment, or stdin where the harness supports it |
-| `muse-account` | subscription login that mints a provider API key | single minting owner proposed; refresh trigger and rotation unknown (§10.2) | proposed channel (b): minted key via `META_API_KEY` or `exec --api-key-stdin`; fallback (c) subject to qualification |
+| Kind | Material | Refresh | Delivery channels (§8.4) | Secret-free delivery |
+|---|---|---|---|---|
+| `claude-oauth-token` | the one-year token printed by `claude setup-token` | none: a new token and a restart | environment `CLAUDE_CODE_OAUTH_TOKEN` | First kind: service principal only, by service lease under [secret-free service v0](secret-free-service-v0.md); no material to the agent account |
+| `codex-chatgpt` | a Codex ChatGPT login held by the auth owner | the auth owner only (§9) | Codex app-server external tokens only | Not in secret-free service v0 |
+| `codex-access-token` | a Business or Enterprise access token | none in the broker (admin-issued) | environment `CODEX_ACCESS_TOKEN`; later, outside the first release | Not in secret-free service v0 |
+| `api-key` | a vendor API key (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`, `META_API_KEY`, `GEMINI_API_KEY`, …) | none | environment, or stdin where the harness supports it | Not in secret-free service v0 |
+| `muse-account` | subscription login that mints a provider API key | single minting owner proposed; refresh trigger and rotation unknown (§10.2) | proposed channel (b): minted key via `META_API_KEY` or `exec --api-key-stdin`; fallback (c) subject to qualification | Not in secret-free service v0 |
+
+The "Delivery channels" column above and the "Channel" column below name the exposed, readable-token lane only (§8.4). Where machine policy selects secret-free mode for a launch, the "Secret-free delivery" column wins for its kind: the broker issues material only to the service principal, and the agent account receives a placeholder and protected nonsecret metadata through the gateway path, not a broker delivery channel. The exposed lane is separately selected and separately qualified; it is never a fallback from a failed secret-free admission.
 
 The following table separates **provider, source, channel and phase**. Source-policy v1/v2 are CIP-0010 policy versions, not broker release numbers. A specified channel remains subject to per-harness executor qualification; no row proves implementation or current vendor support.
 
@@ -320,7 +326,7 @@ An account belongs to the person who enrolled it. The broker MUST NOT issue a le
 
 ### 6.1 Format
 
-> **Proposed secret-free mode (inactive):** Service lease authority and original caller use authority must both remain current and narrowing for the actual operation/resource. The service/use extension needs its own published compatible dialect; these baseline envelopes are unchanged.
+> **Proposed secret-free mode (inactive):** Service lease authority and original caller use authority must both remain current and narrowing for the actual operation/resource. For the v0 scope that extension is published in [secret-free service v0](secret-free-service-v0.md) without a grant-grammar extension: service authority is its service binding and caller authority remains these baseline chains, which are unchanged.
 > See [the separate contract](secret-free-mode.md#4-two-current-authorities-per-use).
 
 A grant is an envelope with a body, the body's identifier and a signature:
@@ -527,10 +533,11 @@ R-TIME checks `authorized_until`, binding expiry, known account expiry and every
 
 ### 8.4 Delivery channels
 
-> **Proposed secret-free mode (inactive):** Only a qualified launch-bound placeholder reaches the agent. Service material delivery and caller use are distinct; release, use closure, account hold and vendor invalidation have separate effects. No placeholder channel is added to v0 here.
-> See [the separate contract](secret-free-mode.md#5-material-placeholders-and-lifetimes).
+> **Secret-free lane (mode PROPOSED/inactive; service dialect published for the v0 scope):** For a launch whose machine policy selects secret-free mode, the secret-free contract wins over this section: the broker issues the lease only to the service principal under [secret-free service v0](secret-free-service-v0.md), and the agent account receives a placeholder and protected nonsecret metadata through the gateway path. The broker never sees, stores or issues that placeholder, and no placeholder channel is added to the agent lease here. Service material delivery and caller use are distinct; release, use closure, account hold and vendor invalidation have separate effects.
+> The channels below are the exposed, readable-token lane only. That lane is separately selected and separately qualified, and it is never a fallback from a failed secret-free admission: a readable-token `lease.request` for an account whose machine policy is secret-free refuses under [secret-free service v0](secret-free-service-v0.md) with no material delivered.
+> See also [the mode contract](secret-free-mode.md#5-material-placeholders-and-lifetimes).
 
-The client library delivers material only into the process the executor starts:
+In the exposed lane, the client library delivers material only into the process the executor starts:
 
 - `env`: the variable is set in the harness process environment at exec, never in the parent, argv, files or logs.
 - `stdin`: for harnesses that read a key from stdin.
@@ -649,7 +656,7 @@ The explicit `api-key` lane through `META_API_KEY` or `exec --api-key-stdin` rem
 
 ## 11. Events
 
-> **Proposed secret-free mode (inactive):** Leak verdict, durable whole-account hold, service/session closure and vendor invalidation are separate typed outcomes. Narrow detector authority and an owned sanitized alert route need publication; a lease report is not account-wide power.
+> **Proposed secret-free mode (inactive):** Leak verdict, durable whole-account hold, service/session closure and vendor invalidation are separate typed outcomes. The narrow detector hold authority for the v0 scope is published as `account.hold` in [secret-free service v0](secret-free-service-v0.md); an owned sanitized alert route still needs publication, and a lease report is not account-wide power.
 > See [the separate contract](secret-free-mode.md#10-leak-matching-and-whole-account-containment).
 
 | Event | When | v0 surface |
@@ -716,8 +723,8 @@ All broker files are owned by the broker user; directories are 0700. Every state
 
 ### 13.1 Transport
 
-> **Proposed secret-free mode (inactive):** Service principals, service leases, use-through-service and detector hold require a compatible separately versioned dialect and permissions. The existing transport/method tables are unchanged and confer none of that authority; R-LOCK still applies.
-> See [the separate contract](secret-free-mode.md#13-publication-and-activation-gates).
+> **Proposed secret-free mode (inactive):** For the v0 scope, service principals, service leases and detector hold are published in [secret-free service v0](secret-free-service-v0.md) as further methods on this `broker/1` transport, with its own method table there. The baseline transport and method tables below are unchanged and by themselves confer none of that authority; R-LOCK still applies.
+> See [the service dialect](secret-free-service-v0.md) and [the mode contract](secret-free-mode.md#13-publication-and-activation-gates).
 
 A Unix-domain stream socket. Frames are a 4-byte big-endian length followed by a CCJ-1 canonical JSON object; the broker rejects frames over 64 KiB before reading them. The first exchange is `hello { versions: [1] }`; an unknown version closes the connection. Each request carries a client-chosen `request_id`; every response echoes it. Requests have deadlines: 2 seconds for administrative reads, 8 seconds for `lease.renew` (§9.3), 30 seconds for lease requests that wait for the auth owner.
 
@@ -985,7 +992,7 @@ The following broker/provider choices and local publication gates remain open he
 3. Ownership of one Codex vendor account across several machines (§9.5).
 4. **OWNER DECISION NEEDED — Codex personal-plan adoption/qualification (contract C4, CIP-0010 open question 2).** Options: adopt the single auth owner and external-token lane with named supported-release evidence (including the proposed 0.159.0 race-test precondition), or defer that provider lane. The broker slice-1 design and historical 0.155.x reference do not decide the current supported release or satisfy that precondition.
 5. **C7 DECIDED — prioritize Muse subscription qualification (owner, 2026-10-13); qualification OPEN.** The research outcome is the **PROPOSED** channel (b): a single minting owner leases the provider API key minted by device-code OAuth, never the OAuth tokens; children use `META_API_KEY` or `exec --api-key-stdin`, with no OAuth access-token injection or linked store. Fallback (c) applies if the env/stdin key is not subscription-billed or a re-mint revokes it (§10.2). Refresh trigger, rotation, lifetimes and billing remain UNKNOWN. The research has twelve qualification rows, still open; seven probes require a dedicated test account in its own OS user, provisioned by the operator. The API-key lane remains separate; no parity or supported-release claim is made.
-6. **PROPOSED/inactive — secret-free endpoint mode.** The [separate contract](secret-free-mode.md) specifies minimal broker lifecycle, a separate injecting gateway and the action service. Endpoint-only local delivery is proposed; TLS interception is closed. Exposed lanes remain explicitly selected and separately qualified. Service/use dialect, custody, adapter and exact harness qualification remain activation gates; no proxy path is currently an admitted substitute for native or broker authentication.
+6. **PROPOSED/inactive — secret-free endpoint mode.** The [separate contract](secret-free-mode.md) specifies minimal broker lifecycle, a separate injecting gateway and the action service. Endpoint-only local delivery is proposed; TLS interception is closed. Exposed lanes remain explicitly selected and separately qualified. The broker service dialect for the v0 scope is published in [secret-free service v0](secret-free-service-v0.md); its implementation, custody, adapter and exact harness qualification, and every service/use extension beyond that scope, remain activation gates; no proxy path is currently an admitted substitute for native or broker authentication.
 7. **OPEN — launch-time lease cleanup by channel (§8.4–§8.5, §9.3).** For `env`, choose between release by the owning executor before exec (and define whether release permits use of the already delivered payload), or retaining the lease until `authorized_until` / revocation / unbind (and define record transitions and reclamation). Successful exec leaves no executor broker client; disconnect and harness exit are not release. For `stdin`, publish whether a client survives delivery and its release point. For runner-held `external-token`, publish teardown/release ordering and cleanup on initialisation failure or runner loss. Also specify post-lease pre-exec refusal cleanup and whether a live client reports env-harness failures. No post-exec callback, inherited broker descriptor, exit watcher or new wire mechanism is specified here.
 8. **OPEN — restore/start and verdict publication (§6.4, §13.2, §15.4).** Would need the operator restore-mark location/encoding, trusted start-check and durable reconciliation/reopen evidence integration outside the restored failure domain; completeness rules for surviving journal/checkpoint evidence; any optional witness's pre-ack durability; and `revocation.check` exact request/response encoding, including how an unavailable sequence is represented. The three verdicts, contexts and access rule are fixed by R-VERDICT. No new refusal code or namespace field is assigned.
 9. **OPEN — receiver observation and retention publication (§7, §13.2).** Would need exact `effect.observe` wire encoding (including original effect ID versus the read's transport correlation), canonical-argument digest construction, protected journal/tombstone layout and recovery transaction ordering, unbind/conflict refusal mappings, and a bounded retry/admission rule that makes discarded identities permanently inadmissible before evidence reclamation. The six states and original-caller/operator access are fixed by R-OBS. Missing evidence must remain `unavailable`; these gaps gate activation.
@@ -1010,8 +1017,8 @@ The following broker/provider choices and local publication gates remain open he
 
 ## Appendix A. Refusal codes
 
-> **Proposed secret-free mode (inactive):** No service/use/hold refusal numbers or v0 codes are assigned. The figures in Appendix B retain a labeled legacy view and add the inactive proposed view.
-> See [the separate contract](secret-free-mode.md#13-publication-and-activation-gates).
+> **Proposed secret-free mode (inactive):** The codes below are unchanged. [Secret-free service v0](secret-free-service-v0.md) reuses the codes below where one fits and assigns its additional service and hold refusal codes there, where each is introduced. The figures in Appendix B retain a labeled legacy view and add the inactive proposed view.
+> See [the service dialect](secret-free-service-v0.md) and [the mode contract](secret-free-mode.md#13-publication-and-activation-gates).
 
 `peer_identity_unavailable`, `server_identity_mismatch`, `principal_ledger_mismatch`, `principal_identity_changed`, `role_not_permitted`, `frame_too_large`, `version_unsupported`, `request_deadline_exceeded`, `account_exists`, `account_unknown`, `account_duplicate`, `account_store_keyring_refused`, `enrol_material_invalid`, `grant_malformed`, `grant_id_mismatch`, `grant_signature_invalid`, `grant_chain_malformed`, `grant_chain_broken`, `grant_not_narrowing`, `grant_root_unknown`, `grant_subject_invalid`, `grant_unsupported`, `grant_revoked`, `grant_expired`, `grant_not_yet_valid`, `revocation_not_authorised`, `revocation_state_unavailable`, `bind_not_dispatcher`, `bind_target_invalid`, `bind_request_conflict`, `lease_unbound`, `lease_grant_revoked`, `lease_not_authorised`, `lease_account_unknown`, `lease_harness_mismatch`, `lease_account_revoked`, `lease_reauth_required`, `lease_owner_unavailable`, `lease_channel_unsupported`, `lease_harness_unqualified`, `lease_binding_mismatch`, `lease_network_mismatch`, `lease_network_enforcement_unavailable`, `lease_not_owner`, `lease_not_active`, `lease_caller_revoked`, `grant_unconstructible`, `renew_not_current`, `renew_timeout`, `renew_failed`, `external_token_init_failed`, `credential_source_conflict`, `credential_injection_unavailable`.
 

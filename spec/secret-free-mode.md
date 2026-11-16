@@ -4,13 +4,19 @@
 contract for the broker, credential lifecycle adapters, a separate injecting
 gateway and its request adapters. It specifies responsibilities and activation
 gates; it supplies no implementation, release qualification or live-account
-permission. The document revision is not a protocol version. The compatible
-wire dialect, grant extension, encodings and refusal mappings are unselected.
+permission. The document revision is not a protocol version. For the v0 scope
+of [secret-free service v0](secret-free-service-v0.md) (one host, one service
+name, one credential kind), the compatible broker service dialect on
+`broker/1`, its fields and its refusal mappings are published there, with no
+grant extension; beyond that scope the compatible dialect, grant extension,
+encodings and refusal mappings remain unselected.
 
 The separate [gateway specification](secret-free-gateway.md) and
 [provider-agnostic adapter specification](secret-free-adapters.md) refine these
-responsibilities. Both are PROPOSED/inactive; provider capabilities and exact
-runtime qualification remain open.
+responsibilities, and [secret-free service v0](secret-free-service-v0.md)
+publishes the broker-side service dialect for its scope. All remain
+PROPOSED/inactive; provider capabilities and exact runtime qualification
+remain open.
 
 ## 1. Modes and admission
 
@@ -70,9 +76,11 @@ from permission to spend credentials or publish an accepted candidate.
 
 ## 3. Principals, connections and bindings
 
-Before activation, the compatible dialect must publish service principals,
-service binding creation/removal and ownership, service lease admission,
-request/record semantics and method permissions. An operator-approved service
+For the v0 scope, [secret-free service v0](secret-free-service-v0.md)
+publishes service principals, service binding creation/removal and ownership,
+service lease admission, request/record semantics and method permissions on
+`broker/1`. Beyond that scope, the compatible dialect must publish the same
+before activation. An operator-approved service
 identity must be tied to its current kernel-authenticated identity and service
 generation, admitted placement/class, installation policy and account scope.
 A configured name, a caller-selected role or a static UID allowance is
@@ -125,8 +133,13 @@ agent-side client receives a random placeholder per lease, bound to one
 generation, launch and account, accepted only on that generation's qualified
 listener. It is useless outside the gateway and refuses on another listener,
 generation, launch, account or stale served policy. Reused listener ports do
-not inherit authorization. The exact mapping, authentication and disposal
-contract must be published before activation; no format is assigned here.
+not inherit authorization. The broker-side boundary and the mapping
+ownership for the v0 scope are published in
+[secret-free service v0](secret-free-service-v0.md): the broker never sees,
+stores or issues a placeholder, and the gateway creates it per service
+lease and owns the mapping. The exact placeholder format, its delivery to
+the launch, authentication and disposal remain the gateway dialect, still
+to be published before activation; no format is assigned here.
 
 Credential lifetime, service lease lifetime, caller authority lifetime,
 placeholder lifetime and vendor validity are separate facts. Local release
@@ -302,9 +315,11 @@ covers arbitrary splitting/compression/encryption/slow leaks or opaque CONNECT.
 No scan proves a message, response or home free of secrets.
 
 A possible leak immediately blocks forwarding and requests a durable protected
-hold on the **whole account**, covering every generation and launch. The
-compatible broker contract must publish a narrowly authenticated detector
-trigger and its admission, durability, correlation and replay rules. It grants
+hold on the **whole account**, covering every generation and launch. For the
+v0 scope, the narrowly authenticated detector trigger and its admission,
+durability, correlation and replay rules are published as `account.hold` in
+[secret-free service v0](secret-free-service-v0.md); beyond that scope the
+compatible broker contract must still publish them. It grants
 no general operator power. Existing v0 lease release/report methods cannot
 express this authority: release affects a lease and a report cannot change the
 account. Under the broker state lock, every lease and renewal, including final
@@ -400,12 +415,15 @@ only in the action service; possible leak means whole-account hold lifted only
 by the owner, confirmed leak additionally vendor rotation; local-only first
 with donor B/C separate closed steps. They are not unresolved design choices.
 
-Activation still requires an approved compatible broker/grant dialect with
-service-principal, service-binding, service-lease and use-through-service
-semantics, method permissions and narrow hold authority. Its wire version,
-formats, fields, grant grammar and refusal mappings must be published and
-implemented together; this proposal assigns none to `broker/1`, `lease/1` or
-the closed v0 profile. Unsupported/missing dialect means refusal.
+For the v0 scope, the compatible broker dialect with service-principal,
+service-binding, service-lease and narrow hold authority, its method
+permissions, fields and refusal mappings, is published in
+[secret-free service v0](secret-free-service-v0.md) as further methods on
+`broker/1`, with no grant-grammar extension and no change to `lease/1` or the
+closed v0 Codex profile. Activation still requires that dialect to be
+implemented, together with every gate below; use-through-service semantics
+at the gateway, and every dialect question beyond the v0 scope, remain as
+stated in the gateway contract. Unsupported/missing dialect means refusal.
 
 Also open: actual gateway/request-adapter contracts and implementations,
 protected installation/custody/client policy, authenticated caller/listener and

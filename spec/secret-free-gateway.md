@@ -4,8 +4,11 @@
 for [secret-free mode](secret-free-mode.md), alongside the separate
 [adapter contract](secret-free-adapters.md). It is not an implementation,
 qualified release, deployment recipe or permission to use an account. The
-revision is not a wire version. No new method, field, code or service role is
-added to the existing broker dialect. All runtime witnesses below are **UNRUN**.
+revision is not a wire version. This document itself adds no new method,
+field, code or service role to the broker dialect; the broker-side service
+methods, fields and codes for the v0 scope are published in
+[secret-free service v0](secret-free-service-v0.md). All runtime witnesses
+below are **UNRUN**.
 
 ## 1. Scope and trust boundary
 
@@ -63,8 +66,12 @@ listener owner and current served policy. It must expire or close with the
 relevant authority, and cannot authenticate at a provider or another listener.
 A reused port, socket pathname, process name or UID inherits no old mapping.
 Generation replacement ends old leases and placeholders; no seamless handoff
-is inferred. The format, disposal and authentication mechanism require a
-published compatible dialect before activation.
+is inferred. The broker-side boundary for the v0 scope is published in
+[secret-free service v0](secret-free-service-v0.md): the broker never sees,
+stores or issues the placeholder, and the gateway creates it per service
+lease and owns the mapping. Its format, delivery to the launch, disposal and
+authentication mechanism remain the gateway dialect and still require
+publication before activation.
 
 A qualified kernel-enforced routing and custody boundary binds the actual
 caller to that mapping. TCP, an IP address, a request header and possession of
@@ -189,8 +196,12 @@ distinguished. A provider error is not automatically a refresh trigger.
 Only the broker-side lifecycle owner may mint/refresh/reconcile material. An
 adapter-declared real upstream rejection can request renewal for the rejected
 **real credential identity** over protected service IPC. A placeholder digest
-is not a substitute. The dialect must publish that binding; no new v0 field is
-assigned here. Concurrent rejections join bounded single-owner work rather than
+is not a substitute. The protected service IPC and the service lease renewal
+for the v0 scope -- kind `claude-oauth-token`, which has no broker refresh --
+are published in [secret-free service v0](secret-free-service-v0.md); that
+dialect assigns no rejected-material member, and the binding of a rejected
+real credential identity for rotating kinds remains beyond its scope, still
+to be published by the dialect that admits such a kind. Concurrent rejections join bounded single-owner work rather than
 create new writers. Final renewal/use rechecks the unchanged account, both
 authorities, account hold, inventory and policy after broker reconciliation.
 
@@ -222,9 +233,11 @@ covered by a finite matching claim. Unsupported forms refuse instead of being
 reported scanned. Per-generation resource budgets survive restart.
 
 A **possible leak** immediately blocks the local forwarding/response path and
-requests a durable protected **whole-account hold**. The authenticated detector
-trigger must have narrowly published account binding, replay/correlation,
-durability and admission rules. It conveys no general operator authority.
+requests a durable protected **whole-account hold**. For the v0 scope, the
+authenticated detector trigger and its account binding, replay/correlation,
+durability and admission rules are published as `account.hold` in
+[secret-free service v0](secret-free-service-v0.md); beyond that scope they
+remain to be published. It conveys no general operator authority.
 Uncertain account attribution is UNKNOWN and forwarding stays blocked; the
 gateway cannot invent a cross-account hold target or report an unrecorded hold.
 
@@ -339,13 +352,16 @@ Unknown/partial/unreadable evidence keeps the affected scope closed.
 
 ## 10. Qualification and publication
 
-Activation requires publication and implementation of compatible broker/grant
-service-principal, service-binding, service-lease, use-through-service and
-narrow detector-hold semantics with ownership, encodings, permissions, refusal
-mappings and revocation observations. Existing `broker/1`, `lease/1`, v0 static
-UID policy and agent-only lease/report methods express none of this by default.
-Wire/schema selection remains OPEN; these semantic requirements add no active
-configuration or enum.
+For the v0 scope, the compatible broker service-principal, service-binding,
+service-lease and narrow detector-hold semantics, with ownership,
+permissions, refusal mappings and the service revocation observation, are
+published in [secret-free service v0](secret-free-service-v0.md) as further
+methods on `broker/1`, with no grant extension; activation still requires
+their implementation. The baseline `broker/1` methods, `lease/1`, the v0
+static UID policy and agent-only lease/report methods by themselves express
+none of this. Use-through-service semantics at the gateway and every
+wire/schema question beyond the v0 scope remain OPEN; these semantic
+requirements add no active configuration or enum in this document.
 
 The qualification identity binds exact API/version/instance/auth kind, adapter
 release/digest, harness release/digest/channel, profile/model, platform/topology,
