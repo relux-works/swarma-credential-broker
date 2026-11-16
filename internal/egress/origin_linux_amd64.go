@@ -321,9 +321,9 @@ func (w *originOwner) observedTask(p int, si unix.Siginfo) (tid int, status unix
 		birth, e := w.captureBirth(p, peek)
 		if e != nil {
 			if e == unix.ESRCH {
-				// The peeked FORK/VFORK already proves a separate process.
-				// Losing its event message cannot relax strict admission.
-				if w.strict && (cause == unix.PTRACE_EVENT_FORK || cause == unix.PTRACE_EVENT_VFORK) {
+				// CLONE need not create a thread. Without the birth identity,
+				// strict mode cannot classify the newborn and must refuse.
+				if w.strict {
 					return 0, 0, false, ErrUnavailable
 				}
 				return w.stopOvertaken(p, e)

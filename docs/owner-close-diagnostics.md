@@ -59,11 +59,11 @@ short test-owned `TMPDIR`:
 ```sh
 GO="$CURATOR_GO" GOTOOLCHAIN=local GOMAXPROCS=2 SWARMA_TEST_UNPRIVILEGED=1 \
   "$CURATOR_GO" test -p 1 -count=1 ./internal/qualify ./internal/egress \
-  -run '^Test(OwnerClose.*|OriginDiagnosticSnapshot|OriginObservation.*|Waited.*|ReviewObserveWait.*|ObserveWait.*|OriginStopTerminalTransition|OriginMissingTaskLeaderTransition)$'
+  -run '^Test(OwnerClose.*|OriginDiagnosticSnapshot|OriginObservation.*|Waited.*|ReviewObserveWait.*|ObserveWait.*|OriginStopTerminalTransition|OriginOvertakenCloneStrictRefusal|OriginMissingTaskLeaderTransition)$'
 
 GO="$CURATOR_GO" GOTOOLCHAIN=local GOMAXPROCS=2 SWARMA_TEST_UNPRIVILEGED=1 \
   "$CURATOR_GO" test -race -p 1 -count=1 ./internal/qualify ./internal/egress \
-  -run '^Test(OwnerClose.*|OriginDiagnosticSnapshot|OriginObservation.*|Waited.*|ReviewObserveWait.*|ObserveWait.*|OriginStopTerminalTransition|OriginMissingTaskLeaderTransition)$'
+  -run '^Test(OwnerClose.*|OriginDiagnosticSnapshot|OriginObservation.*|Waited.*|ReviewObserveWait.*|ObserveWait.*|OriginStopTerminalTransition|OriginOvertakenCloneStrictRefusal|OriginMissingTaskLeaderTransition)$'
 ```
 
 The real timeout fixture exercises the unchanged two-second branch, real origin
@@ -105,8 +105,14 @@ hashes are logged by the parent test. Nested commands receive only an allowliste
 build environment with networking for module acquisition disabled, and have a
 five-minute compilation/run deadline plus a 45-second test-binary timeout.
 
-`TestOriginStopTerminalTransition` pairs overtaken thread recovery with strict
-FORK/VFORK refusal. `TestOriginMissingTaskLeaderTransition` uses a separate
+`TestOriginStopTerminalTransition` pairs non-strict overtaken thread recovery
+with strict FORK/VFORK refusal. `TestOriginOvertakenCloneStrictRefusal` adds real
+CLONE events for both a thread and a separate raw-clone process, each beside a
+matching non-strict recovery positive. When a birth event read is overtaken and
+returns ESRCH, strict mode refuses CLONE, FORK and VFORK alike: without the birth
+identity, even CLONE does not prove thread membership. Loss of strict
+thread-overtake recovery is intentional; non-strict recovery is unchanged.
+`TestOriginMissingTaskLeaderTransition` uses a separate
 test-only overlay, always under `-race`, to pair direct and overtaken terminal
 leader paths with missing-task refusals. These bounded fixtures retain strict
 process-birth admission and cannot excuse a previously seen missing task.

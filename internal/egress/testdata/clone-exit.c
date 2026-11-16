@@ -20,7 +20,9 @@ static void *creator(void *unused) {
     if (read(3, &gate, 1) != 1)
         syscall(SYS_exit_group, 125);
     if (process) {
-        pid_t child = process == 2 ? vfork() : fork();
+        /* No CLONE_THREAD and no SIGCHLD: a distinct process reported as CLONE. */
+        pid_t child = process == 3 ? syscall(SYS_clone, 0, 0, 0, 0, 0)
+                                  : (process == 2 ? vfork() : fork());
         if (child < 0) syscall(SYS_exit_group, 125);
         if (child == 0) newborn(0);
     } else if (pthread_create(&thread, 0, newborn, 0)) {
@@ -31,7 +33,8 @@ static void *creator(void *unused) {
 }
 
 int main(int argc, char **argv) {
-    process = argc == 2 ? (strcmp(argv[1], "vfork") == 0 ? 2 : 1) : 0;
+    process = argc == 2 ? (strcmp(argv[1], "raw-clone") == 0 ? 3 :
+                          (strcmp(argv[1], "vfork") == 0 ? 2 : 1)) : 0;
     pthread_t thread;
     char gate;
     if (pthread_create(&thread, 0, creator, 0) || write(5, "r", 1) != 1 ||
