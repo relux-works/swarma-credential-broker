@@ -20,7 +20,12 @@ import (
 
 func testimonyCase(t *testing.T, image, fake, mode string, prior [32]byte) (runner.Outcome, [32]byte, error) {
 	t.Helper()
-	root := t.TempDir()
+	// Preserve real runner/socket checks without a subtest-name-sized Unix path.
+	root, err := os.MkdirTemp(os.Getenv("TMPDIR"), "rt-")
+	if err != nil {
+		t.Fatal("testimony root unavailable")
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
 	for _, dir := range []string{"home", "project"} {
 		mustTestimony(t, os.Mkdir(filepath.Join(root, dir), 0700))
 	}

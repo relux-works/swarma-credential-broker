@@ -13,8 +13,9 @@ import (
 // comes from the kernel UID's current managed record. No caller role field,
 // second socket, placeholder, or service UID constant is accepted.
 func (s *Server) serveServices(ctx context.Context, c *net.UnixConn, uid uint32, first wire.Request, hello wire.Hello, firstDeadline time.Time) {
-	// SPEC-PENDING: two-second service RPC budget and serial calls per connection;
-	// these bound custody-lock-held writes without changing the legacy profile.
+	// SPEC-PENDING: serial calls, two-second call/material budget, and a fresh
+	// two-second bound for a typed refusal write after a failed call. These
+	// bound custody-lock-held writes without changing the legacy profile.
 	send := func(ctx context.Context, id string, result any, err error, until time.Time) error {
 		r := map[string]any{"request_id": id}
 		if err != nil {

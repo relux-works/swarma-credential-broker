@@ -18,6 +18,7 @@ import (
 
 	"github.com/relux-works/swarma-credential-broker/internal/claude"
 	"github.com/relux-works/swarma-credential-broker/internal/lease"
+	"github.com/relux-works/swarma-credential-broker/internal/policy"
 	"github.com/relux-works/swarma-credential-broker/internal/service"
 	"github.com/relux-works/swarma-credential-broker/internal/store"
 	"github.com/relux-works/swarma-credential-broker/internal/testutil"
@@ -123,7 +124,14 @@ func serviceRequest(a *socketServiceAuthority) wire.ServiceRequest {
 // legacy framing, gets a fixed service role, and receives material only for its
 // current gateway lease. Metadata and refusal frames contain no fixture token.
 func TestServiceSocketMaterialAndPoll(t *testing.T) {
-	e := testutil.New(t, lease.Options{})
+	e := testutil.NewPolicy(t, lease.Options{}, func(p *policy.Policy) {
+		for i := range p.Accounts {
+			p.Accounts[i].AllowedUIDs = nil
+		}
+	})
+	if e.Manager.Peer(context.Background(), uint32(os.Geteuid())) {
+		t.Fatal("service fixture retained legacy peer authority")
+	}
 	broker, a := newSocketService(t)
 	path := start(t, e, func(s *Server) { s.Services = broker })
 	c := dial(t, path)
@@ -140,6 +148,13 @@ func TestServiceSocketMaterialAndPoll(t *testing.T) {
 		t.Fatal("kernel service role mismatch")
 	}
 	assertGatewayAbsent(t, h.Result)
+	// The same kernel service UID cannot fall back to the exposed profile.
+	legacy := dial(t, path)
+	denied := request(t, legacy, "hello", "legacy-denied", wire.Hello{Versions: []int{1}, Profile: wire.Profile})
+	if denied.Error == nil || denied.Error.Code != "role_not_permitted" || denied.Result != nil {
+		t.Fatal("service identity inherited exposed-lane authority")
+	}
+	assertGatewayAbsent(t, encodeResponse(t, denied))
 	r := request(t, c, "service.lease.request", "lease-service", serviceRequest(a))
 	var l wire.ServiceLease
 	if r.Error != nil || wire.Decode(r.Result, &l) != nil || l.Token != gatewayFixtureToken || l.Kind != service.Kind {

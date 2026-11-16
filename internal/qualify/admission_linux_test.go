@@ -36,7 +36,12 @@ func TestAdmissionFaultFixtures(t *testing.T) {
 				for _, end := range ends {
 					t.Run(side+"-"+end, func(t *testing.T) {
 						_, c, _ := setup(t)
-						root := t.TempDir()
+						// Keep the real Unix socket below sun_path limits under absolute task TMPDIR.
+						root, err := os.MkdirTemp(os.Getenv("TMPDIR"), "ar-")
+						if err != nil {
+							t.Fatal("fixture root unavailable")
+						}
+						t.Cleanup(func() { os.RemoveAll(root) })
 						if os.Mkdir(filepath.Join(root, "home"), 0700) != nil {
 							t.Fatal("home")
 						}

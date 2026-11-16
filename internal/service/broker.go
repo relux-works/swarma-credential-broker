@@ -85,6 +85,8 @@ func New(authority Authority, accounts map[string]Account, now func() time.Time)
 	if authority == nil || len(accounts) == 0 {
 		return nil, refuse("lease_owner_unavailable")
 	}
+	// SPEC-PENDING: qualified time-reader integration. The default wall clock
+	// supplies no native rollback/continuity qualification.
 	if now == nil {
 		now = time.Now
 	}
@@ -105,6 +107,8 @@ func New(authority Authority, accounts map[string]Account, now func() time.Time)
 
 // SPEC-PENDING: reuse existing fixed broker refusal codes, without diagnostics.
 func refuse(code string) error { return wire.Refuse(code) }
+
+// SPEC-PENDING: bounded ASCII identifiers and lowercase 64-hex policy digest.
 func validBinding(v wire.ServiceBinding) bool {
 	return v.Service == Gateway && v.Kind == Kind && wire.ASCII(v.Generation, 128) && wire.ASCII(v.Account, 128) && hash(v.PolicyDigest)
 }
@@ -122,6 +126,9 @@ func hash(s string) bool {
 func validCaller(c wire.ServiceCaller) bool {
 	return wire.ASCII(c.Account, 128) && wire.ASCII(c.Generation, 128) && wire.ASCII(c.LaunchID, 128)
 }
+
+// SPEC-PENDING: other managed roles may negotiate only to receive typed
+// refusals; exact role/class record integration awaits the published contract.
 func validPrincipal(p Principal, uid uint32) bool {
 	if p.UID != uid || !wire.ASCII(p.Generation, 128) {
 		return false

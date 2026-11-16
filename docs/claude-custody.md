@@ -82,7 +82,8 @@ The following details are chosen provisionally and marked at their code sites:
    recovery stay conservative until publication; capacity exhaustion refuses.
 6. Existing fixed refusal-code reuse and poll result vocabulary
    `not_revoked`/`revoked`/`unavailable`.
-7. Serial calls per service connection and a two-second arrival-to-write budget.
+7. Serial calls per service connection, a two-second call/material budget and
+   a fresh two-second bound for a typed refusal write after a failed call.
 
 ## Worker environment and containment limits
 
@@ -114,7 +115,7 @@ gofmt -w internal/service internal/claude internal/server/services.go internal/s
 go build ./...
 go vet ./...
 go test -v -p=1 -count=1 -timeout=20m ./...
-go test -race -v -p=1 -count=1 -timeout=5m ./internal/service ./internal/claude ./internal/server ./internal/wire ./internal/claudeworker ./internal/store
+go test -race -v -p=1 -count=1 -timeout=20m ./internal/service ./internal/claude ./internal/server ./internal/wire ./internal/claudeworker ./internal/store ./internal/qualify
 ```
 
 The named refusal/control fixtures cover roles, binding/generation replacement,

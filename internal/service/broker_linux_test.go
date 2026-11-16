@@ -246,11 +246,11 @@ func TestServiceRefusalsBeforeMaterial(t *testing.T) {
 				f.a.available = false
 				code = "role_not_permitted"
 			}
-			before, replies := f.custody.entries, 0
+			before, replies, leasesBefore := f.custody.entries, 0, len(f.b.leases)
 			err := f.call(t, uid, "service.lease.request", req, func(any) error { replies++; return nil })
 			refused(t, err, code)
-			if replies != 0 || f.custody.entries != before {
-				t.Fatal("refusal entered material publication")
+			if replies != 0 || f.custody.entries != before || len(f.b.leases) != leasesBefore {
+				t.Fatal("refusal entered material publication or allocated a lease")
 			}
 		})
 	}
@@ -401,10 +401,18 @@ func TestServiceHoldOrderingAndOwnerLift(t *testing.T) {
 	for _, uid := range []uint32{f.uid, f.operator, f.a.caller.UID} {
 		_, err := f.metadata(t, uid, "account.hold.lift", wire.ServiceLift{Account: fixtureAccount})
 		refused(t, err, "role_not_permitted")
+		s, err := f.custody.Status()
+		if err != nil || s.State != "held" {
+			t.Fatal("non-owner lift altered the hold")
+		}
 	}
 	f.a.owner = f.owner + 10
 	_, err = f.metadata(t, f.owner, "account.hold.lift", wire.ServiceLift{Account: fixtureAccount})
 	refused(t, err, "lease_not_authorised")
+	s, err := f.custody.Status()
+	if err != nil || s.State != "held" {
+		t.Fatal("unrelated owner altered the hold")
+	}
 	f.a.owner = f.owner
 	if _, err = f.metadata(t, f.owner, "account.hold.lift", wire.ServiceLift{Account: fixtureAccount}); err != nil {
 		t.Fatal("account owner could not lift hold")
@@ -448,6 +456,10 @@ func TestServiceBindingAndRevocation(t *testing.T) {
 	for _, uid := range []uint32{f.uid, f.owner, f.a.caller.UID} {
 		_, err := f.metadata(t, uid, "service.bind", f.a.binding)
 		refused(t, err, "role_not_permitted")
+		s, err := f.custody.LoadServiceBinding()
+		if err != nil || s.Revision != 0 || s.Bound {
+			t.Fatal("unauthorized bind changed protected state")
+		}
 	}
 	wrong := f.a.binding
 	wrong.Generation = "stale-generation"
