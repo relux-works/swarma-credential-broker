@@ -1,0 +1,90 @@
+name: Linux draft release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.admit.outputs.commit }}
+      tag_object: ${{ steps.admit.outputs.tag_object }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Admit the pushed annotated signed tag on main
+        id: admit
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG_OBJECT: ${{ github.event.after }}
+        run: .scripts/release-admit.sh "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - name: Test admission and checksum signature controls
+        run: .scripts/release-test.sh "$RUNNER_TEMP/release-controls"
+      - name: Reproducible Linux builds of every cmd binary
+        run: .scripts/release-build.sh "$RUNNER_TEMP/dist"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v4
+        with:
+          name: linux-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/dist/*
+          if-no-files-found: error
+          retention-days: 1
+
+  draft:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/dist
+      - name: Recheck admission and create a draft with explicit assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG_OBJECT: ${{ needs.build.outputs.tag_object }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          set -euo pipefail
+          # Require the fresh checkout's main snapshot still to be current.
+          main=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)
+          test "$main" = "$(git rev-parse refs/remotes/origin/main)"
+          remote=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha)
+          test "$remote" = "$RELEASE_TAG_OBJECT"
+          .scripts/release-admit.sh "$RELEASE_TAG"
+          cd "$RUNNER_TEMP/dist"
+          sha256sum --strict --check SHA256SUMS
+          assets=(*_linux_amd64 *_linux_arm64 SHA256SUMS)
+          for asset in "${assets[@]}"; do test -f "$asset"; done
+          # Refuse an existing release; leave the new release draft for local signing.
+          gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --draft \
+            --title "$RELEASE_TAG" --generate-notes
