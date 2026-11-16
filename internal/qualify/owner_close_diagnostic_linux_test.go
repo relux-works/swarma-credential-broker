@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -135,7 +136,12 @@ func TestOwnerCloseTimeoutSnapshot(t *testing.T) {
 				return
 			}
 			want := "owner close timeout close_cancel=not_issued supervisor=pending phase=entered exit=unavailable"
-			if len(records) != 1 || !strings.HasPrefix(records[0], want+" operation=") || !strings.Contains(records[0], " child=") {
+			// Timing selects the operation, but never a free-form label or a
+			// completed child wait while the published phase is still entered.
+			pattern := regexp.MustCompile("^" + regexp.QuoteMeta(want) +
+				" operation=(unavailable|start|started_callback|bootstrap_receive|bootstrap_ack|notification|entry_receive|entry_ack|task_inventory|wait_peek|terminal_peek|birth_read|stop_consume|resume|trace_options|exec_read|identity|ready_callback|challenge|membership|terminate|final_wait|refusal_cleanup|waited_callback|pause)" +
+				" child=(unavailable|started|stop_observed|terminal_observed)$")
+			if len(records) != 1 || !pattern.MatchString(records[0]) {
 				t.Fatal("pre-cancel snapshot missing or changed", records)
 			}
 			if time.Since(start) < 2*time.Second {

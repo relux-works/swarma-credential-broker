@@ -133,11 +133,14 @@ func TestOwnerCloseWaitedUnknownObservation(t *testing.T) {
 // be separated deterministically by a test-only overlay and that a known-bad
 // coherence check fails while its stable positive and record checks still run.
 func TestOwnerCloseObservationInterleaving(t *testing.T) {
-	race := os.Getenv("BROKER62_TEST_RACE") == "1"
+	race := ownerCloseRaceEnabled
+	t.Logf("nested overlay race instrumentation=%t", race)
 
 	validOutput, validErr := runOwnerCloseOverlay(t, "valid", false, race)
 	if validErr != nil ||
 		!strings.Contains(validOutput, "--- PASS: TestOwnerCloseInterleaveOverlay") ||
+		!strings.Contains(validOutput, "--- PASS: TestOwnerCloseOperationInterleaveOverlay") ||
+		!strings.Contains(validOutput, "--- PASS: TestOwnerCloseUnknownCallbackOverlay") ||
 		!strings.Contains(validOutput, "--- PASS: TestOwnerCloseStableOverlay") {
 		t.Fatalf("valid overlay controls did not pass: %v\n%s", validErr, boundedOverlayOutput(validOutput))
 	}
@@ -173,12 +176,12 @@ func runOwnerCloseOverlay(t *testing.T, variant string, knownBad, race bool) (st
 		"-p=1",
 		"-count=1",
 		"-timeout=45s",
-		"-run=^(TestOwnerCloseInterleaveOverlay|TestOwnerCloseStableOverlay)$",
+		"-run=^TestOwnerClose(Interleave|OperationInterleave|UnknownCallback|Stable)Overlay$",
 		"-v",
 		".",
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	packageDir, err := os.Getwd()
 	if err != nil {
@@ -191,19 +194,14 @@ func runOwnerCloseOverlay(t *testing.T, variant string, knownBad, race bool) (st
 	if ctx.Err() != nil {
 		err = fmt.Errorf("overlay command timed out: %w", ctx.Err())
 	}
-	for _, line := range strings.Split(string(output), "\n") {
-		if strings.Contains(line, "owner_original_sha256=") {
-			t.Log(strings.TrimSpace(line))
-		}
-	}
 	return string(output), err
 }
 
 func ownerCloseOverlayDir(t *testing.T, variant string) string {
 	t.Helper()
-	if base := os.Getenv("BROKER62_OVERLAY_DIR"); base != "" {
+	if base := os.Getenv("OWNER_CLOSE_OVERLAY_DIR"); base != "" {
 		if !filepath.IsAbs(base) {
-			t.Fatalf("BROKER62_OVERLAY_DIR must be absolute")
+			t.Fatalf("OWNER_CLOSE_OVERLAY_DIR must be absolute")
 		}
 		dir := filepath.Join(base, variant)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -349,6 +347,58 @@ func writeOwnerCloseOverlay(t *testing.T, dir string, knownBad bool) string {
 		"\tif diagnostic != wantDiagnostic { t.Fatalf(\"stable positive diagnostic changed: got %q want %q\", diagnostic, wantDiagnostic) }\n" +
 		"\tif s.execution.credit(false) || origin.Facts() != (egress.OriginFacts{}) || origin.Live(0) { t.Fatal(\"stable diagnostic granted execution credit or authority\") }\n" +
 		"}\n"
+	probe += `
+// Claim: changing only operation between the real reads still discards completion.
+// The stable joined observation in TestOwnerCloseStableOverlay is the positive.
+func TestOwnerCloseOperationInterleaveOverlay(t *testing.T) {
+	first := egress.OriginObservation{OriginDiagnostic: egress.OriginDiagnostic{Phase: egress.OriginEntered}, Operation: egress.OperationWaitPeek, Child: egress.ChildStopObserved}
+	last := first
+	last.Operation = egress.OperationWaitedCallback
+	origin := &egress.CaseOrigin{}
+	egress.SetObservationForOverlay(origin, first)
+	done := make(chan struct{})
+	close(done)
+	s := &ownerSession{origin: origin, done: done, execution: newRowExecution(), report: egress.Report{Incomplete: true}, err: errors.New("synthetic incomplete owner")}
+	beforeExecution, beforeReport, beforeErr := s.execution, s.report, s.err
+	firstCalls, secondCalls := 0, 0
+	ownerCloseAfterFirstObservation = func(got egress.OriginObservation) {
+		firstCalls++
+		if got != first { t.Fatal("first operation-only read changed", got) }
+		egress.SetObservationForOverlay(origin, last)
+	}
+	ownerCloseAfterSecondObservation = func(got egress.OriginObservation) {
+		secondCalls++
+		if got != last { t.Fatal("last operation-only read changed", got) }
+	}
+	defer func() { ownerCloseAfterFirstObservation, ownerCloseAfterSecondObservation = nil, nil }()
+	got := s.closeSnapshot(true)
+	if got != (ownerCloseSnapshot{cancelIssued: true}) { t.Error("operation-only interleaving retained completion", got) }
+	var diagnostic string
+	ownerDiagnosticClose(withOwnerDiagnostics(context.Background(), func(value string) { diagnostic = value }), &got)
+	if diagnostic != "owner close timeout close_cancel=issued supervisor=unavailable phase=unavailable exit=unavailable operation=unavailable child=unavailable" { t.Error("operation-only diagnostic not UNKNOWN", diagnostic) }
+	if firstCalls != 1 || secondCalls != 1 { t.Error("operation-only reads not exercised exactly once", firstCalls, secondCalls) }
+	if !reflect.DeepEqual(beforeExecution, s.execution) || !reflect.DeepEqual(beforeReport, s.report) || beforeErr != s.err || s.execution.credit(false) || origin.Facts() != (egress.OriginFacts{}) || origin.Live(0) { t.Error("operation-only diagnostic changed record, credit or authority") }
+}
+
+// Claim: a stable unavailable-phase callback survives both real reads without
+// completion evidence, for either pending or returned completion channels.
+func TestOwnerCloseUnknownCallbackOverlay(t *testing.T) {
+	ownerCloseAfterFirstObservation, ownerCloseAfterSecondObservation = nil, nil
+	for _, returned := range []bool{false, true} {
+		origin := &egress.CaseOrigin{}
+		egress.SetObservationForOverlay(origin, egress.OriginObservation{Operation: egress.OperationWaitedCallback})
+		done := make(chan struct{})
+		if returned { close(done) }
+		s := &ownerSession{origin: origin, done: done, execution: newRowExecution()}
+		got := s.closeSnapshot(false)
+		if got != (ownerCloseSnapshot{operation: egress.OperationWaitedCallback}) { t.Error("stable unknown callback lost or gained evidence", got) }
+		var diagnostic string
+		ownerDiagnosticClose(withOwnerDiagnostics(context.Background(), func(value string) { diagnostic = value }), &got)
+		if diagnostic != "owner close timeout close_cancel=not_issued supervisor=unavailable phase=unavailable exit=unavailable operation=waited_callback child=unavailable" { t.Error("stable unknown callback diagnostic changed", diagnostic) }
+		if s.execution.credit(false) || origin.Facts() != (egress.OriginFacts{}) || origin.Live(0) { t.Error("unknown callback granted credit or authority") }
+	}
+}
+`
 	formattedProbe, err := format.Source([]byte(probe))
 	if err != nil {
 		t.Fatalf("format interleaving overlay test: %v", err)
@@ -390,7 +440,7 @@ func writeOwnerCloseOverlay(t *testing.T, dir string, knownBad bool) string {
 func ownerCloseOfflineEnv() []string {
 	env := make([]string, 0, 24)
 	for _, key := range []string{
-		"PATH", "HOME", "TMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT",
+		"PATH", "HOME", "TMPDIR", "GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT",
 		"GO", "GOOS", "GOARCH", "CGO_ENABLED", "CC", "CXX", "GOMAXPROCS",
 		"LANG", "LC_ALL", "TZ",
 	} {

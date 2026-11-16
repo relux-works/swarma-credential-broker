@@ -1,5 +1,12 @@
 # Unresolved questions
 
+## Owner close diagnostic mitigation
+
+[Issue #63](https://github.com/relux-works/swarma-credential-broker/issues/63)
+remains open. PR #62 provides [diagnostic regression coverage](docs/owner-close-diagnostics.md),
+preserving UNKNOWN without completion credit; it does not establish the root
+cause or a reduction in the frequency of the reported owner-close race.
+
 ## Separately proposed secret-free mode
 
 The [new contract](spec/secret-free-mode.md) is **PROPOSED/inactive**, independent
