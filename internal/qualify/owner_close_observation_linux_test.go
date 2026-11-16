@@ -4,12 +4,25 @@ package qualify
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"go/format"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/relux-works/swarma-credential-broker/internal/egress"
 )
 
+// TestOwnerCloseObservationCoherence proves stable actual values survive while
+// changed or malformed samples lose completion and lifecycle evidence.
 func TestOwnerCloseObservationCoherence(t *testing.T) {
 	first := egress.OriginObservation{OriginDiagnostic: egress.OriginDiagnostic{Phase: egress.OriginEntered}, Operation: egress.OperationWaitPeek, Child: egress.ChildStopObserved}
 	v := ownerCloseSnapshot{cancelIssued: true, completion: ownerPending, origin: first.OriginDiagnostic, operation: first.Operation, child: first.Child}
@@ -34,6 +47,8 @@ func TestOwnerCloseObservationCoherence(t *testing.T) {
 	}
 }
 
+// TestOwnerCloseObservationClosedOutput proves only closed enum labels reach
+// diagnostics and malformed values cannot retain completion evidence.
 func TestOwnerCloseObservationClosedOutput(t *testing.T) {
 	var got string
 	ctx := withOwnerDiagnostics(context.Background(), func(s string) { got = s })
@@ -73,6 +88,8 @@ func TestOwnerCloseObservationClosedOutput(t *testing.T) {
 	}
 }
 
+// TestOwnerCloseWaitedUnknownObservation proves a waited callback with unknown
+// lifecycle remains UNKNOWN, including when completion is sampled as returned.
 func TestOwnerCloseWaitedUnknownObservation(t *testing.T) {
 	first := egress.OriginObservation{Operation: egress.OperationWaitedCallback}
 	v := ownerCloseSnapshot{cancelIssued: true, completion: ownerPending, operation: first.Operation}
@@ -110,4 +127,290 @@ func TestOwnerCloseWaitedUnknownObservation(t *testing.T) {
 			t.Fatal("malformed callback sample retained output", got)
 		}
 	}
+}
+
+// TestOwnerCloseObservationInterleaving proves the real closeSnapshot reads can
+// be separated deterministically by a test-only overlay and that a known-bad
+// coherence check fails while its stable positive and record checks still run.
+func TestOwnerCloseObservationInterleaving(t *testing.T) {
+	race := os.Getenv("BROKER62_TEST_RACE") == "1"
+
+	validOutput, validErr := runOwnerCloseOverlay(t, "valid", false, race)
+	if validErr != nil ||
+		!strings.Contains(validOutput, "--- PASS: TestOwnerCloseInterleaveOverlay") ||
+		!strings.Contains(validOutput, "--- PASS: TestOwnerCloseStableOverlay") {
+		t.Fatalf("valid overlay controls did not pass: %v\n%s", validErr, boundedOverlayOutput(validOutput))
+	}
+
+	badOutput, badErr := runOwnerCloseOverlay(t, "known-bad", true, race)
+	if badErr == nil ||
+		!strings.Contains(badOutput, "--- FAIL: TestOwnerCloseInterleaveOverlay") ||
+		!strings.Contains(badOutput, "interleaving diagnostic not UNKNOWN") ||
+		!strings.Contains(badOutput, "--- PASS: TestOwnerCloseStableOverlay") ||
+		strings.Contains(badOutput, "underlying ownerSession record changed") ||
+		strings.Contains(badOutput, "underlying report changed") ||
+		strings.Contains(badOutput, "diagnostic granted execution credit") {
+		t.Fatalf("known-bad overlay missed its intended diagnostic failure or invalidated controls: %v\n%s", badErr, boundedOverlayOutput(badOutput))
+	}
+}
+
+func runOwnerCloseOverlay(t *testing.T, variant string, knownBad, race bool) (string, error) {
+	t.Helper()
+	dir := ownerCloseOverlayDir(t, variant)
+	overlayPath := writeOwnerCloseOverlay(t, dir, knownBad)
+
+	goTool := os.Getenv("GO")
+	if goTool == "" {
+		goTool = filepath.Join(runtime.GOROOT(), "bin", "go")
+	}
+	args := []string{"test"}
+	if race {
+		args = append(args, "-race")
+	}
+	args = append(args,
+		"-mod=readonly",
+		"-overlay="+overlayPath,
+		"-p=1",
+		"-count=1",
+		"-timeout=45s",
+		"-run=^(TestOwnerCloseInterleaveOverlay|TestOwnerCloseStableOverlay)$",
+		"-v",
+		".",
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	packageDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve qualify package directory: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, goTool, args...)
+	cmd.Dir = packageDir
+	cmd.Env = ownerCloseOfflineEnv()
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		err = fmt.Errorf("overlay command timed out: %w", ctx.Err())
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		if strings.Contains(line, "owner_original_sha256=") {
+			t.Log(strings.TrimSpace(line))
+		}
+	}
+	return string(output), err
+}
+
+func ownerCloseOverlayDir(t *testing.T, variant string) string {
+	t.Helper()
+	if base := os.Getenv("BROKER62_OVERLAY_DIR"); base != "" {
+		if !filepath.IsAbs(base) {
+			t.Fatalf("BROKER62_OVERLAY_DIR must be absolute")
+		}
+		dir := filepath.Join(base, variant)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("create isolated overlay directory: %v", err)
+		}
+		return dir
+	}
+	return t.TempDir()
+}
+
+func writeOwnerCloseOverlay(t *testing.T, dir string, knownBad bool) string {
+	t.Helper()
+	packageDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerPath := filepath.Join(packageDir, "owner_close_diagnostic_linux.go")
+	originPath := filepath.Clean(filepath.Join(packageDir, "../egress/origin_diagnostic.go"))
+	overlayTestPath := filepath.Join(packageDir, "owner_close_interleaving_overlay_test.go")
+	if _, err := os.Stat(overlayTestPath); err == nil {
+		t.Fatalf("overlay test path already exists: %s", filepath.Base(overlayTestPath))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("inspect overlay test path: %v", err)
+	}
+
+	ownerOriginal, err := os.ReadFile(ownerPath)
+	if err != nil {
+		t.Fatalf("read closeSnapshot source: %v", err)
+	}
+	originOriginal, err := os.ReadFile(originPath)
+	if err != nil {
+		t.Fatalf("read origin observation source: %v", err)
+	}
+
+	ownerInstrumented := string(ownerOriginal)
+	closeMethod := "func (s *ownerSession) closeSnapshot(cancelIssued bool) ownerCloseSnapshot {"
+	if strings.Count(ownerInstrumented, closeMethod) != 1 {
+		t.Fatal("closeSnapshot instrumentation anchor changed")
+	}
+	ownerInstrumented = strings.Replace(ownerInstrumented, closeMethod,
+		"var ownerCloseAfterFirstObservation func(egress.OriginObservation)\nvar ownerCloseAfterSecondObservation func(egress.OriginObservation)\n\n"+closeMethod, 1)
+	firstRead := "\tfirst := s.origin.Observation()\n"
+	hook := "\tif ownerCloseAfterFirstObservation != nil {\n\t\townerCloseAfterFirstObservation(first)\n\t}\n"
+	if strings.Count(ownerInstrumented, firstRead) != 1 {
+		t.Fatal("first Observation instrumentation anchor changed")
+	}
+	ownerInstrumented = strings.Replace(ownerInstrumented, firstRead, firstRead+hook, 1)
+	lastRead := "\tlast := s.origin.Observation()\n"
+	secondHook := "\tif ownerCloseAfterSecondObservation != nil {\n\t\townerCloseAfterSecondObservation(last)\n\t}\n"
+	if strings.Count(ownerInstrumented, lastRead) != 1 {
+		t.Fatal("second Observation instrumentation anchor changed")
+	}
+	ownerInstrumented = strings.Replace(ownerInstrumented, lastRead, lastRead+secondHook, 1)
+	if knownBad {
+		start := strings.Index(ownerInstrumented, "func stableCloseSnapshot(")
+		if start < 0 {
+			t.Fatal("stableCloseSnapshot instrumentation anchor missing")
+		}
+		endRelative := strings.Index(ownerInstrumented[start:], "\n}\n")
+		if endRelative < 0 {
+			t.Fatal("stableCloseSnapshot function boundary missing")
+		}
+		end := start + endRelative + len("\n}\n")
+		badFunction := "func stableCloseSnapshot(first egress.OriginObservation, v ownerCloseSnapshot) ownerCloseSnapshot {\n\t_ = first\n\treturn v\n}\n"
+		ownerInstrumented = ownerInstrumented[:start] + badFunction + ownerInstrumented[end:]
+	}
+
+	originInstrumented := string(originOriginal)
+	setterAnchor := "func (o *CaseOrigin) observePhase(p OriginPhase) {\n"
+	setter := "func SetObservationForOverlay(o *CaseOrigin, v OriginObservation) {\n" +
+		"\tif o != nil {\n" +
+		"\t\to.diagnostic.Store(uint32(v.Phase) | uint32(v.Exit)<<8 | uint32(v.Operation)<<16 | uint32(v.Child)<<24)\n" +
+		"\t}\n" +
+		"}\n\n"
+	if strings.Count(originInstrumented, setterAnchor) != 1 {
+		t.Fatal("origin observation instrumentation anchor changed")
+	}
+	originInstrumented = strings.Replace(originInstrumented, setterAnchor, setter+setterAnchor, 1)
+
+	probe := "package qualify\n" +
+		"import (\n" +
+		"\t\"context\"\n" +
+		"\t\"errors\"\n" +
+		"\t\"reflect\"\n" +
+		"\t\"testing\"\n" +
+		"\t\"github.com/relux-works/swarma-credential-broker/internal/egress\"\n" +
+		")\n\n" +
+		"// TestOwnerCloseInterleaveOverlay proves a changed real Observation between closeSnapshot reads becomes UNKNOWN without changing the ownerSession record.\n" +
+		"func TestOwnerCloseInterleaveOverlay(t *testing.T) {\n" +
+		"\tfirst := egress.OriginObservation{OriginDiagnostic: egress.OriginDiagnostic{Phase: egress.OriginEntered}, Operation: egress.OperationWaitPeek, Child: egress.ChildStopObserved}\n" +
+		"\tjoining := egress.OriginObservation{OriginDiagnostic: egress.OriginDiagnostic{Phase: egress.OriginJoining}, Operation: egress.OperationWaitedCallback, Child: egress.ChildStopObserved}\n" +
+		"\torigin := &egress.CaseOrigin{}\n" +
+		"\tegress.SetObservationForOverlay(origin, first)\n" +
+		"\tdone := make(chan struct{})\n" +
+		"\tclose(done)\n" +
+		"\trecord := rowExecution{Launched: true, Handshake: true, Started: true, HelperExit: -1, WorkerExit: -1, CaseExit: -1, Diagnostic: \"case_status_unavailable\"}\n" +
+		"\ts := &ownerSession{origin: origin, done: done, execution: record, report: egress.Report{Incomplete: true}, err: errors.New(\"synthetic incomplete owner\")}\n" +
+		"\tbeforeExecution, beforeReport, beforeErr := s.execution, s.report, s.err\n" +
+		"\tfirstCalls, secondCalls := 0, 0\n" +
+		"\townerCloseAfterFirstObservation = func(got egress.OriginObservation) {\n" +
+		"\t\tfirstCalls++\n" +
+		"\t\tif got != first { t.Errorf(\"hook did not follow first real Observation read: got %+v want %+v\", got, first) }\n" +
+		"\t\tegress.SetObservationForOverlay(origin, joining)\n" +
+		"\t}\n" +
+		"\townerCloseAfterSecondObservation = func(got egress.OriginObservation) {\n" +
+		"\t\tsecondCalls++\n" +
+		"\t\tif got != joining { t.Errorf(\"second hook did not capture joining/WaitedCallback: got %+v want %+v\", got, joining) }\n" +
+		"\t}\n" +
+		"\tdefer func() { ownerCloseAfterFirstObservation, ownerCloseAfterSecondObservation = nil, nil }()\n" +
+		"\tgot := s.closeSnapshot(true)\n" +
+		"\tif firstCalls != 1 || secondCalls != 1 { t.Errorf(\"real Observation reads recorded first=%d second=%d, want one each\", firstCalls, secondCalls) }\n" +
+		"\tif got.completion != ownerCompletionUnavailable || got.origin != (egress.OriginDiagnostic{}) || got.operation != egress.OperationUnavailable || got.child != egress.ChildUnavailable {\n" +
+		"\t\tt.Errorf(\"interleaving retained completion or lifecycle: %+v\", got)\n" +
+		"\t}\n" +
+		"\tvar diagnostic string\n" +
+		"\tctx := withOwnerDiagnostics(context.Background(), func(value string) { diagnostic = value })\n" +
+		"\townerDiagnosticClose(ctx, &got)\n" +
+		"\twant := \"owner close timeout close_cancel=issued supervisor=unavailable phase=unavailable exit=unavailable operation=unavailable child=unavailable\"\n" +
+		"\tif diagnostic != want { t.Errorf(\"interleaving diagnostic not UNKNOWN: got %q want %q\", diagnostic, want) }\n" +
+		"\tif !reflect.DeepEqual(beforeExecution, s.execution) { t.Errorf(\"underlying ownerSession record changed: before=%+v after=%+v\", beforeExecution, s.execution) }\n" +
+		"\tif !reflect.DeepEqual(beforeReport, s.report) { t.Errorf(\"underlying report changed: before=%+v after=%+v\", beforeReport, s.report) }\n" +
+		"\tif s.err != beforeErr { t.Errorf(\"underlying owner error changed\") }\n" +
+		"\tif s.execution.credit(false) { t.Errorf(\"diagnostic granted execution credit\") }\n" +
+		"\tif observed := origin.Observation(); observed != joining { t.Errorf(\"real origin state was cleared: got %+v want %+v\", observed, joining) }\n" +
+		"\tif origin.Facts() != (egress.OriginFacts{}) || origin.Live(0) { t.Errorf(\"diagnostic altered authority facts: %+v\", origin.Facts()) }\n" +
+		"}\n\n" +
+		"// TestOwnerCloseStableOverlay proves two stable real Observation reads retain a joined positive snapshot without granting credit.\n" +
+		"func TestOwnerCloseStableOverlay(t *testing.T) {\n" +
+		"\townerCloseAfterFirstObservation, ownerCloseAfterSecondObservation = nil, nil\n" +
+		"\tstable := egress.OriginObservation{OriginDiagnostic: egress.OriginDiagnostic{Phase: egress.OriginJoined, Exit: egress.ExitZero}, Operation: egress.OperationWaitedCallback, Child: egress.ChildWaitReturned}\n" +
+		"\torigin := &egress.CaseOrigin{}\n" +
+		"\tegress.SetObservationForOverlay(origin, stable)\n" +
+		"\tdone := make(chan struct{})\n" +
+		"\tclose(done)\n" +
+		"\ts := &ownerSession{origin: origin, done: done, execution: newRowExecution()}\n" +
+		"\tgot := s.closeSnapshot(false)\n" +
+		"\twant := ownerCloseSnapshot{completion: ownerReturned, origin: stable.OriginDiagnostic, operation: stable.Operation, child: stable.Child}\n" +
+		"\tif got != want { t.Fatalf(\"stable actual snapshot changed: got %+v want %+v\", got, want) }\n" +
+		"\tvar diagnostic string\n" +
+		"\tctx := withOwnerDiagnostics(context.Background(), func(value string) { diagnostic = value })\n" +
+		"\townerDiagnosticClose(ctx, &got)\n" +
+		"\twantDiagnostic := \"owner close timeout close_cancel=not_issued supervisor=returned phase=joined exit=zero operation=waited_callback child=wait_returned\"\n" +
+		"\tif diagnostic != wantDiagnostic { t.Fatalf(\"stable positive diagnostic changed: got %q want %q\", diagnostic, wantDiagnostic) }\n" +
+		"\tif s.execution.credit(false) || origin.Facts() != (egress.OriginFacts{}) || origin.Live(0) { t.Fatal(\"stable diagnostic granted execution credit or authority\") }\n" +
+		"}\n"
+	formattedProbe, err := format.Source([]byte(probe))
+	if err != nil {
+		t.Fatalf("format interleaving overlay test: %v", err)
+	}
+	probe = string(formattedProbe)
+
+	ownerOverlayPath := filepath.Join(dir, "owner_close_diagnostic_linux.go")
+	originOverlayPath := filepath.Join(dir, "origin_diagnostic.go")
+	probePath := filepath.Join(dir, "owner_close_interleaving_overlay_test.go")
+	if err := os.WriteFile(ownerOverlayPath, []byte(ownerInstrumented), 0o600); err != nil {
+		t.Fatalf("write instrumented closeSnapshot overlay: %v", err)
+	}
+	if err := os.WriteFile(originOverlayPath, []byte(originInstrumented), 0o600); err != nil {
+		t.Fatalf("write origin setter overlay: %v", err)
+	}
+	if err := os.WriteFile(probePath, []byte(probe), 0o600); err != nil {
+		t.Fatalf("write interleaving overlay test: %v", err)
+	}
+	overlay := map[string]map[string]string{"Replace": {
+		ownerPath:       ownerOverlayPath,
+		originPath:      originOverlayPath,
+		overlayTestPath: probePath,
+	}}
+	overlayBytes, err := json.Marshal(overlay)
+	if err != nil {
+		t.Fatalf("encode overlay manifest: %v", err)
+	}
+	overlayPath := filepath.Join(dir, "overlay.json")
+	if err := os.WriteFile(overlayPath, overlayBytes, 0o600); err != nil {
+		t.Fatalf("write overlay manifest: %v", err)
+	}
+	t.Logf("overlay owner_original_sha256=%s owner_instrumented_sha256=%s origin_original_sha256=%s origin_instrumented_sha256=%s probe_sha256=%s manifest_sha256=%s",
+		sha256Hex(ownerOriginal), sha256Hex([]byte(ownerInstrumented)),
+		sha256Hex(originOriginal), sha256Hex([]byte(originInstrumented)),
+		sha256Hex([]byte(probe)), sha256Hex(overlayBytes))
+	return overlayPath
+}
+
+func ownerCloseOfflineEnv() []string {
+	env := make([]string, 0, 24)
+	for _, key := range []string{
+		"PATH", "HOME", "TMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT",
+		"GO", "GOOS", "GOARCH", "CGO_ENABLED", "CC", "CXX", "GOMAXPROCS",
+		"LANG", "LC_ALL", "TZ",
+	} {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
+	env = append(env, "GOPROXY=off", "GOAUTH=off", "GOTOOLCHAIN=local", "GOWORK=off", "GOENV=off")
+	return env
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func boundedOverlayOutput(output string) string {
+	const limit = 6000
+	if len(output) <= limit {
+		return output
+	}
+	return output[:limit] + "\n[overlay output truncated]"
 }
