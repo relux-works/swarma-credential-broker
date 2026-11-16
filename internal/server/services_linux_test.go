@@ -11,8 +11,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,8 +36,32 @@ type socketServiceAuthority struct {
 	binding          wire.ServiceBinding
 	caller           wire.ServiceCaller
 	callerOK         bool
+	counter          atomic.Uint64
 }
 
+func (a *socketServiceAuthority) WithIdentity(ctx context.Context, fn func(service.View) error) error {
+	return a.WithCurrent(ctx, fn)
+}
+func (a *socketServiceAuthority) OperatorAct(service.Principal, string, json.RawMessage) bool {
+	return true
+}
+
+// This is a fixture codec; production must reuse its baseline event codec.
+func (a *socketServiceAuthority) Event(raw json.RawMessage) bool {
+	var event struct {
+		Kind  string `json:"kind"`
+		Class string `json:"class"`
+	}
+	if json.Unmarshal(raw, &event) != nil {
+		return false
+	}
+	var members map[string]json.RawMessage
+	if json.Unmarshal(raw, &members) != nil || len(members) != 2 || event.Kind != "credential_error" {
+		return false
+	}
+	return event.Class == "auth" || event.Class == "permission" || event.Class == "quota" || event.Class == "unknown"
+}
+func (a *socketServiceAuthority) Sequence() json.RawMessage { return json.RawMessage(`1`) }
 func (a *socketServiceAuthority) WithCurrent(ctx context.Context, fn func(service.View) error) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -57,17 +83,17 @@ func (a *socketServiceAuthority) Principal(uid uint32) (service.Principal, error
 	}
 	return service.Principal{}, errors.New("unknown fixture identity")
 }
-func (a *socketServiceAuthority) Service(b wire.ServiceBinding) (time.Time, error) {
+func (a *socketServiceAuthority) Service(b wire.ServiceBinding) error {
 	if b != a.binding || a.role != "service" || a.generation != b.Generation {
-		return time.Time{}, errors.New("fixture service denied")
+		return wire.Refuse("service_binding_mismatch")
 	}
-	return time.Now().Add(time.Hour), nil
+	return nil
 }
-func (a *socketServiceAuthority) Caller(b wire.ServiceBinding, c wire.ServiceCaller) (time.Time, error) {
+func (a *socketServiceAuthority) Caller(b wire.ServiceBinding, c wire.ServiceCaller) (time.Time, string, error) {
 	if !a.callerOK || b != a.binding || c != a.caller {
-		return time.Time{}, errors.New("fixture caller denied")
+		return time.Time{}, "", wire.Refuse("lease_caller_revoked")
 	}
-	return time.Now().Add(time.Hour), nil
+	return time.Now().Add(time.Hour), "socket-binding-1", nil
 }
 func (a *socketServiceAuthority) Owner(uint32, string) bool { return false }
 
@@ -98,7 +124,7 @@ func newSocketService(t *testing.T) (*service.Broker, *socketServiceAuthority) {
 	if err != nil {
 		t.Fatal("fixture operator unavailable")
 	}
-	raw, _ := wire.Encode(binding)
+	raw, _ := wire.Encode(wire.ServiceBind{OperationID: "bind-1", ServiceBinding: binding})
 	if broker.Call(context.Background(), p, "service.bind", raw, func(any) error { return nil }) != nil {
 		t.Fatal("fixture operator bind failed")
 	}
@@ -117,7 +143,7 @@ func serviceHello(t *testing.T, c *net.UnixConn) response {
 	return request(t, c, "hello", "hello-service", wire.Hello{Versions: []int{1}, Profile: wire.ServiceProfile})
 }
 func serviceRequest(a *socketServiceAuthority) wire.ServiceRequest {
-	return wire.ServiceRequest{Caller: a.caller, Kind: service.Kind, PolicyDigest: a.binding.PolicyDigest}
+	return wire.ServiceRequest{OperationID: strconv.FormatUint(a.counter.Add(1), 10), ServiceCaller: a.caller}
 }
 
 // A real SO_PEERCRED connection negotiates broker/1 on the same listener as
@@ -144,7 +170,7 @@ func TestServiceSocketMaterialAndPoll(t *testing.T) {
 		Profile   string            `json:"profile"`
 		Principal service.Principal `json:"principal"`
 	}
-	if wire.Decode(h.Result, &hello) != nil || hello.Principal.UID != uint32(os.Geteuid()) || hello.Principal.Role != "service" || hello.Profile != wire.ServiceProfile {
+	if wire.Decode(h.Result, &hello) != nil || hello.Principal.UID != uint32(os.Geteuid()) || hello.Principal.Service != service.Gateway || hello.Profile != wire.ServiceProfile {
 		t.Fatal("kernel service role mismatch")
 	}
 	assertGatewayAbsent(t, h.Result)
@@ -157,7 +183,7 @@ func TestServiceSocketMaterialAndPoll(t *testing.T) {
 	assertGatewayAbsent(t, encodeResponse(t, denied))
 	r := request(t, c, "service.lease.request", "lease-service", serviceRequest(a))
 	var l wire.ServiceLease
-	if r.Error != nil || wire.Decode(r.Result, &l) != nil || l.Token != gatewayFixtureToken || l.Kind != service.Kind {
+	if r.Error != nil || wire.Decode(r.Result, &l) != nil || l.Payload.Value != gatewayFixtureToken || l.Kind != service.Kind {
 		t.Fatal("gateway wire material control failed")
 	}
 	until, err := time.Parse(time.RFC3339Nano, l.AuthorizedUntil)
@@ -172,13 +198,13 @@ func TestServiceSocketMaterialAndPoll(t *testing.T) {
 	a.mu.Lock()
 	a.callerOK = false
 	a.mu.Unlock()
-	r = request(t, c, "service.lease.renew", "renew-denied", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-	if r.Error == nil || r.Error.Code != "lease_not_authorised" || r.Result != nil {
+	r = request(t, c, "service.lease.renew", "renew-denied", wire.ServiceRenew{OperationID: "renew-1", ServiceLeaseID: wire.ServiceLeaseID{LeaseID: l.LeaseID}})
+	if r.Error == nil || r.Error.Code != "lease_caller_revoked" || r.Result != nil {
 		t.Fatal("revoked caller received material")
 	}
 	assertGatewayAbsent(t, encodeResponse(t, r))
 	r = request(t, c, "service.revocation.check", "poll-revoked", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-	if r.Error != nil || !bytes.Contains(r.Result, []byte("unavailable")) {
+	if r.Error != nil || !bytes.Contains(r.Result, []byte("revoked")) {
 		t.Fatal("revoked poll widened")
 	}
 	assertGatewayAbsent(t, r.Result)
@@ -227,6 +253,9 @@ func TestServiceSocketRoleAndGenerationRefusals(t *testing.T) {
 			// remains unbound, despite recycling the same real kernel UID.
 			fresh := dial(t, path)
 			if serviceHello(t, fresh).Error != nil {
+				if change == "generation" {
+					return
+				}
 				t.Fatal("current principal hello failed")
 			}
 			r = request(t, fresh, "service.lease.request", "fresh-refusal", serviceRequest(a))
@@ -257,7 +286,7 @@ func TestServiceSocketRejectsRoleAndPlaceholderFields(t *testing.T) {
 			}
 			params[field] = "service"
 			r := request(t, c, "service.lease.request", "bad-shape", params)
-			if r.Error == nil || r.Error.Code != "lease_not_authorised" || r.Result != nil {
+			if r.Error == nil || r.Error.Code != "request_malformed" || r.Result != nil {
 				t.Fatal("caller role/placeholder accepted")
 			}
 			assertGatewayAbsent(t, encodeResponse(t, r))
@@ -273,4 +302,34 @@ func TestServiceSocketRejectsRoleAndPlaceholderFields(t *testing.T) {
 			closed(t, badHello)
 		})
 	}
+}
+
+// A real service socket is usable while bound and closes after the durable
+// operator unbind; the disconnected generation cannot negotiate another role.
+func TestServiceSocketUnbindCloses(t *testing.T) {
+	e := testutil.New(t, lease.Options{})
+	broker, a := newSocketService(t)
+	path := start(t, e, func(s *Server) { s.Services = broker })
+	c := dial(t, path)
+	if serviceHello(t, c).Error != nil {
+		t.Fatal("hello control")
+	}
+	if r := request(t, c, "service.lease.request", "before-unbind", serviceRequest(a)); r.Error != nil {
+		t.Fatal("lease control")
+	}
+	p, err := broker.Open(context.Background(), a.uid+1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bindingID string
+	// The equal bind retry returns the current binding identity without replacing it.
+	raw, _ := wire.Encode(wire.ServiceBind{OperationID: "bind-1", ServiceBinding: a.binding})
+	if err = broker.Call(context.Background(), p, "service.bind", raw, func(v any) error { bindingID = v.(map[string]any)["service_binding_id"].(string); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = wire.Encode(wire.ServiceUnbind{OperationID: "unbind-socket", BindingID: bindingID})
+	if err = broker.Call(context.Background(), p, "service.unbind", raw, func(any) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	closed(t, c)
 }

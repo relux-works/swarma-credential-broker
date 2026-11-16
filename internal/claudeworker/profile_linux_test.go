@@ -40,6 +40,8 @@ func TestWorkerProcessHelper(t *testing.T) {
 // a candidate containing fixture material is refused before any child starts.
 // This proves the fixture boundary, not Claude acceptance or child isolation.
 func TestWorkerProcessBoundary(t *testing.T) {
+	// An actual parent-side synthetic source must not cross the spawn boundary.
+	t.Setenv("ANTHROPIC_API_KEY", fakeToken)
 	p := candidate(t)
 	env, err := p.Environment()
 	if err != nil {

@@ -13,9 +13,8 @@ import (
 // comes from the kernel UID's current managed record. No caller role field,
 // second socket, placeholder, or service UID constant is accepted.
 func (s *Server) serveServices(ctx context.Context, c *net.UnixConn, uid uint32, first wire.Request, hello wire.Hello, firstDeadline time.Time) {
-	// SPEC-PENDING: serial calls, two-second call/material budget, and a fresh
-	// two-second bound for a typed refusal write after a failed call. These
-	// bound custody-lock-held writes without changing the legacy profile.
+	// Calls use the baseline method-class deadlines (dialect section 2.1).
+	// Administrative writes remain bounded to two seconds.
 	send := func(ctx context.Context, id string, result any, err error, until time.Time) error {
 		r := map[string]any{"request_id": id}
 		if err != nil {
@@ -36,11 +35,16 @@ func (s *Server) serveServices(ctx context.Context, c *net.UnixConn, uid uint32,
 		_ = send(ctx, first.ID, nil, err, firstDeadline)
 		return
 	}
+	cleanup, err := s.Services.RegisterConnection(ctx, principal, func() { _ = c.Close() })
+	if err != nil {
+		return
+	}
+	defer cleanup()
 	if send(ctx, first.ID, map[string]any{"version": 1, "profile": wire.ServiceProfile, "principal": principal}, nil, firstDeadline) != nil {
 		return
 	}
 	for {
-		raw, arrival, err := read(c, false, time.Time{})
+		raw, arrival, err := read(c, true, time.Now().Add(30*time.Second))
 		if err != nil {
 			return
 		}
@@ -48,7 +52,14 @@ func (s *Server) serveServices(ctx context.Context, c *net.UnixConn, uid uint32,
 		if wire.Decode(raw, &r) != nil || !wire.ASCII(r.ID, 64) {
 			return
 		}
-		until := arrival.Add(2 * time.Second)
+		budget := 2 * time.Second
+		switch r.Method {
+		case "service.lease.request":
+			budget = 30 * time.Second
+		case "service.lease.renew":
+			budget = 8 * time.Second
+		}
+		until := arrival.Add(budget)
 		call, cancel := context.WithDeadline(ctx, until)
 		wrote := false
 		err = s.Services.Call(call, principal, r.Method, r.Params, func(result any) error {
@@ -72,6 +83,9 @@ func (s *Server) serveServices(ctx context.Context, c *net.UnixConn, uid uint32,
 				return
 			}
 			if send(ctx, r.ID, nil, err, time.Now().Add(2*time.Second)) != nil {
+				return
+			}
+			if lease.ErrorCode(err) == "role_not_permitted" {
 				return
 			}
 		}

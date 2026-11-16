@@ -67,9 +67,10 @@ interfaces and gates without a codec or accepting adapter.
 The [Claude service source slice](docs/claude-custody.md) implements Core's
 secret-free decisions: protected custody, service bindings, two-authority leases
 on the existing socket, revocation polling and durable lessee-triggered hold
-with owner-only lift. A worker receives only its placeholder environment.
-Secret-free selection never falls back to an exposed lane. Protocol details are
-marked `SPEC-PENDING` until the successor specification lands. The standalone
+with a confirmed account-owner lift. A worker receives only its placeholder environment.
+Secret-free selection never falls back to an exposed lane. Protocol and durable replay records follow the accepted service dialect at
+[spec PR #65, exact head 26a7f50](https://github.com/relux-works/swarma-credential-broker/blob/26a7f50dcda73562d7e79f4c286bb8c7a32da7ee/spec/secret-free-service-v0.md).
+The keeper integrates that specification separately. The standalone
 daemon remains closed pending protected authority-reader integration and runtime
 qualification. See [unresolved integration points](UNRESOLVED_QUESTIONS.md).
 

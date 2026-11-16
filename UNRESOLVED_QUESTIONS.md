@@ -2,17 +2,14 @@
 
 ## Claude secret-free service integration
 
-Core's binding S3a decisions resolve both earlier STOPs: secret-free wins for
-a machine-selected launch (exposed lanes require separate selection), and
-service operations use the existing Unix socket with broker/1. The source
-implementation and fixtures are described in `docs/claude-custody.md`.
-
-`SPEC-PENDING`: reconcile exact hello/JSON/error names, generation and digest
-encodings, renewal/release/lift names, binding/tombstone schemas, restart and
-uncertain-write recovery, polling vocabulary, RPC budgets/capacity and owner
-confirmation against the forthcoming `spec/secret-free-service-v0.md`. The
-source marks each chosen detail; the binding input is the task's
-`CORE-S3A-DECISIONS.md`, not an invented replacement specification.
+The accepted service dialect is [PR #65 at 26a7f50](https://github.com/relux-works/swarma-credential-broker/blob/26a7f50dcda73562d7e79f4c286bb8c7a32da7ee/spec/secret-free-service-v0.md).
+Its closed broker fields, operation replay, durable records, hold window,
+refusal codes and operator act requirements supersede the earlier provisional
+choices. The implementation and scope are described in `docs/claude-custody.md`.
+No code site retains a provisional broker dialect choice. Accepted section 10
+still leaves the unavailable revocation-sequence encoding to the broker and
+placeholder format/delivery and listener binding to the gateway; the source
+requires a provider-owned sequence encoding and invents no placeholder dialect.
 
 Production integration still requires the protected current user-manager and
 independent-authority reader, qualified time and publication settlement. The
@@ -44,8 +41,7 @@ as separate later steps. These are resolved choices, not questions reopened by
 the remaining implementation gates.
 
 [Publication and activation](spec/secret-free-mode.md#13-publication-and-activation-gates)
-still need the compatible service-principal/service-lease/use-authority dialect
-and hold trigger, protected service/client policy and installation, gateway and
+retain protected service/client policy and installation, gateway and
 adapter implementations, exact harness qualification, matcher inventory/bounds,
 outside-gateway matcher custody, confirmed-leak criteria and owned alert route.
 None is assigned speculative active v0 fields or methods. Existing time, peer,

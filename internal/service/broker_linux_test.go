@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,8 +35,40 @@ type authorityFixture struct {
 	mode                                  string
 	serviceUntil, callerUntil             time.Time
 	owner                                 uint32
+	bindingID                             string
+	confirmed                             bool
+	counter                               int
+	extra                                 map[wire.ServiceBinding]bool
 }
 
+func (a *authorityFixture) WithIdentity(ctx context.Context, fn func(View) error) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return fn(a)
+}
+func (a *authorityFixture) OperatorAct(_ Principal, _ string, _ json.RawMessage) bool {
+	return a.confirmed
+}
+
+// This is a fixture codec; production must reuse its baseline event codec.
+func (a *authorityFixture) Event(raw json.RawMessage) bool {
+	var event struct {
+		Kind  string `json:"kind"`
+		Class string `json:"class"`
+	}
+	if json.Unmarshal(raw, &event) != nil {
+		return false
+	}
+	var members map[string]json.RawMessage
+	if json.Unmarshal(raw, &members) != nil || len(members) != 2 || event.Kind != "credential_error" {
+		return false
+	}
+	return event.Class == "auth" || event.Class == "permission" || event.Class == "quota" || event.Class == "unknown"
+}
+func (a *authorityFixture) Sequence() json.RawMessage { return json.RawMessage(`1`) }
 func (a *authorityFixture) WithCurrent(ctx context.Context, fn func(View) error) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -51,19 +84,19 @@ func (a *authorityFixture) Principal(uid uint32) (Principal, error) {
 	}
 	return p, nil
 }
-func (a *authorityFixture) Service(b wire.ServiceBinding) (time.Time, error) {
+func (a *authorityFixture) Service(b wire.ServiceBinding) error {
 	p := a.principals[b.UID]
-	if !a.serviceOK || !a.local || a.mode != "secret-free" || b != a.binding || p.Generation != b.Generation || p.Role != "service" {
-		return time.Time{}, errors.New("fixture service denied")
+	if !a.serviceOK || !a.local || a.mode != "secret-free" || (b != a.binding && !a.extra[b]) || p.Generation != b.Generation || p.Role != "service" {
+		return wire.Refuse("service_binding_mismatch")
 	}
-	return a.serviceUntil, nil
+	return nil
 }
-func (a *authorityFixture) Caller(b wire.ServiceBinding, c wire.ServiceCaller) (time.Time, error) {
+func (a *authorityFixture) Caller(b wire.ServiceBinding, c wire.ServiceCaller) (time.Time, string, error) {
 	p := a.principals[c.UID]
-	if !a.callerOK || !a.local || a.mode != "secret-free" || b != a.binding || c != a.caller || p.Generation != c.Generation || p.Role != "worker" {
-		return time.Time{}, errors.New("fixture caller denied")
+	if !a.callerOK || !a.local || a.mode != "secret-free" || (b != a.binding && !a.extra[b]) || c != a.caller || p.Generation != c.Generation || p.Role != "worker" {
+		return time.Time{}, "", wire.Refuse("lease_caller_revoked")
 	}
-	return a.callerUntil, nil
+	return a.callerUntil, a.bindingID, nil
 }
 func (a *authorityFixture) Owner(uid uint32, account string) bool {
 	return uid == a.owner && account == fixtureAccount
@@ -73,8 +106,15 @@ type countedAccount struct {
 	*claude.Account
 	entries int
 	before  func()
+	info    *wire.ServiceAccount
 }
 
+func (a *countedAccount) ServiceAccount() (wire.ServiceAccount, error) {
+	if a.info != nil {
+		return *a.info, nil
+	}
+	return a.Account.ServiceAccount()
+}
 func (a *countedAccount) Publish(ctx context.Context, until time.Time, now func() time.Time, fn func([]byte) error) error {
 	a.entries++
 	if a.before != nil {
@@ -121,7 +161,7 @@ func newBrokerFixture(t *testing.T, hook store.Durability) *brokerFixture {
 		f.operator: {UID: f.operator, Role: "operator", Generation: "operator-generation"},
 		f.owner:    {UID: f.owner, Role: "owner", Generation: "owner-generation"},
 		caller.UID: {UID: caller.UID, Role: "worker", Generation: caller.Generation},
-	}, binding: binding, caller: caller, serviceOK: true, callerOK: true, local: true, available: true, mode: "secret-free", serviceUntil: f.now.Add(time.Hour), callerUntil: f.now.Add(time.Hour), owner: f.owner}
+	}, binding: binding, caller: caller, serviceOK: true, callerOK: true, local: true, available: true, mode: "secret-free", serviceUntil: f.now.Add(time.Hour), callerUntil: f.now.Add(time.Hour), owner: f.owner, bindingID: "binding-1", confirmed: true}
 	f.b, err = New(f.a, map[string]Account{fixtureAccount: f.custody}, func() time.Time { return f.now })
 	if err != nil {
 		t.Fatal("fixture broker setup failed")
@@ -147,6 +187,46 @@ func noMaterial(t *testing.T, raw []byte) {
 }
 func (f *brokerFixture) call(t *testing.T, uid uint32, method string, params any, publish func(any) error) error {
 	t.Helper()
+	f.a.counter++
+	op := fmt.Sprint(f.a.counter)
+	switch r := params.(type) {
+	case wire.ServiceBinding:
+		if method == "service.bind" {
+			params = wire.ServiceBind{OperationID: op, ServiceBinding: r}
+		} else {
+			id := "unknown"
+			for _, b := range f.b.bindings {
+				if b.State == "active" && b.Binding() == r {
+					id = b.ID
+				}
+			}
+			params = wire.ServiceUnbind{OperationID: op, BindingID: id}
+		}
+	case wire.ServiceLeaseID:
+		if method == "service.lease.renew" {
+			params = wire.ServiceRenew{OperationID: op, ServiceLeaseID: r}
+		}
+	case wire.ServiceHold:
+		if r.OperationID == "" {
+			r.OperationID = op
+		}
+		if r.Account == "" {
+			r.Account = fixtureAccount
+		}
+		params = r
+	case wire.ServiceLift:
+		if r.OperationID == "" {
+			r.OperationID = op
+		}
+		if r.HoldID == "" {
+			if h := f.b.held(r.Account); h != nil {
+				r.HoldID = h.ID
+			} else {
+				r.HoldID = "unknown"
+			}
+		}
+		params = r
+	}
 	p, err := f.b.Open(context.Background(), uid)
 	if err != nil {
 		return err
@@ -170,7 +250,8 @@ func (f *brokerFixture) bind(t *testing.T) {
 	}
 }
 func (f *brokerFixture) request() wire.ServiceRequest {
-	return wire.ServiceRequest{Caller: f.a.caller, Kind: Kind, PolicyDigest: f.a.binding.PolicyDigest}
+	f.a.counter++
+	return wire.ServiceRequest{OperationID: fmt.Sprint(f.a.counter), ServiceCaller: f.a.caller}
 }
 func (f *brokerFixture) issue(t *testing.T) wire.ServiceLease {
 	t.Helper()
@@ -178,13 +259,13 @@ func (f *brokerFixture) issue(t *testing.T) wire.ServiceLease {
 	err := f.call(t, f.uid, "service.lease.request", f.request(), func(v any) error {
 		var ok bool
 		out, ok = v.(wire.ServiceLease)
-		if !ok || out.Token != fixtureToken || out.Account != fixtureAccount || out.Kind != Kind {
+		if !ok || out.Payload.Value != fixtureToken || out.Account != fixtureAccount || out.Kind != Kind {
 			t.Fatal("gateway control material mismatch")
 		}
 		return nil
 	})
 	if err != nil || out.LeaseID == "" {
-		t.Fatal("valid gateway lease refused")
+		t.Fatalf("valid gateway lease refused: %v", err)
 	}
 	return out
 }
@@ -192,7 +273,7 @@ func refused(t *testing.T, err error, code string) {
 	t.Helper()
 	var r *wire.Error
 	if !errors.As(err, &r) || r.Code != code {
-		t.Fatal("wrong fixed refusal")
+		t.Fatalf("wrong fixed refusal: got %v, want %s", err, code)
 	}
 	noMaterial(t, encode(t, err))
 }
@@ -205,7 +286,7 @@ func TestServiceRefusalsBeforeMaterial(t *testing.T) {
 			f := newBrokerFixture(t, nil)
 			f.bind(t)
 			f.issue(t)
-			uid, req, code := f.uid, f.request(), "lease_not_authorised"
+			uid, req, code := f.uid, f.request(), "service_binding_mismatch"
 			switch name {
 			case "worker", "orchestrator", "operator", "owner":
 				p := f.a.principals[f.uid]
@@ -213,28 +294,34 @@ func TestServiceRefusalsBeforeMaterial(t *testing.T) {
 				f.a.principals[f.uid] = p
 				code = "role_not_permitted"
 			case "unbound":
+				code = "role_not_permitted"
 				if _, err := f.metadata(t, f.operator, "service.unbind", f.a.binding); err != nil {
 					t.Fatal("unbind control failed")
 				}
 			case "stale-service-generation":
+				code = "role_not_permitted"
 				p := f.a.principals[f.uid]
 				p.Generation = "service-generation-2"
 				f.a.principals[f.uid] = p
 			case "inactive-agent":
+				code = "lease_caller_revoked"
 				f.a.callerOK = false
 			case "wrong-agent-generation":
-				req.Caller.Generation = "agent-generation-2"
+				code = "lease_caller_revoked"
+				req.ServiceCaller.Generation = "agent-generation-2"
 			case "wrong-launch":
-				req.Caller.LaunchID = "another-launch"
+				code = "lease_caller_revoked"
+				req.ServiceCaller.LaunchID = "another-launch"
 			case "wrong-account":
-				req.Caller.Account = "another-account"
+				code = "service_binding_unknown"
+				req.ServiceCaller.Account = "another-account"
 			case "wrong-kind":
-				req.Kind = "api-key"
+				f.a.binding.Kind = "api-key"
 			case "wrong-policy":
-				req.PolicyDigest = strings.Repeat("b", 64)
+				f.a.binding.PolicyDigest = strings.Repeat("b", 64)
 			case "expired-service-authority":
-				f.a.serviceUntil = f.now
-				code = "lease_not_active"
+				f.a.serviceOK = false
+				code = "service_binding_mismatch"
 			case "expired-caller-authority":
 				f.a.callerUntil = f.now
 				code = "lease_not_active"
@@ -244,7 +331,7 @@ func TestServiceRefusalsBeforeMaterial(t *testing.T) {
 				f.a.local = false
 			case "unavailable-authority":
 				f.a.available = false
-				code = "role_not_permitted"
+				code = "revocation_state_unavailable"
 			}
 			before, replies, leasesBefore := f.custody.entries, 0, len(f.b.leases)
 			err := f.call(t, uid, "service.lease.request", req, func(any) error { replies++; return nil })
@@ -276,7 +363,11 @@ func TestServiceTwoAuthorities(t *testing.T) {
 					name, params = "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID}
 				}
 				err := f.call(t, f.uid, name, params, func(any) error { replies++; return nil })
-				refused(t, err, "lease_not_authorised")
+				code := "lease_caller_revoked"
+				if missing == "service" {
+					code = "service_binding_mismatch"
+				}
+				refused(t, err, code)
 				if replies != 0 || f.custody.entries != before {
 					t.Fatal("single-authority lease escaped")
 				}
@@ -285,18 +376,15 @@ func TestServiceTwoAuthorities(t *testing.T) {
 	}
 }
 
-// The deadline is min(now+900s, both authority deadlines, vendor expiry), with
+// The deadline is min(now+900s, caller authority deadline, vendor expiry), with
 // equality expired. Renewal cannot revive an expired lease or ignore a ceiling.
 func TestServiceCeilingAndDeadline(t *testing.T) {
-	for _, bound := range []string{"ceiling", "service", "caller", "vendor"} {
+	for _, bound := range []string{"ceiling", "caller", "vendor"} {
 		t.Run(bound, func(t *testing.T) {
 			f := newBrokerFixture(t, nil)
 			f.bind(t)
 			want := f.now.Add(V0LeaseCeiling)
 			switch bound {
-			case "service":
-				want = f.now.Add(35 * time.Second)
-				f.a.serviceUntil = want
 			case "caller":
 				want = f.now.Add(45 * time.Second)
 				f.a.callerUntil = want
@@ -332,7 +420,7 @@ func TestServiceCeilingAndDeadline(t *testing.T) {
 			// A current lease can renew with the same checked authority.
 			if err := f.call(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID}, func(v any) error {
 				x, ok := v.(wire.ServiceLease)
-				if !ok || x.AuthorizedUntil != l.AuthorizedUntil || x.Token != fixtureToken {
+				if !ok || x.AuthorizedUntil != l.AuthorizedUntil || x.Payload.Value != fixtureToken {
 					t.Fatal("renewal control mismatch")
 				}
 				return nil
@@ -351,8 +439,8 @@ func TestServiceCeilingAndDeadline(t *testing.T) {
 }
 
 // Hold is lessee-only with the exact reason, persists before acknowledgment,
-// invalidates every lease, and survives restart. Only the account owner can lift;
-// neither owner lift nor rebind revives old leases. No vendor stop is claimed.
+// fences every lease without rewriting it, and survives restart. Only the account owner
+// can lift; a removed binding never inherits its old leases. No vendor stop is claimed.
 func TestServiceHoldOrderingAndOwnerLift(t *testing.T) {
 	f := newBrokerFixture(t, nil)
 	f.bind(t)
@@ -365,7 +453,7 @@ func TestServiceHoldOrderingAndOwnerLift(t *testing.T) {
 	}{
 		{f.operator, wire.ServiceHold{LeaseID: l.LeaseID, Reason: "leak_match"}, "role_not_permitted"},
 		{f.uid, wire.ServiceHold{LeaseID: "not-a-lease", Reason: "leak_match"}, "lease_not_owner"},
-		{f.uid, wire.ServiceHold{LeaseID: l.LeaseID, Reason: "unproven-reason"}, "lease_not_authorised"},
+		{f.uid, wire.ServiceHold{LeaseID: l.LeaseID, Reason: "unproven-reason"}, "hold_reason_unknown"},
 	} {
 		_, err := f.metadata(t, tc.uid, "account.hold", tc.params)
 		refused(t, err, tc.code)
@@ -382,7 +470,7 @@ func TestServiceHoldOrderingAndOwnerLift(t *testing.T) {
 			t.Fatal("fresh hold witness failed")
 		}
 		s, err := fresh.Status()
-		if err != nil || s.State != "held" {
+		if err != nil || s.State != "enrolled" || freshHoldCount(f) != 1 {
 			t.Fatal("hold reply preceded durable state")
 		}
 		return nil
@@ -392,33 +480,34 @@ func TestServiceHoldOrderingAndOwnerLift(t *testing.T) {
 	}
 	for _, id := range []string{l.LeaseID, other.LeaseID} {
 		out, err := f.metadata(t, f.uid, "service.revocation.check", wire.ServiceLeaseID{LeaseID: id})
-		if err != nil || out.(map[string]any)["state"] != "revoked" {
+		if err != nil || out.(map[string]any)["verdict"] != "revoked" {
 			t.Fatal("held lease poll remained open")
 		}
 		_, err = f.metadata(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: id})
-		refused(t, err, "lease_not_active")
+		refused(t, err, "account_hold_active")
 	}
 	for _, uid := range []uint32{f.uid, f.operator, f.a.caller.UID} {
 		_, err := f.metadata(t, uid, "account.hold.lift", wire.ServiceLift{Account: fixtureAccount})
 		refused(t, err, "role_not_permitted")
 		s, err := f.custody.Status()
-		if err != nil || s.State != "held" {
+		if err != nil || s.State != "enrolled" || freshHoldCount(f) != 1 {
 			t.Fatal("non-owner lift altered the hold")
 		}
 	}
 	f.a.owner = f.owner + 10
 	_, err = f.metadata(t, f.owner, "account.hold.lift", wire.ServiceLift{Account: fixtureAccount})
-	refused(t, err, "lease_not_authorised")
+	refused(t, err, "role_not_permitted")
 	s, err := f.custody.Status()
-	if err != nil || s.State != "held" {
+	if err != nil || s.State != "enrolled" || freshHoldCount(f) != 1 {
 		t.Fatal("unrelated owner altered the hold")
 	}
 	f.a.owner = f.owner
 	if _, err = f.metadata(t, f.owner, "account.hold.lift", wire.ServiceLift{Account: fixtureAccount}); err != nil {
 		t.Fatal("account owner could not lift hold")
 	}
-	_, err = f.metadata(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-	refused(t, err, "lease_not_active")
+	if err = f.call(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID}, func(any) error { return nil }); err != nil {
+		t.Fatal("lift failed to admit current unchanged lease")
+	}
 	f.issue(t)
 }
 
@@ -439,47 +528,47 @@ func TestServiceHoldDurabilityFailure(t *testing.T) {
 			armed = true
 			replies := 0
 			err := f.call(t, f.uid, "account.hold", wire.ServiceHold{LeaseID: l.LeaseID, Reason: "leak_match"}, func(any) error { replies++; return nil })
-			refused(t, err, "lease_owner_unavailable")
+			refused(t, err, "account_hold_unknown")
 			if replies != 0 {
 				t.Fatal("uncertain hold acknowledged")
 			}
 			_, err = f.metadata(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-			refused(t, err, "lease_not_active")
+			refused(t, err, "lease_owner_unavailable")
 		})
 	}
 }
 
-// Unbind/rebind tombstones persist, restart inherits no live leases, and wrong
+// Unbind/rebind tombstones and lease identities persist through restart, and wrong
 // role/generation cannot create or remove a binding. Metadata contains no token.
 func TestServiceBindingAndRevocation(t *testing.T) {
 	f := newBrokerFixture(t, nil)
 	for _, uid := range []uint32{f.uid, f.owner, f.a.caller.UID} {
 		_, err := f.metadata(t, uid, "service.bind", f.a.binding)
 		refused(t, err, "role_not_permitted")
-		s, err := f.custody.LoadServiceBinding()
-		if err != nil || s.Revision != 0 || s.Bound {
+		s, err := f.custody.LoadServiceState()
+		if err != nil || s.Revision != 0 || len(s.Bindings) != 0 {
 			t.Fatal("unauthorized bind changed protected state")
 		}
 	}
 	wrong := f.a.binding
 	wrong.Generation = "stale-generation"
 	_, err := f.metadata(t, f.operator, "service.bind", wrong)
-	refused(t, err, "lease_not_authorised")
+	refused(t, err, "principal_ledger_mismatch")
 	f.bind(t)
 	l := f.issue(t)
 	out, err := f.metadata(t, f.uid, "service.revocation.check", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-	if err != nil || out.(map[string]any)["state"] != "not_revoked" {
+	if err != nil || out.(map[string]any)["verdict"] != "not_revoked" {
 		t.Fatal("live lease poll control failed")
 	}
 	wrong.PolicyDigest = strings.Repeat("b", 64)
 	_, err = f.metadata(t, f.operator, "service.unbind", wrong)
-	refused(t, err, "lease_binding_mismatch")
+	refused(t, err, "service_binding_unknown")
 	if _, err = f.metadata(t, f.operator, "service.unbind", f.a.binding); err != nil {
 		t.Fatal("operator unbind failed")
 	}
 	f.bind(t)
 	_, err = f.metadata(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-	refused(t, err, "lease_not_active")
+	refused(t, err, "service_binding_unknown")
 	f.issue(t)
 	restarted, err := New(f.a, map[string]Account{fixtureAccount: f.custody}, func() time.Time { return f.now })
 	if err != nil {
@@ -487,7 +576,7 @@ func TestServiceBindingAndRevocation(t *testing.T) {
 	}
 	f.b = restarted
 	_, err = f.metadata(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-	refused(t, err, "lease_not_owner")
+	refused(t, err, "service_binding_unknown")
 	f.issue(t)
 }
 
@@ -501,7 +590,7 @@ func TestServiceClosedInputAndZeroValues(t *testing.T) {
 	for _, raw := range []string{`{}`, `{"caller":null,"kind":"claude-oauth-token","policy_digest":"x"}`, `{"role":"service"}`, `{"placeholder":"nonsecret"}`} {
 		before := f.custody.entries
 		err := f.b.Call(context.Background(), p, "service.lease.request", json.RawMessage(raw), func(any) error { t.Fatal("invalid shape published"); return nil })
-		refused(t, err, "lease_not_authorised")
+		refused(t, err, "request_malformed")
 		if before != f.custody.entries {
 			t.Fatal("invalid shape entered custody")
 		}
@@ -536,10 +625,15 @@ func TestServicePublicationBoundaries(t *testing.T) {
 	}
 	f.custody.before = nil
 	f.now = f.now.Add(-V0LeaseCeiling)
-	err = f.call(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID}, func(any) error { return errors.New(fixtureToken) })
-	refused(t, err, "lease_owner_unavailable")
 	_, err = f.metadata(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-	refused(t, err, "lease_not_active")
+	refused(t, err, "lease_not_active") // A backward clock never revives elapsed authority.
+	f.now = f.now.Add(V0LeaseCeiling + time.Second)
+	current := f.issue(t)
+	err = f.call(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: current.LeaseID}, func(any) error { return errors.New(fixtureToken) })
+	refused(t, err, "lease_owner_unavailable")
+	if err = f.call(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: current.LeaseID}, func(any) error { return nil }); err != nil {
+		t.Fatal("lost reply prevented a current renewal")
+	}
 	p, _ := f.b.Open(context.Background(), f.uid)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -558,6 +652,13 @@ func TestServiceNonLessee(t *testing.T) {
 	l := f.issue(t)
 	uid := f.uid + 20
 	f.a.principals[uid] = Principal{UID: uid, Role: "service", Generation: "other-service-generation", Service: Gateway}
+	other := f.a.binding
+	other.UID = uid
+	other.Generation = "other-service-generation"
+	f.a.extra = map[wire.ServiceBinding]bool{other: true}
+	if _, err := f.metadata(t, f.operator, "service.bind", other); err != nil {
+		t.Fatal("second principal bind", err)
+	}
 	for _, tc := range []struct {
 		method string
 		params any
@@ -617,7 +718,7 @@ func TestServiceAuthorityPublicationFence(t *testing.T) {
 	f.a.mu.Unlock()
 	before := f.custody.entries
 	_, err = f.metadata(t, f.uid, "service.lease.request", f.request())
-	refused(t, err, "lease_not_authorised")
+	refused(t, err, "lease_caller_revoked")
 	if f.custody.entries != before {
 		t.Fatal("settled revocation released late material")
 	}
@@ -632,7 +733,7 @@ func TestServiceRevocationPollNeighbors(t *testing.T) {
 			f.bind(t)
 			l := f.issue(t)
 			out, err := f.metadata(t, f.uid, "service.revocation.check", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-			if err != nil || out.(map[string]any)["state"] != "not_revoked" {
+			if err != nil || out.(map[string]any)["verdict"] != "not_revoked" {
 				t.Fatal("poll control failed")
 			}
 			switch change {
@@ -643,7 +744,7 @@ func TestServiceRevocationPollNeighbors(t *testing.T) {
 			case "expired":
 				f.now = f.now.Add(V0LeaseCeiling)
 			case "held":
-				if f.custody.Hold() != nil {
+				if _, e := f.metadata(t, f.uid, "account.hold", wire.ServiceHold{LeaseID: l.LeaseID, Reason: "leak_match"}); e != nil {
 					t.Fatal("hold fixture failed")
 				}
 			case "released":
@@ -655,11 +756,28 @@ func TestServiceRevocationPollNeighbors(t *testing.T) {
 			out, err = f.metadata(t, f.uid, "service.revocation.check", wire.ServiceLeaseID{LeaseID: l.LeaseID})
 			want := "revoked"
 			if change == "caller-revoked" || change == "service-revoked" || change == "held" {
-				want = "unavailable"
+				want = "revoked"
+				if change == "service-revoked" {
+					want = "unavailable"
+				}
 			}
-			if err != nil || out.(map[string]any)["state"] != want || before != f.custody.entries {
+			if err != nil || out.(map[string]any)["verdict"] != want || before != f.custody.entries {
 				t.Fatal("revocation poll widened or opened material")
 			}
 		})
 	}
+}
+
+func freshHoldCount(f *brokerFixture) int {
+	s, e := f.custody.LoadServiceState()
+	if e != nil {
+		return -1
+	}
+	n := 0
+	for _, h := range s.Holds {
+		if h.State == "active" {
+			n++
+		}
+	}
+	return n
 }

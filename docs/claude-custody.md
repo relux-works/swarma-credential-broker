@@ -1,127 +1,167 @@
 # Claude secret-free service source slice
 
-Core's binding S3a decisions resolve the two earlier STOPs. For a launch whose
-machine policy selects secret-free, material reaches only the current gateway
-service principal. A worker receives `ANTHROPIC_BASE_URL` and a placeholder;
-readable-token lanes require their own explicit selection and qualification.
-Failed secret-free admission never selects an exposed fallback.
+This inactive source slice follows the accepted [secret-free service dialect v0
+at PR #65, head 26a7f50](https://github.com/relux-works/swarma-credential-broker/blob/26a7f50dcda73562d7e79f4c286bb8c7a32da7ee/spec/secret-free-service-v0.md).
+The keeper integrates that specification separately; this branch changes no
+specification and must not be rebased onto the specification branch.
 
 The architecture references remain `book/ru/09-uchetnye-dannye.md`, sections
 "Режим без секретов у агента" and "Растяжка утечки", [mode §§2–5,10](../spec/secret-free-mode.md),
 [gateway §§2,6,7](../spec/secret-free-gateway.md), and
-[adapters §3](../spec/secret-free-adapters.md). The implementation follows Core's
-`CORE-S3A-DECISIONS.md` delivered with the task while Core publishes
-`spec/secret-free-service-v0.md`. This source slice does not activate a deployed
-service or revise those specifications. Every unresolved choice is explicitly
-marked `SPEC-PENDING` in code and summarized below.
+[adapters §3](../spec/secret-free-adapters.md). The dialect refines those rules.
+Secret-free selection is protected policy per account and kind, covering every
+launch using that account. Failed admission never selects an exposed fallback.
 
 ## Custody and authority
 
-`internal/claude.Account` owns a protected account store: fresh opaque enrollment,
-optional exact vendor expiry, metadata-only status, durable account hold and
-owner-gated lift primitives. It has no refresh, native-login import, account
-export command, agent home file or material environment path.
+`internal/claude.Account` owns fresh, opaque fixture enrollment, optional exact
+vendor expiry, metadata-only status and protected material publication. It has
+no refresh, native-login import, export command or worker delivery path. The
+standalone daemon still installs no service controller or accepting provider.
 
-`internal/service.Broker` consumes this custody and a mandatory `Authority`.
-The latter resolves the kernel-observed UID to a current managed principal,
-checks the gateway's service generation/account/kind/policy authority and
-**independently** checks the originating agent generation/launch/account's
-current narrowing authority and machine-selected secret-free local lane.
-`Authority.WithCurrent` must keep all facts, revocations, policy and qualified
-time evidence stable through its callback, including the actual socket write;
-replacement must exclude or interrupt ongoing writes before settling. A static
-UID, request field, placeholder or a past observation is not this provider.
-There is no accepting production reader or automatic activation. Integrators
-must implement the protected user-manager contract and qualify that settlement.
+`internal/service.Authority` separates protected managed identity and operator
+acts (`WithIdentity`) from current use authority (`WithCurrent`). Both acquire
+external evidence before the broker state lock; their `View` methods read only
+settled local evidence. No synchronous platform-service call runs under that
+lock. The current view must hold service generation, caller binding/chain,
+revocations, selected account policy and trusted time stable through the actual
+bounded publication callback. Admission classes and local placement belong to
+that protected evidence. Static UID, request fields and placeholder possession
+supply none of it. No production provider is supplied.
 
-The source controller implements:
+`View.Caller` returns the originating `binding_id` and exclusive authority
+expiry. The broker records it on issue and compares it on renewal and replay.
+Replacing the binding for the same uid and generation refuses renewal with
+`lease_unbound`; the poll reports `revoked`. A fresh service lease resolves the
+new binding, and no old record is retargeted. Service-binding removal followed
+by a fresh bind similarly inherits no old renewal authority.
 
-- Operator-only `service.bind`/`service.unbind` for `credential-gateway`, current
-  managed UID/generation, account, `claude-oauth-token` and policy digest.
-  Protected CAS records retain removal tombstones. Rebinding revokes old leases.
-- `service.lease.request` with originating account, agent UID/generation and
-  launch ID. Issue and renewal check both authorities and account state before
-  entering material custody. `V0LeaseCeiling` is **900 seconds**; the exclusive
-  deadline is also bounded by each authority and any known vendor expiry.
-- Gateway-only publication inside both the authority gate and account lock.
-  Material is never returned by `Call`; only its transport callback receives
-  the lease. A cancelled, expired, held or stale request refuses before release.
-  A partial/failed write revokes that lease locally; no retry success is inferred.
-- `service.revocation.check` is a metadata-only poll. `not_revoked` is a
-  point-in-time observation; unavailable evidence remains `unavailable`, never
-  permission. Explicitly ended or expired leases report `revoked`.
-- `account.hold` accepts only the current lessee service with `leak_match`.
-  All account leases close, protected hold publication finishes durably, then
-  acknowledgment is constructed. Persistence failure is UNKNOWN with no success
-  reply. Only the authenticated account owner can lift; lift revives no old ID.
+An operator act needs both the admitted operator principal and
+`View.OperatorAct` evidence for the exact method and canonical arguments. Bind
+and lift require content-confirmed widening acts; unbind requires narrowing-act
+authentication. The same operator can be the account owner. Bare owner/operator
+UIDs do not grant an act. Native command confinement, authentication and content
+confirmation remain installation gates; the fixtures grant synthetic acts only.
 
-The existing `server.Server` listener and framing carry `broker/1`; no second
-socket or deployment UID is introduced. Hello takes no client role. The fixed
-connection principal is revalidated on every call, so recycling its UID or
-replacing its generation inherits nothing. The legacy Codex profile remains
-separate. The standalone daemon installs no service controller until protected
-reader/installation/qualification are supplied; its existing closed owner is
-unchanged. This is source and synthetic boundary evidence, not installed use.
+## Protocol and durable state
 
-## SPEC-PENDING choices
+The existing listener carries `broker/1`, with the closed fields of accepted
+sections 5 and 6: operation IDs, flat caller members, `service_binding_id`,
+`service_lease_id`, `{kind,value}` payload, nullable vendor expiry, and
+`authorized_until`. The payload reaches only the authenticated service result.
+The new refusal codes retain their exact spelling through `wire.Refuse`.
 
-The following details are chosen provisionally and marked at their code sites:
+Service bindings are separate random identities. Duplicate active tuples refuse;
+unbind retains a tombstone and closes registered connections of that uid and
+generation. Different gateway triples may bind the same account. Each lease
+records its service binding and originating agent binding. Release is durable
+and idempotent; typed reports affect lease evidence only.
 
-1. Hello profile spelling `broker/1`, JSON object/field layout, material response
-   `token` string, `authorized_until` RFC3339Nano representation, renewal/release
-   names and `account.hold.lift`; no placeholder field is accepted by the broker.
-2. Opaque generation strings, lowercase 64-hex policy digests, principal record
-   shape, operator/owner record integration and owner act/confirmation format.
-3. Protected user-manager and independent-authority reader, qualified-time
-   evidence and final-publication settlement contract. The interface is a
-   mandatory closed integration seam, not a substitute record reader.
-4. Local binding/tombstone schema and revisions; each accepted bind, even an
-   identical rebind, creates a successor and ends all prior account leases.
-5. Volatile lease records: process replacement restores no leases. Random
-   128-bit IDs, capacity 256 including ended tombstones, and uncertain-write
-   recovery stay conservative until publication; capacity exhaustion refuses.
-6. Existing fixed refusal-code reuse and poll result vocabulary
-   `not_revoked`/`revoked`/`unavailable`.
-7. Serial calls per service connection, a two-second call/material budget and
-   a fresh two-second bound for a typed refusal write after a failed call.
+The protected `claude-service-journal/1` transaction envelope contains the closed
+binding, lease and hold records, canonical nonsecret operation arguments and
+metadata outcomes, revision and consumed-time watermark. It uses existing
+atomic replacement, file sync, directory sync and CAS protection. No payload,
+placeholder or derivation of material enters it. Recovery re-confirms journal
+durability before replay can acknowledge an interrupted write. Lease identities,
+removed bindings, operation outcomes and holds survive broker replacement.
+There is no legacy volatile-record adoption or migration: this source was never
+activated. Unreadable or incompatible state refuses construction.
 
-## Worker environment and containment limits
+Equal operation retries preserve identities and recorded renewal limits;
+different arguments refuse `service_operation_conflict`. Material replay
+repeats current authority, state, expiry and hold checks. Expired or released
+leases return `lease_not_active`, without another material delivery or extension.
+A lost/partial transport reply preserves the durable outcome for reconciliation.
 
-The earlier `internal/claudeworker.Profile` still constructs only fresh
-nonsecret placeholder environments with exact final-composition validation. Its
-Linux child fixture inspects actual argv/environment/output and rejects a
-material-bearing candidate before spawn. The broker neither generates nor
-observes a placeholder mapping. Gateway listener authentication, routing,
-matcher inventory and response filtering belong to the gateway contract.
+The configured lifetime defaults to 900 seconds. A smaller integral positive
+value is admitted; a value above 900 refuses construction rather than clamping.
+Issue and renewal take the earliest caller-authority, known vendor and configured
+bounds. Consumed time never decreases within the controller, and its watermark
+is retained in durable transactions. The default clock projects elapsed
+monotonic time from its consumed-time anchor so a wall-clock step back cannot
+extend an in-process lease. An injected clock owns that same progression
+contract. This is source-level rollback containment;
+qualified time, boot/restore continuity and installation of the real time reader
+remain mandatory independent gates.
 
-A broker hold, consumer-use closure, session stop, alert and vendor invalidation
-are separate outcomes. This slice implements broker lease denial and polling,
-not a gateway matcher, native stop controller or vendor action. Exact Claude
-release, subscription billing, kernel isolation, protected installation and
-production time/current-generation settlement require separate qualification.
-Fixture tokens have an obvious fake prefix; no real token/account is used.
-Go byte buffers are cleared; serialization/runtime string copies are not claimed
-to be cryptographically erased.
+The revocation poll returns `{verdict,revocation_sequence}`. Explicit originating
+binding or caller-chain revocation and an active hold report `revoked`;
+unreadable evidence reports `unavailable`. The provider supplies the baseline
+sequence representation, including its still-unpublished unavailable encoding
+(accepted section 10); the broker invents no second encoding. The numeric
+sequence in tests is a fixture, not a publication of that open format.
 
-## Validation
+Requests follow baseline method deadlines: 30 seconds for issue, 8 for renewal,
+2 for other calls; typed refusal writes have a fresh bounded 2-second budget.
+An idle service-protocol connection closes after 30 seconds. Socket capacity
+remains bounded; this does not qualify denial-of-service resistance. There is
+no arbitrary 256-lease limit or eviction of durable retry evidence; the existing
+protected record-size ceiling fails closed on exhaustion. Production retention
+and resource admission still need qualification.
 
-Source the task's private Go environment before any Go command, with physical
-absolute HOME/cwd and private caches. Set both `TMPDIR` and `GOTMPDIR` to the
-authorized absolute task scratch and unset `GOTELEMETRYDIR`. Capture standalone
-commands and real exit codes under `.temp/`:
+## Whole-account containment
+
+`account.hold` uses only fixed service identity, its own recorded lease, lease
+state and time, exact account match and the closed reason `leak_match`, in that
+order. It does not recheck caller grants, caller binding currentness, use-authority
+availability or vendor expiry. A service's recently ended lease also qualifies
+through the inclusive configured lifetime window: expiry uses its recorded
+`authorized_until`, and release uses the durable transition time. Missing end
+evidence or a stale window refuses `lease_not_active`. Revoked transitions are
+not synthesized; an unreadable revocation end time grants no window.
+
+A hold has a random identity and is durable before its reply. Persistence
+uncertainty returns `account_hold_unknown`; the gateway must stay closed and
+retry the same operation. An identical retry reconciles the protected journal
+and re-confirms durability even without a broker restart. Retry returns the
+recorded hold without creating a second hold. Hold placement changes neither account state nor lease records;
+issue and renewal refuse `account_hold_active`, and the poll reports `revoked`
+for every principal leasing that account. A known hold is listed to the existing
+owner/operator/observer read roles as typed metadata only. Lift requires the
+account owner, a confirmed operator act and that exact active hold ID; absent or
+mismatched holds refuse `account_hold_not_found`. Lift revives no ended lease.
+
+The shipped legacy manager implements only Codex external-token accounts and
+refuses the Claude harness. It supplies no exposed Claude path to interlock or
+fall back to. Any future exposed Claude implementation must apply accepted
+section 1 at initial and final admission; this slice introduces no speculative
+policy encoding or new account mode member to claim that integration.
+
+## Worker fixture and remaining gates
+
+`internal/claudeworker.Profile` is an inert environment fixture. Its prefix and
+variable spelling are fixture choices; accepted section 7 leaves production
+placeholder creation, format, delivery, mapping and disposal to the gateway.
+The process test plants a synthetic credential source in the actual parent
+environment and proves the child sees only the constructed fixture environment.
+It does not qualify a real Claude release or prove absence of native login
+files, config sources, arbitrary argv or inherited descriptors. Production
+pre-exec inspection and containment remain separate gateway/executor work.
+
+Broker hold, consumer-use closure, session stop, alert and vendor invalidation
+are separate outcomes. This source grants no live enrollment, account access,
+deployment, gateway matcher, native stop controller or vendor action. Production
+requires the protected user-manager and authority readers, trusted-time and
+restore fences, operator command, gateway listener/mapping, matcher inventory,
+exact harness/vendor qualification and service isolation. Serialization/runtime
+string copies are not claimed to be cryptographically erased.
+
+## Validation tools
+
+Source the task's private Go environment before each Go command. HOME, cwd,
+configuration and caches must be physical absolute task-owned paths. Set
+`TMPDIR` and `GOTMPDIR` to the authorized task scratch, unset `GOTELEMETRYDIR`,
+and capture standalone command output and real exits under `.temp/`:
 
 ```sh
-gofmt -w internal/service internal/claude internal/server/services.go internal/server/services_linux_test.go internal/server/server.go internal/wire/service.go
-go build ./...
+gofmt -w internal/service internal/claude internal/claudeworker internal/server/services.go internal/server/services_linux_test.go internal/wire/service.go internal/wire/types.go
 go vet ./...
+go build ./...
 go test -v -p=1 -count=1 -timeout=20m ./...
-go test -race -v -p=1 -count=1 -timeout=20m ./internal/service ./internal/claude ./internal/server ./internal/wire ./internal/claudeworker ./internal/store ./internal/qualify
+go test -race -v -p=1 -count=1 -timeout=20m ./internal/service ./internal/claude ./internal/server ./internal/wire ./internal/claudeworker
 ```
 
-The named refusal/control fixtures cover roles, binding/generation replacement,
-each authority independently, deadlines, lease revocation, non-lessee hold and
-non-owner lift, durable-before-reply hold, final publication exclusion and
-non-gateway process/environment secrecy. Source-overlay plants independently
-weaken each authority, the ceiling, role permission and hold ordering; the task
-handoff records their exact tests, exit codes and bounds. None supplies live
-vendor, installed reader or production-release qualification.
+The fix-round handoff maps every changed finding to commits, named positive and
+negative controls and narrowing source-overlay plants. Plants must fail at a
+named assertion; compilation or setup failures receive no kill credit. Fixture
+success supplies no production activation or native qualification evidence.

@@ -25,6 +25,9 @@ type Profile struct {
 	placeholder string
 }
 
+// NewProfile builds an inert local fixture, not a gateway dialect. The prefix
+// and environment variable below are fixture choices only; accepted service
+// dialect section 7 leaves production placeholder format/delivery to the gateway.
 // NewProfile builds a local-only candidate. Endpoint isolation, per-launch
 // mapping, subscription behavior and exact-release qualification remain closed.
 func NewProfile(home, endpoint string) (*Profile, error) {

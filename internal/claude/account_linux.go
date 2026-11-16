@@ -26,6 +26,7 @@ var ErrUnavailable = errors.New("claude account unavailable")
 // gateway readiness, release qualification or evidence of vendor validity.
 type Status struct {
 	Account        string     `json:"account"`
+	Harness        string     `json:"harness"`
 	Kind           string     `json:"credential_kind"`
 	Mode           string     `json:"mode"`
 	State          string     `json:"state"`
@@ -114,7 +115,7 @@ func (a *Account) Enroll(token []byte, expiresAt *time.Time) error {
 		a.failed = true
 		return ErrUnavailable
 	}
-	s := Status{a.label, Kind, Mode, "enrolled", cloneTime(expiresAt), false}
+	s := Status{Account: a.label, Harness: "claude_code", Kind: Kind, Mode: Mode, State: "enrolled", TokenExpiresAt: cloneTime(expiresAt), Refreshable: false}
 	if err = a.store.Put(metadataName, 0, metadata{"claude-account-record/1", a.installation, 1, s}); err != nil {
 		a.failed = true
 		return ErrUnavailable
@@ -141,7 +142,7 @@ func (a *Account) readMetadata() (metadata, error) {
 	}
 	b, err := a.store.Read(metadataName)
 	defer clear(b)
-	if err != nil || wire.Decode(b, &m) != nil || m.Kind != "claude-account-record/1" || m.Installation != a.installation || m.Revision == 0 || m.Revision >= 9007199254740991 || m.Status.Account != a.label || m.Status.Kind != Kind || m.Status.Mode != Mode || m.Status.Refreshable || !validExpiry(m.Status.TokenExpiresAt) || (m.Status.State != "enrolled" && m.Status.State != "held") {
+	if err != nil || wire.Decode(b, &m) != nil || m.Kind != "claude-account-record/1" || m.Installation != a.installation || m.Revision == 0 || m.Revision >= 9007199254740991 || m.Status.Account != a.label || m.Status.Harness != "claude_code" || m.Status.Kind != Kind || m.Status.Mode != Mode || m.Status.Refreshable || !validExpiry(m.Status.TokenExpiresAt) || (m.Status.State != "enrolled" && m.Status.State != "held") {
 		return metadata{}, ErrUnavailable
 	}
 	return m, nil
