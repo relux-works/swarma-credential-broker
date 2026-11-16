@@ -258,6 +258,9 @@ func (w *originOwner) next() (tid int, status unix.WaitStatus, terminal bool, er
 			return 0, 0, false, unix.ECHILD
 		}
 		tid, status, terminal, err = w.observedTask(p, si)
+		if err == nil && terminal && missing {
+			return 0, 0, false, unix.ECHILD
+		}
 		if err != nil || tid != 0 || terminal {
 			return
 		}
@@ -318,6 +321,11 @@ func (w *originOwner) observedTask(p int, si unix.Siginfo) (tid int, status unix
 		birth, e := w.captureBirth(p, peek)
 		if e != nil {
 			if e == unix.ESRCH {
+				// The peeked FORK/VFORK already proves a separate process.
+				// Losing its event message cannot relax strict admission.
+				if w.strict && (cause == unix.PTRACE_EVENT_FORK || cause == unix.PTRACE_EVENT_VFORK) {
+					return 0, 0, false, ErrUnavailable
+				}
 				return w.stopOvertaken(p, e)
 			}
 			return 0, 0, false, e

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <pthread.h>
+#include <string.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -19,7 +20,7 @@ static void *creator(void *unused) {
     if (read(3, &gate, 1) != 1)
         syscall(SYS_exit_group, 125);
     if (process) {
-        pid_t child = fork();
+        pid_t child = process == 2 ? vfork() : fork();
         if (child < 0) syscall(SYS_exit_group, 125);
         if (child == 0) newborn(0);
     } else if (pthread_create(&thread, 0, newborn, 0)) {
@@ -30,8 +31,7 @@ static void *creator(void *unused) {
 }
 
 int main(int argc, char **argv) {
-    (void)argv;
-    process = argc == 2;
+    process = argc == 2 ? (strcmp(argv[1], "vfork") == 0 ? 2 : 1) : 0;
     pthread_t thread;
     char gate;
     if (pthread_create(&thread, 0, creator, 0) || write(5, "r", 1) != 1 ||

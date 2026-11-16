@@ -36,9 +36,14 @@ func TestOriginCreationRejectsProcess(t *testing.T) {
 // Pipes force exit_group after the actual CLONE peek, either before the
 // production event read or after that read and before production consumption.
 // The stolen control consumes the same task's terminal status first.
+// Separate FORK/VFORK births still refuse after an overtaken event read;
+// the thread event-read case remains the neighboring recovery positive.
 func TestOriginStopTerminalTransition(t *testing.T) {
 	for _, stage := range []string{"event-read", "stop-consume", "stolen-nonleader"} {
 		t.Run(stage, func(t *testing.T) { originCloneExit(t, false, false, stage) })
+	}
+	for _, stage := range []string{"fork-event-read", "vfork-event-read"} {
+		t.Run(stage, func(t *testing.T) { originCloneExit(t, false, true, stage) })
 	}
 }
 
@@ -75,7 +80,11 @@ func originCloneExit(t *testing.T, delayedResume, process bool, transition strin
 	}
 	cmd := exec.Command(image)
 	if process {
-		cmd.Args = append(cmd.Args, "process")
+		mode := "process"
+		if transition == "vfork-event-read" {
+			mode = "vfork"
+		}
+		cmd.Args = append(cmd.Args, mode)
 	}
 	cmd.Env = []string{"HOME=" + t.TempDir(), "TMPDIR=" + t.TempDir()}
 	cmd.ExtraFiles = []*os.File{creatorR, exitR, readyW}
@@ -104,7 +113,7 @@ func originCloneExit(t *testing.T, delayedResume, process bool, transition strin
 	if p, e := unix.Wait4(w.pid, &initial, unix.WALL, nil); e != nil || p != w.pid || !initial.Stopped() {
 		t.Fatal("initial exec stop", p, initial, e)
 	}
-	options := unix.PTRACE_O_TRACECLONE | unix.PTRACE_O_TRACEFORK | unix.PTRACE_O_EXITKILL
+	options := unix.PTRACE_O_TRACECLONE | unix.PTRACE_O_TRACEFORK | unix.PTRACE_O_TRACEVFORK | unix.PTRACE_O_EXITKILL
 	if transition == "" {
 		options |= unix.PTRACE_O_TRACEEXIT
 	}
@@ -173,7 +182,7 @@ func originCloneExit(t *testing.T, delayedResume, process bool, transition strin
 	if _, err = creatorW.Write([]byte{1}); err != nil {
 		t.Fatal(err)
 	}
-	if process {
+	if process && transition == "" {
 		for time.Now().Before(deadline) {
 			p, s, done, e := w.next()
 			if e != nil {
@@ -219,6 +228,13 @@ func originCloneExit(t *testing.T, delayedResume, process bool, transition strin
 	creator := 0
 	var creation unix.WaitStatus
 	var creationPeek unix.Siginfo
+	expectedCause := unix.PTRACE_EVENT_CLONE
+	if process {
+		expectedCause = unix.PTRACE_EVENT_FORK
+		if transition == "vfork-event-read" {
+			expectedCause = unix.PTRACE_EVENT_VFORK
+		}
+	}
 	for time.Now().Before(deadline) {
 		var p int
 		var s unix.WaitStatus
@@ -241,15 +257,15 @@ func originCloneExit(t *testing.T, delayedResume, process bool, transition strin
 		if e != nil || done {
 			t.Fatal("creator trace", p, s, done, e)
 		}
-		if s.TrapCause() == unix.PTRACE_EVENT_CLONE {
+		if s.TrapCause() == expectedCause {
 			n, e := unix.PtraceGetEventMsg(p)
-			if e != nil || n == 0 || !originThread(int(n), w.pid) {
-				t.Fatal("actual newborn thread", n, e)
+			if e != nil || n == 0 || originThread(int(n), w.pid) == process {
+				t.Fatal("actual newborn identity", n, e)
 			}
 			newborn = int(n)
 			creator, creation = p, s
 			_, known := w.tasks[newborn]
-			t.Logf("creator tid=%d held at CLONE; newborn tid=%d registered=%v", p, newborn, known)
+			t.Logf("creator tid=%d held at birth cause=%d; newborn tid=%d registered=%v", p, expectedCause, newborn, known)
 			break // Deliberately do not register/resume the creator's event.
 		}
 		if p != 0 {
@@ -263,6 +279,11 @@ func originCloneExit(t *testing.T, delayedResume, process bool, transition strin
 	}
 	if newborn == 0 {
 		t.Fatal("no actual clone within bound")
+	}
+	if process {
+		// Retain the fixture's known child solely for cleanup even if the
+		// production event read loses the creation identity. No resume occurs.
+		w.tasks[newborn] = false
 	}
 	if transition == "stop-consume" || transition == "stolen-nonleader" {
 		b, e := w.captureBirth(creator, creation)
@@ -287,7 +308,7 @@ func originCloneExit(t *testing.T, delayedResume, process bool, transition strin
 			status := binary.LittleEndian.Uint32(b[24:28])
 			if si.Code != 0 && (si.Code != 4 || status != uint32(creation)>>8) {
 				changed = true
-				t.Logf("creator CLONE replaced by group exit: code=%d status=%#x", si.Code, status)
+				t.Logf("creator birth stop replaced by group exit: code=%d status=%#x", si.Code, status)
 				break
 			}
 			time.Sleep(time.Millisecond)
@@ -306,7 +327,7 @@ func originCloneExit(t *testing.T, delayedResume, process bool, transition strin
 		var s unix.WaitStatus
 		var done bool
 		var e error
-		if transition == "event-read" {
+		if transition == "event-read" || process {
 			// This invokes the real GETEVENTMSG on the obsolete CLONE stop.
 			if _, e = unix.PtraceGetEventMsg(creator); e != unix.ESRCH {
 				t.Fatal("exit did not overtake event read", e)
@@ -326,6 +347,22 @@ func originCloneExit(t *testing.T, delayedResume, process bool, transition strin
 				}
 			}
 			p, s, done, e = w.consumeTask(creator)
+		}
+		if process {
+			if !errors.Is(e, ErrUnavailable) || done || p != 0 {
+				t.Fatal("overtaken process birth bypassed strict refusal", p, s, done, e)
+			}
+			if _, e = w.reapStopped(); e != nil {
+				t.Fatal("refused overtaken process cleanup", e)
+			}
+			joined = true
+			for _, pid := range []int{newborn, w.pid} {
+				var status unix.WaitStatus
+				if _, e = unix.Wait4(pid, &status, unix.WNOHANG|unix.WALL, nil); e != unix.ECHILD {
+					t.Fatal("refused overtaken process left waitable", pid, e)
+				}
+			}
+			return
 		}
 		if transition == "stolen-nonleader" {
 			if e != unix.ECHILD || done || p != -1 && p != 0 {
