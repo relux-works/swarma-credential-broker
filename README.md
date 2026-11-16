@@ -64,6 +64,13 @@ interfaces and gates without a codec or accepting adapter.
 
 ## How it fits
 
+The [Claude custody preparation](docs/claude-custody.md) adds inactive broker-only
+enrollment/status/hold primitives and a placeholder-only worker environment
+tripwire. The owner's secret-free override stops Claude worker-token delivery
+for this slice;
+the unpublished service dialect/channel keeps gateway leases and runtime
+activation closed. See [unresolved contract points](UNRESOLVED_QUESTIONS.md).
+
 For the inactive [new-mode topology](spec/secret-free-mode.md#2-processes-and-custody),
 credential-holding services authenticate as themselves and need their own lease
 **and** the originating caller's current narrowing authority for every use.
@@ -148,6 +155,7 @@ isolated helpers and that fake vendor, with fresh homes. No logged-in home is us
 | OpenSSH / GitHub CLI optional bot signature | `GO=/absolute/path/to/go .scripts/release-sign.sh v1.2.3`; independent rebuild and exact digest comparison before local signature/upload | `SHA256SUMS.sig`; `.temp/release-sign.*` rebuild/readback evidence; agent-held key, proves nothing about origin |
 | Python 3 metadata / digest verification | `.scripts/release-verify.sh /absolute/assets EXPECTED_FRAGMENT_SHA256`; builder invokes `.scripts/release-metadata.py create`, verifier invokes `check` | Canonical metadata and digest consistency; installer trusts only the aggregate set digest approved by the owner in person before any root step; tag allowlist is no trust root |
 | Release fixture controls / actionlint (optional) | `GO=/absolute/path/to/go .scripts/release-test.sh /absolute/new/scratch`; `actionlint .github/workflows/release.yml` when installed | Real Git/SSH/Go positive and negative controls plus local GitHub CLI double; named logs in isolated scratch; lint output |
+| Claude custody / worker profile fixtures | `go test -race -p=1 -count=1 -timeout=3m ./internal/claude ./internal/claudeworker ./internal/store`; [scope and validation](docs/claude-custody.md) | Synthetic protected broker records and a placeholder-only child under private absolute `TMPDIR`; task logs in `.temp/`. No live token, gateway lease, installation or release qualification |
 | Go immutable storage fixture | `GOTOOLCHAIN=local GOMAXPROCS=2 GO="$CURATOR_GO" SWARMA_TEST_UNPRIVILEGED=1 "$CURATOR_GO" test -p=2 ./internal/freshstore ./internal/store -run '^(TestFresh\|TestImmutable)' -count=1`; [bounded contract and build command](docs/immutable-storage.md#focused-validation) | Synthetic files under isolated `TMPDIR`; full logs and overlay controls in private scratch outside Git |
 | Go generation selection fixture | `GOTOOLCHAIN=local GOMAXPROCS=2 go test -p=2 -count=1 -timeout=90s ./internal/generationcas`; [contract and focused validation](docs/generation-cas.md#focused-validation) | Synthetic files under isolated `TMPDIR`; full logs and overlay controls in private scratch outside Git |
 | Bash migration tool (5.3 or later) | `bash scripts/migrate-service-user close-admission <absolute-config>`, then operator reconciliation, then `bash scripts/migrate-service-user migrate <absolute-config>`; see the [operator guide](docs/service-user-migration.md) for prerequisites and required site driver | Protected run directory: preflight metadata, append-only intent/recovery journal and phase records; fixed sanitized stderr |

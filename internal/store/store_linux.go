@@ -20,6 +20,7 @@ import (
 
 var ErrUnavailable = errors.New("protected store unavailable")
 var ErrConflict = errors.New("record revision conflict")
+var ErrNotFound = errors.New("protected record missing")
 
 // MaxRecordBytes is the inclusive ceiling for encoded protected records.
 const MaxRecordBytes = 1 << 20
@@ -444,7 +445,31 @@ func (a *Account) Records() (map[string][]byte, error) {
 	}
 	return out, nil
 }
+
+// Read selects one protected record without opening other account records.
+// Callers own the returned bytes, including clearing material-bearing buffers.
+func (a *Account) Read(name string) ([]byte, error) {
+	if a == nil || !validName(name) {
+		return nil, ErrUnavailable
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.Healthy() != nil {
+		return nil, ErrUnavailable
+	}
+	b, err := read(a.root, name, a.uid)
+	if os.IsNotExist(err) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	return b, nil
+}
 func (a *Account) Healthy() error {
+	if a == nil || a.parent == nil || a.root == nil || a.lock == nil {
+		return ErrUnavailable
+	}
 	if a.parent.Healthy() != nil {
 		return ErrUnavailable
 	}

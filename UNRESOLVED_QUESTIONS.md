@@ -1,5 +1,34 @@
 # Unresolved questions
 
+## Claude secret-free service delivery
+
+The owner's secret-free override conflicts with `spec/broker.md` §§5.2 and 8.4
+where real `CLAUDE_CODE_OAUTH_TOKEN` material reaches the worker. That path is
+stopped; no exposed fallback is permitted for this assignment.
+
+`spec/secret-free-mode.md` §§3,5,10,13, `spec/secret-free-gateway.md` §§2,6,7,10
+and `spec/secret-free-adapters.md` §7 explicitly leave the compatible service
+dialect unselected. There is no documented concrete gateway material channel
+to implement. Missing authority refuses; fixture success cannot select it.
+
+Required input to resume the stopped portion is an accepted publication naming
+the wire version, service principal/binding/lease records and method permissions,
+kernel UID plus current managed generation/class/placement and installation
+evidence, signed authority/account scope, deadlines/revocation/final release
+fences, protected gateway-only material channel, placeholder mapping and narrow
+detector account-hold authentication/correlation/replay semantics. An approved
+user-manager service-identity observation contract is also required.
+
+Clean alternatives: publish that successor contract and implement it; or keep
+runtime service delivery closed while reviewing the independent broker custody
+and worker-environment primitives in `docs/claude-custody.md`. Static UID-only
+allowlists, caller-selected gateway roles, invented methods, worker env tokens
+and agent-home files do not meet the requested contract.
+
+Gateway installation units and actual deployment are part 2. They must not
+claim this partial source delivery provides usable leases, authenticated
+listeners, leak containment integration or production qualification.
+
 ## Owner close diagnostic mitigation
 
 [Issue #63](https://github.com/relux-works/swarma-credential-broker/issues/63)
