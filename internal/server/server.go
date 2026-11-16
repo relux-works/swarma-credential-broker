@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/relux-works/swarma-credential-broker/internal/lease"
+	"github.com/relux-works/swarma-credential-broker/internal/service"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 	"io"
 	"net"
@@ -16,6 +17,9 @@ import (
 )
 
 type Server struct {
+	// Services is nil in the standalone daemon until its protected authority
+	// reader and installation are qualified. It shares this server's socket.
+	Services          *service.Broker
 	Manager           *lease.Manager
 	mu                sync.Mutex
 	connections       map[*net.UnixConn]bool
@@ -179,7 +183,13 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn, firstDeadline ti
 		return
 	}
 	p := s.Manager.Policy()
-	if !s.Manager.Peer(first, uid) {
+	legacyPeer := s.Manager.Peer(first, uid)
+	servicePeer := false
+	if !legacyPeer {
+		_, serviceErr := s.Services.Open(first, uid)
+		servicePeer = serviceErr == nil
+	}
+	if !legacyPeer && !servicePeer {
 		if first.Err() != nil {
 			return
 		}
@@ -288,6 +298,14 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn, firstDeadline ti
 			}
 			var h wire.Hello
 			if wire.Decode(r.Params, &h) != nil {
+				return
+			}
+			if h.Profile == wire.ServiceProfile && s.Services != nil {
+				s.serveServices(ctx, c, uid, r, h, firstDeadline)
+				return
+			}
+			if !legacyPeer {
+				terminal(c, "role_not_permitted")
 				return
 			}
 			if h.Profile != wire.Profile || len(h.Versions) != 1 || h.Versions[0] != 1 {

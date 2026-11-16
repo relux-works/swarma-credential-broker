@@ -1,118 +1,126 @@
-# Claude secret-free custody preparation
+# Claude secret-free service source slice
 
-This is an **inactive, partial source delivery**. The owner selects secret-free
-Claude subscription use: material may reach only the gateway service principal;
-a worker receives `ANTHROPIC_BASE_URL` and a nonsecret placeholder. No production
-entry, service identity, lease, delivery channel or harness is activated here.
+Core's binding S3a decisions resolve the two earlier STOPs. For a launch whose
+machine policy selects secret-free, material reaches only the current gateway
+service principal. A worker receives `ANTHROPIC_BASE_URL` and a placeholder;
+readable-token lanes require their own explicit selection and qualification.
+Failed secret-free admission never selects an exposed fallback.
 
-The book's `book/ru/09-uchetnye-dannye.md`, sections "Режим без секретов у агента"
-and "Растяжка утечки", is the architecture reference. Custody and account hold
-remain the same as [mode §§2,10](../spec/secret-free-mode.md),
-[gateway §7](../spec/secret-free-gateway.md#7-leak-tripwire-and-account-containment)
-and [adapters §3](../spec/secret-free-adapters.md#3-broker-side-lifecycle).
-No replacement book rule or service protocol is proposed.
+The architecture references remain `book/ru/09-uchetnye-dannye.md`, sections
+"Режим без секретов у агента" and "Растяжка утечки", [mode §§2–5,10](../spec/secret-free-mode.md),
+[gateway §§2,6,7](../spec/secret-free-gateway.md), and
+[adapters §3](../spec/secret-free-adapters.md). The implementation follows Core's
+`CORE-S3A-DECISIONS.md` delivered with the task while Core publishes
+`spec/secret-free-service-v0.md`. This source slice does not activate a deployed
+service or revise those specifications. Every unresolved choice is explicitly
+marked `SPEC-PENDING` in code and summarized below.
 
-## Stopped contract points
+## Custody and authority
 
-[Broker §5.2](../spec/broker.md#52-kinds) and
-[§8.4](../spec/broker.md#84-delivery-channels) prescribe real Claude token
-delivery to a worker environment. That path is stopped under the owner override.
-This change does not add Claude to the legacy Codex-only static lease policy.
+`internal/claude.Account` owns a protected account store: fresh opaque enrollment,
+optional exact vendor expiry, metadata-only status, durable account hold and
+owner-gated lift primitives. It has no refresh, native-login import, account
+export command, agent home file or material environment path.
 
-[Mode §13](../spec/secret-free-mode.md#13-publication-and-activation-gates),
-[gateway §10](../spec/secret-free-gateway.md#10-qualification-and-publication)
-and [adapters §7](../spec/secret-free-adapters.md#7-publication-and-qualification)
-leave the service-principal/binding/lease dialect, protected material channel
-and narrowly authenticated account-hold trigger unpublished. A protected IPC
-requirement is not a concrete socket method, descriptor format or enrollment
-command. A static UID, caller-selected service role or test double cannot fill
-that gap. No such channel is implemented here. An approved successor contract
-must specify these before gateway lease work can resume.
+`internal/service.Broker` consumes this custody and a mandatory `Authority`.
+The latter resolves the kernel-observed UID to a current managed principal,
+checks the gateway's service generation/account/kind/policy authority and
+**independently** checks the originating agent generation/launch/account's
+current narrowing authority and machine-selected secret-free local lane.
+`Authority.WithCurrent` must keep all facts, revocations, policy and qualified
+time evidence stable through its callback, including the actual socket write;
+replacement must exclude or interrupt ongoing writes before settling. A static
+UID, request field, placeholder or a past observation is not this provider.
+There is no accepting production reader or automatic activation. Integrators
+must implement the protected user-manager contract and qualify that settlement.
 
-## Broker-only primitives
+The source controller implements:
 
-`internal/claude.NewAccount` wraps a dedicated, already protected
-`store.Account`. A future authenticated operator entry must provide its correct
-installation and account scope; construction grants no authority. `Enroll`
-accepts fresh owner-supplied opaque token bytes, optional vendor-expiry evidence,
-and writes no home, environment or launch file. It never runs `setup-token`,
-reads a native login or refreshes material. This library has no material getter,
-socket export or CLI integration. Existing operator custody requirements remain.
+- Operator-only `service.bind`/`service.unbind` for `credential-gateway`, current
+  managed UID/generation, account, `claude-oauth-token` and policy digest.
+  Protected CAS records retain removal tombstones. Rebinding revokes old leases.
+- `service.lease.request` with originating account, agent UID/generation and
+  launch ID. Issue and renewal check both authorities and account state before
+  entering material custody. `V0LeaseCeiling` is **900 seconds**; the exclusive
+  deadline is also bounded by each authority and any known vendor expiry.
+- Gateway-only publication inside both the authority gate and account lock.
+  Material is never returned by `Call`; only its transport callback receives
+  the lease. A cancelled, expired, held or stale request refuses before release.
+  A partial/failed write revokes that lease locally; no retry success is inferred.
+- `service.revocation.check` is a metadata-only poll. `not_revoked` is a
+  point-in-time observation; unavailable evidence remains `unavailable`, never
+  permission. Explicitly ended or expired leases report `revoked`.
+- `account.hold` accepts only the current lessee service with `leak_match`.
+  All account leases close, protected hold publication finishes durably, then
+  acknowledgment is constructed. Persistence failure is UNKNOWN with no success
+  reply. Only the authenticated account owner can lift; lift revives no old ID.
 
-The private `owner-claude-material.json` record stores material under the
-existing broker UID, 0700 directory, 0600 regular-file, no-link, lifetime-lock and
-durable atomic-publication rules. The separate `owner-claude-account.json`
-record contains only installation/revision, account/kind/mode, recorded state,
-optional vendor expiry and `refreshable:false`. These are local persistence
-records, not additions to the broker wire dialect. They use a dedicated account
-directory, separate from legacy Codex owner/lease records.
+The existing `server.Server` listener and framing carry `broker/1`; no second
+socket or deployment UID is introduced. Hello takes no client role. The fixed
+connection principal is revalidated on every call, so recycling its UID or
+replacing its generation inherits nothing. The legacy Codex profile remains
+separate. The standalone daemon installs no service controller until protected
+reader/installation/qualification are supplied; its existing closed owner is
+unchanged. This is source and synthetic boundary evidence, not installed use.
 
-`Status` selects only metadata using `store.Account.Read`, without opening the
-material record or computing a token digest. `enrolled` means custody was
-recorded, not live authority, material health, gateway readiness or vendor
-acceptance. Unknown vendor expiry stays null. Status returns no token, secret
-reference, token hash or raw filesystem error.
+## SPEC-PENDING choices
 
-Enrollment commits immutable material before metadata. A duplicate cannot
-replace material or clear a hold. An interrupted enrollment may retain a
-protected orphan; missing metadata stays unavailable, and retries cannot adopt
-or overwrite retained material. Offline operator reconciliation/re-enrollment
-is not supplied. Go encoding may retain temporary copies; secure memory erasure
-is not claimed.
+The following details are chosen provisionally and marked at their code sites:
 
-`Hold` is only the internal persistence primitive for a whole-account hold. It
-serializes metadata updates, flushes before every acknowledgment, is idempotent
-in account state and survives reopening. Even an already observed hold is
-republished, so a prior uncertain rename cannot become a false acknowledgment
-through a fresh wrapper. It has no lease, launch or generation selector. A failed
-write returns unavailable/UNKNOWN and closes that object; it never reports a
-durable hold. Consumers must retain their local block and reconcile unknown
-outcomes before recovery. This is not an authenticated detector RPC, final
-lease-delivery gate, matcher, service-use closure, session stop, vendor
-invalidation or owner alert. No hold-lift API is supplied: owner authentication
-and independent recovery fences remain necessary. Possible leak alone never
-authorizes vendor action.
+1. Hello profile spelling `broker/1`, JSON object/field layout, material response
+   `token` string, `authorized_until` RFC3339Nano representation, renewal/release
+   names and `account.hold.lift`; no placeholder field is accepted by the broker.
+2. Opaque generation strings, lowercase 64-hex policy digests, principal record
+   shape, operator/owner record integration and owner act/confirmation format.
+3. Protected user-manager and independent-authority reader, qualified-time
+   evidence and final-publication settlement contract. The interface is a
+   mandatory closed integration seam, not a substitute record reader.
+4. Local binding/tombstone schema and revisions; each accepted bind, even an
+   identical rebind, creates a successor and ends all prior account leases.
+5. Volatile lease records: process replacement restores no leases. Random
+   128-bit IDs, capacity 256 including ended tombstones, and uncertain-write
+   recovery stay conservative until publication; capacity exhaustion refuses.
+6. Existing fixed refusal-code reuse and poll result vocabulary
+   `not_revoked`/`revoked`/`unavailable`.
+7. Serial calls per service connection and a two-second arrival-to-write budget.
 
-## Worker environment primitive
+## Worker environment and containment limits
 
-`internal/claudeworker.NewProfile` constructs only an in-memory candidate from
-nonsecret home/endpoint metadata. It accepts a numeric loopback endpoint with
-an explicit port, creates fresh random nonsecret bytes and constructs exactly
-`HOME`, fixed `PATH`/`LANG`, `ANTHROPIC_BASE_URL` and
-`CLAUDE_CODE_OAUTH_TOKEN=<candidate placeholder>`. It never accepts vendor
-material or inherits ambient environment. The subscription variable preserves
-the selected auth-kind intent; no API billing substitution is claimed.
+The earlier `internal/claudeworker.Profile` still constructs only fresh
+nonsecret placeholder environments with exact final-composition validation. Its
+Linux child fixture inspects actual argv/environment/output and rejects a
+material-bearing candidate before spawn. The broker neither generates nor
+observes a placeholder mapping. Gateway listener authentication, routing,
+matcher inventory and response filtering belong to the gateway contract.
 
-`ValidateEnvironment` is the final-composition tripwire: every key/value must
-match that profile, including the exact placeholder. A replaced token, alternate
-auth source, duplicate, extra or malformed entry refuses with fixed metadata.
-A future executor must validate after all composition and before starting a
-child. The Linux fixture inspects a real child's argv/environment and output;
-the material-bearing negative candidate is never started.
-
-The candidate prefix is internal nonsecret test metadata, **not a published
-placeholder wire format or authenticated mapping**. There is no listener,
-UID/generation/launch/account mapping or active launch command. A numeric local
-URL is not routing enforcement or listener ownership. Exact Claude release,
-placeholder acceptance, subscription billing, startup/background/child routes,
-protected source/home/plan checks, kernel isolation and the final executor are
-unqualified. This constructor cannot grant production launch admission.
+A broker hold, consumer-use closure, session stop, alert and vendor invalidation
+are separate outcomes. This slice implements broker lease denial and polling,
+not a gateway matcher, native stop controller or vendor action. Exact Claude
+release, subscription billing, kernel isolation, protected installation and
+production time/current-generation settlement require separate qualification.
+Fixture tokens have an obvious fake prefix; no real token/account is used.
+Go byte buffers are cleared; serialization/runtime string copies are not claimed
+to be cryptographically erased.
 
 ## Validation
 
-Use the task's private Go environment and absolute private `TMPDIR`/`GOTMPDIR`.
-Run commands directly, capturing each exit code and log in task scratch:
+Source the task's private Go environment before any Go command, with physical
+absolute HOME/cwd and private caches. Set both `TMPDIR` and `GOTMPDIR` to the
+authorized absolute task scratch and unset `GOTELEMETRYDIR`. Capture standalone
+commands and real exit codes under `.temp/`:
 
 ```sh
-gofmt -w internal/claude internal/claudeworker internal/store/read_linux_test.go internal/store/store_linux.go
+gofmt -w internal/service internal/claude internal/server/services.go internal/server/services_linux_test.go internal/server/server.go internal/wire/service.go
 go build ./...
 go vet ./...
-go test -p=1 -count=1 -timeout=20m ./...
-go test -race -p=1 -count=1 -timeout=3m ./internal/claude ./internal/claudeworker ./internal/store
+go test -v -p=1 -count=1 -timeout=20m ./...
+go test -race -v -p=1 -count=1 -timeout=5m ./internal/service ./internal/claude ./internal/server ./internal/wire ./internal/claudeworker ./internal/store
 ```
 
-Fixture tokens have an explicit fake prefix. Tests use fixed diagnostics and
-check metadata/errors/process output against the canary. Material is permitted
-only inside the broker test's private store and memory. These are synthetic
-custody/environment witnesses, not real service-principal, lease, leak-matcher,
-kernel-account or vendor qualification. No real account or token is used.
+The named refusal/control fixtures cover roles, binding/generation replacement,
+each authority independently, deadlines, lease revocation, non-lessee hold and
+non-owner lift, durable-before-reply hold, final publication exclusion and
+non-gateway process/environment secrecy. Source-overlay plants independently
+weaken each authority, the ceiling, role permission and hold ordering; the task
+handoff records their exact tests, exit codes and bounds. None supplies live
+vendor, installed reader or production-release qualification.

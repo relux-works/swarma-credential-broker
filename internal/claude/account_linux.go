@@ -1,7 +1,7 @@
 //go:build linux
 
-// Package claude provides inactive broker-side custody primitives. It supplies
-// no enrollment command, service principal, lease dialect or material export.
+// Package claude provides broker-side custody primitives for the inactive
+// secret-free service controller. It supplies no live enrollment command.
 package claude
 
 import (
@@ -163,8 +163,8 @@ func (a *Account) Status() (Status, error) {
 
 // Hold durably narrows this whole account, independently of any lease or
 // generation. It is an internal persistence primitive, not a detector RPC.
-// Failure means UNKNOWN, never a hold acknowledgment. No hold-lift entry is
-// supplied until owner authentication and independent fences are published.
+// Failure means UNKNOWN, never a hold acknowledgment. The service controller
+// supplies the authenticated lessee trigger and exclusive owner lift boundary.
 func (a *Account) Hold() error {
 	if a == nil {
 		return ErrUnavailable
