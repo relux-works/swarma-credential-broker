@@ -31,7 +31,12 @@ The readable-token contracts in [the broker baseline](broker.md) and
 Claude environment tokens, Codex external access tokens, the proposed Muse
 minted-key channel and native per-home authentication are explicit exposed
 lanes. The machine owner selects and qualifies each mode per profile and
-harness. Status must identify the selected mode and its exposure. Failure to
+harness. For the v0 scope published in
+[secret-free service v0](secret-free-service-v0.md), that selection for
+`claude-oauth-token` is per account (and kind) in the protected machine
+policy, and it closes every exposed-lane lease on that account whatever
+the request's profile or launch. Status must identify the selected mode
+and its exposure. Failure to
 qualify secret-free mode never selects or qualifies an exposed fallback. If the
 selected lane is unqualified, the launch refuses.
 

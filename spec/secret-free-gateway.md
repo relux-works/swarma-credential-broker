@@ -201,8 +201,9 @@ for the v0 scope -- kind `claude-oauth-token`, which has no broker refresh --
 are published in [secret-free service v0](secret-free-service-v0.md); that
 dialect assigns no rejected-material member, and the binding of a rejected
 real credential identity for rotating kinds remains beyond its scope, still
-to be published by the dialect that admits such a kind. Concurrent rejections join bounded single-owner work rather than
-create new writers. Final renewal/use rechecks the unchanged account, both
+to be published by the dialect that admits such a kind. Concurrent
+rejections join bounded single-owner work rather than create new writers.
+Final renewal/use rechecks the unchanged account, both
 authorities, account hold, inventory and policy after broker reconciliation.
 
 A renewed credential does not authorize replay. Lost response, uncertain

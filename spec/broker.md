@@ -6,7 +6,7 @@
 
 ### Revision 0.13
 
-- Publishes [the secret-free service dialect v0](secret-free-service-v0.md): on the existing `broker/1` socket, a fixed-role service principal, operator-made service bindings, service leases issued only to that principal after checks of both the service binding and the originating caller, a service revocation poll and a narrow whole-account hold, for one host, one service name (`credential-gateway`) and kind `claude-oauth-token`. For a launch whose machine policy selects secret-free mode that contract wins; the readable-token channels in §5.2 and §8.4 remain the separately selected, separately qualified exposed lane and are never a fallback from a failed secret-free admission. The mode stays PROPOSED/inactive, the activation gates in [secret-free mode §13](secret-free-mode.md#13-publication-and-activation-gates) stay except the dialect publication this revision fills for that scope, and no implementation, qualification or activation is claimed.
+- Publishes [the secret-free service dialect v0](secret-free-service-v0.md): on the existing `broker/1` socket, a fixed-role service principal, operator-made service bindings, service leases issued only to that principal after checks of both the service binding and the originating caller, a service revocation poll and a narrow whole-account hold, for one host, one service name (`credential-gateway`) and kind `claude-oauth-token`. For `claude-oauth-token`, secret-free selection is per account (and kind) in the protected machine policy: for an account so selected, that contract wins for every launch using that account and closes every exposed-lane lease on it whatever the request's profile or launch; the readable-token channels in §5.2 and §8.4 remain the separately selected, separately qualified exposed lane and are never a fallback from a failed secret-free admission. The mode stays PROPOSED/inactive, the activation gates in [secret-free mode §13](secret-free-mode.md#13-publication-and-activation-gates) stay except the dialect publication this revision fills for that scope, and no implementation, qualification or activation is claimed.
 
 ### Revision 0.12
 
@@ -168,7 +168,7 @@ The kernel reports the credentials of the process that **connected**, not of who
 2. Operators and dispatchers SHOULD use one connection per operation. A process that changes credentials (for example a dispatcher starting an agent) MUST close its broker connections before the transition; the agent's executor opens a fresh connection afterwards.
 3. The broker associates each connection with the principal it authenticated at connect time (§4.2) and closes every connection of a UID when that UID's binding is removed or its account generation is retired.
 4. Clients MUST check that the server's peer UID is the configured broker service UID before sending anything (`server_identity_mismatch`).
-5. Lease methods accept only bound agent principals; administrative methods admit only the roles listed in §13.2, including the read-only observer. A connection never changes role.
+5. Lease methods accept only bound agent principals; the service lease methods of [secret-free service v0](secret-free-service-v0.md) accept only the fixed-role `service` principal there; administrative methods admit only the roles listed in §13.2, including the read-only observer. A connection never changes role.
 
 The socket lives in its own directory outside the broker's data tree (§15.2). Qualification covers a connection opened before a credential change, inherited and passed descriptors, and substitution of the socket path (§16).
 
@@ -253,7 +253,7 @@ The record never contains secret material.
 | `api-key` | a vendor API key (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`, `META_API_KEY`, `GEMINI_API_KEY`, …) | none | environment, or stdin where the harness supports it | Not in secret-free service v0 |
 | `muse-account` | subscription login that mints a provider API key | single minting owner proposed; refresh trigger and rotation unknown (§10.2) | proposed channel (b): minted key via `META_API_KEY` or `exec --api-key-stdin`; fallback (c) subject to qualification | Not in secret-free service v0 |
 
-The "Delivery channels" column above and the "Channel" column below name the exposed, readable-token lane only (§8.4). Where machine policy selects secret-free mode for a launch, the "Secret-free delivery" column wins for its kind: the broker issues material only to the service principal, and the agent account receives a placeholder and protected nonsecret metadata through the gateway path, not a broker delivery channel. The exposed lane is separately selected and separately qualified; it is never a fallback from a failed secret-free admission.
+The "Delivery channels" column above and the "Channel" column below name the exposed, readable-token lane only (§8.4), where a channel is defined; the "Provider proxy injection" row below defines no qualified alternate authentication channel and is neither the exposed lane nor the secret-free lane. For `claude-oauth-token`, secret-free selection is per account (and kind) in the protected machine policy: where that policy selects secret-free mode for an account, the "Secret-free delivery" column wins for every launch using that account, whatever the request's profile or launch, and closes every exposed-lane lease on it: the broker issues material only to the service principal, and the agent account receives a placeholder and protected nonsecret metadata through the gateway path, not a broker delivery channel. The exposed lane is separately selected and separately qualified; it is never a fallback from a failed secret-free admission.
 
 The following table separates **provider, source, channel and phase**. Source-policy v1/v2 are CIP-0010 policy versions, not broker release numbers. A specified channel remains subject to per-harness executor qualification; no row proves implementation or current vendor support.
 
@@ -509,6 +509,8 @@ lease.request/1
 
 Binding/time validity and checks 2 to 7 run under the state lock immediately before the material is released. Admission-class evidence and the R-ALLSTOP freeze, as well as the restore fence, are checked under that lock before any material release, including after an asynchronous refresh. Bind independently checks the admission class, R-ALLSTOP freeze, current revocations and restore fence under the same lock (§6.4, §7.2); a dispatcher verdict cannot waive these checks.
 
+For kind `claude-oauth-token`, the interlock in [secret-free service v0 §1](secret-free-service-v0.md#1-scope-and-precedence) applies here: under the state lock, after step 1 above and again immediately before any material release, `lease.request` from an agent principal MUST refuse with `secret_free_lease_required` (defined there) when the policy current under the lock selects secret-free mode per account for the account and kind, or that policy cannot be read or does not determine the mode (fail closed), and MUST refuse with `account_hold_active` ([secret-free service v0 §5.8](secret-free-service-v0.md#58-accounthold)) at the same two points when an active account hold covers the account; effect: none in each case.
+
 ### 8.3 Response and lease record
 
 Figure [M-CB3 — record states](../diagrams/record-states.puml) lists every lease state without inventing transition or persistence-order rules absent from this section.
@@ -533,8 +535,8 @@ R-TIME checks `authorized_until`, binding expiry, known account expiry and every
 
 ### 8.4 Delivery channels
 
-> **Secret-free lane (mode PROPOSED/inactive; service dialect published for the v0 scope):** For a launch whose machine policy selects secret-free mode, the secret-free contract wins over this section: the broker issues the lease only to the service principal under [secret-free service v0](secret-free-service-v0.md), and the agent account receives a placeholder and protected nonsecret metadata through the gateway path. The broker never sees, stores or issues that placeholder, and no placeholder channel is added to the agent lease here. Service material delivery and caller use are distinct; release, use closure, account hold and vendor invalidation have separate effects.
-> The channels below are the exposed, readable-token lane only. That lane is separately selected and separately qualified, and it is never a fallback from a failed secret-free admission: a readable-token `lease.request` for an account whose machine policy is secret-free refuses under [secret-free service v0](secret-free-service-v0.md) with no material delivered.
+> **Secret-free lane (mode PROPOSED/inactive; service dialect published for the v0 scope):** For `claude-oauth-token`, secret-free selection is per account (and kind) in the protected machine policy; for an account so selected the secret-free contract wins over this section for every launch using that account, whatever the request's profile or launch: the broker issues the lease only to the service principal under [secret-free service v0](secret-free-service-v0.md), and the agent account receives a placeholder and protected nonsecret metadata through the gateway path. The broker never sees, stores or issues that placeholder, and no placeholder channel is added to the agent lease here. Service material delivery and caller use are distinct; release, use closure, account hold and vendor invalidation have separate effects.
+> The channels below are the exposed, readable-token lane only. That lane is separately selected and separately qualified, and it is never a fallback from a failed secret-free admission: a readable-token `lease.request` or `lease.renew` for such an account refuses under the interlock in §8.2 and §8.5 with no material delivered.
 > See also [the mode contract](secret-free-mode.md#5-material-placeholders-and-lifetimes).
 
 In the exposed lane, the client library delivers material only into the process the executor starts:
@@ -554,6 +556,7 @@ Figure [M-CB2 — lease recovery](../diagrams/lease-recovery.puml) covers admiss
 - `lease.renew`, `lease.release` and `event.report` name a `lease_id` and are accepted only from the lease's own `(uid, generation, binding_id)` (`lease_not_owner`).
 - R-ALLSTOP freezes all leases and renewals; R-UNTRUSTED and unavailable admission-class evidence refuse new material even for an existing holder. Release and narrowing cleanup remain available; neither disconnect, daemon restart nor a completed refresh clears the freeze (§15.5).
 - Renewal is refused when `max(now, watermark)` reaches `authorized_until` or once the lease is released, expired or revoked. It repeats checks 1 to 7, including the caller chain, before releasing new material, including after an asynchronous refresh (§9).
+- For kind `claude-oauth-token`, the interlock in [secret-free service v0 §1](secret-free-service-v0.md#1-scope-and-precedence) applies to renewal here: under the state lock, after the repeated step 1 and again immediately before any material release, `lease.renew` from an agent principal MUST refuse with `secret_free_lease_required` when the policy current under the lock selects secret-free mode per account for the account and kind, or that policy cannot be read or does not determine the mode (fail closed) — an exposed lease issued before the account was switched to secret-free is not renewable after the switch — and MUST refuse with `account_hold_active` at the same two points when an active account hold covers the account; effect: none in each case.
 - Release is idempotent and ends renewal.
 - A report affects only the reporting lease's record. A client report never changes an account's state; account states change by the owner's command or by the auth owner's own refresh results (§9.4).
 - Binding replacement ends every old-binding lease; reconnecting under the new binding cannot renew an old lease. A fenced fresh-lease handoff for a qualified live holder would need publication and qualification (§18.11). Until then continuity requires explicit park and restart that keeps the account; neither env executions nor app-server renewal have a seamless continuation promise. Already copied env tokens keep only their vendor lifetime (§12.1).
@@ -745,7 +748,7 @@ No wait edge carries the broker state-transition lock into the user manager, dis
 
 | Method | Accepted from | Purpose |
 |---|---|---|
-| `hello` | any authenticated peer | version negotiation; returns the peer's principal |
+| `hello` | any authenticated peer | version negotiation; returns the peer's principal (for a `service` connection, the service principal triple of [secret-free service v0 §2.2](secret-free-service-v0.md#22-service-principal)) |
 | `account.enrol`, `account.describe`, `account.revoke`, `account.mark` | the account's owner | §5, §9.2 |
 | `account.list` | owners (their own), operators, `swarma-observer` | §5 |
 | `grant.put`, `revocation.put` | operators through the operator command, and key holders for records they signed | §6; operator authentication/confirmation rules in §14 |
@@ -757,7 +760,9 @@ No wait edge carries the broker state-transition lock into the user manager, dis
 | `revocation.check` | configured dispatchers | point-in-time revocation verdict for exact chains and context (§6.4, below) |
 | `lease.request` | the agent principal of an active binding | §8 |
 | `lease.renew`, `lease.release`, `event.report` | the lease's own principal and binding | §8.5 |
-| `status` | owners (their accounts), operators, `swarma-observer` | accounts, owners, leases, events |
+| `status` | owners (their accounts), operators, `swarma-observer` | accounts, owners, leases, events, active account holds (below) |
+
+**Active-hold listing ([secret-free service v0 §5.9](secret-free-service-v0.md#59-accountholdlift)).** `status` and `account.describe`, for each principal already admitted to that read in the table above (for `status`, owners for their accounts, operators and `swarma-observer`; for `account.describe`, the account's owner, operators acting in the owner role through the operator command included), list active holds as typed metadata `{hold_id, account, reason_code, placed_at, state}` and nothing else, so the owner can name the `hold_id` an `account.hold.lift` requires. This listing is the only gain to those reads under that dialect and admits no new principal to either method.
 
 **Operator admission (R-OPERATOR).** Every operator-only method and every use of the owner role reaches the broker through the operator command running as `swarma-operator`, after a phone-signed or terminal-authenticated act (§14). A bare interactive UID or knowledge of the operator UID is not an admitted path; direct operator-UID calls such as `account.enrol` and `unbind` are confined to that command boundary even where the broker method requires no root signature. `swarma-observer` may read `status`, `account.list`, `grant.list` and `binding.list` without authentication prompts or content confirmation, but may not mutate state, lease material, or acquire an owner/operator role. These are broker-wide metadata reads; no secret-store or private operator-storage access is granted. Existing dispatcher methods, original-caller observations and valid signed key-holder submissions retain their bounded authority and do not become operator acts.
 
@@ -806,7 +811,7 @@ Every refusal is a typed error `{ code, message, details }`; codes are listed in
 
 ## 14. Command line
 
-> **Proposed secret-free mode (inactive):** Enrollment/status must distinguish mode, holder, account hold, per-service closure and vendor validity. Operator authentication/confirmation and observer custody remain; this proposal assigns no new command.
+> **Proposed secret-free mode (inactive):** Enrollment/status must distinguish mode, holder, account hold, per-service closure and vendor validity. Operator authentication/confirmation and observer custody remain. For the v0 scope, [secret-free service v0](secret-free-service-v0.md) adds three operator acts through this operator command — `service.bind` and `account.hold.lift` as widening acts and `service.unbind` as a narrowing act (§4 there); it assigns no new command-line spelling beyond this command.
 > See [the separate contract](secret-free-mode.md#11-operator-and-installation-boundaries).
 
 The standalone binary is **`swarma-credential-broker <verb>`**; through Curator's provider mechanism the same operations are available as `curator broker <verb>`. Repository, binary and service-account naming agree. `curator-broker` was the earlier design spelling, not a shipped compatibility alias. Nothing has shipped, so no CLI or signed-data migration is required.
