@@ -45,7 +45,10 @@ confirmation remain installation gates; the fixtures grant synthetic acts only.
 
 ## Protocol and durable state
 
-The existing listener carries `broker/1`, with the closed fields of accepted
+The existing listener accepts the standard `broker/1` versions-only hello and
+returns the fixed service triple without a profile member. Existing internal
+profile clients retain their selector; the static refresher path is unchanged.
+The listener carries the closed fields of accepted
 sections 5 and 6: operation IDs, flat caller members, `service_binding_id`,
 `service_lease_id`, `{kind,value}` payload, nullable vendor expiry, and
 `authorized_until`. The payload reaches only the authenticated service result.

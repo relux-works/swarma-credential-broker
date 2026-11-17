@@ -298,9 +298,17 @@ func (s *Server) serve(parent context.Context, c *net.UnixConn, firstDeadline ti
 			}
 			var h wire.Hello
 			if wire.Decode(r.Params, &h) != nil {
-				return
+				// General broker/1 keeps its baseline versions-only hello. The static
+				// refresher profile retains its separate required profile selector.
+				var standard struct {
+					Versions []int `json:"versions"`
+				}
+				if s.Services == nil || wire.Decode(r.Params, &standard) != nil {
+					return
+				}
+				h.Versions = standard.Versions
 			}
-			if h.Profile == wire.ServiceProfile && s.Services != nil {
+			if (h.Profile == "" || h.Profile == wire.ServiceProfile) && s.Services != nil {
 				s.serveServices(ctx, c, uid, r, h, firstDeadline)
 				return
 			}

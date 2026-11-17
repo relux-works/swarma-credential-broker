@@ -333,3 +333,44 @@ func TestServiceSocketUnbindCloses(t *testing.T) {
 	}
 	closed(t, c)
 }
+
+// The unchanged broker/1 hello is versions-only. It returns the service triple
+// without a new profile member, while unknown members still close before any
+// method or material publication. Legacy static-profile parsing stays separate.
+func TestServiceSocketStandardHello(t *testing.T) {
+	e := testutil.New(t, lease.Options{})
+	broker, a := newSocketService(t)
+	path := start(t, e, func(s *Server) { s.Services = broker })
+	c := dial(t, path)
+	params, _ := wire.Encode(map[string]any{"versions": []int{1}})
+	if wire.Write(c, wire.Request{Method: "hello", ID: "standard", Params: params}) != nil {
+		t.Fatal("standard hello write failed")
+	}
+	raw, err := wire.Read(c)
+	var h response
+	if err != nil || wire.Decode(raw, &h) != nil || h.ID == nil || *h.ID != "standard" {
+		t.Fatal("standard broker hello refused")
+	}
+	if h.Error != nil || h.Result == nil {
+		t.Fatal("standard broker hello refused")
+	}
+	var result map[string]json.RawMessage
+	if json.Unmarshal(h.Result, &result) != nil || len(result) != 2 || result["principal"] == nil || result["version"] == nil {
+		t.Fatal("standard hello response invented members")
+	}
+	var principal map[string]json.RawMessage
+	if json.Unmarshal(result["principal"], &principal) != nil || len(principal) != 3 || principal["service_name"] == nil || principal["uid"] == nil || principal["service_generation"] == nil {
+		t.Fatal("standard hello lost service triple")
+	}
+	if r := request(t, c, "service.lease.request", "standard-lease", serviceRequest(a)); r.Error != nil {
+		t.Fatal("standard hello could not request its lease")
+	}
+	for _, key := range []string{"role", "placeholder"} {
+		bad := dial(t, path)
+		raw, _ := wire.Encode(map[string]any{"versions": []int{1}, key: "inert"})
+		if wire.Write(bad, wire.Request{Method: "hello", ID: "bad-standard", Params: raw}) != nil {
+			t.Fatal("bad hello write")
+		}
+		closed(t, bad)
+	}
+}

@@ -40,7 +40,13 @@ func (s *Server) serveServices(ctx context.Context, c *net.UnixConn, uid uint32,
 		return
 	}
 	defer cleanup()
-	if send(ctx, first.ID, map[string]any{"version": 1, "profile": wire.ServiceProfile, "principal": principal}, nil, firstDeadline) != nil {
+	result := map[string]any{"version": 1, "principal": principal}
+	// Existing internal profile clients retain their selector response. The
+	// standard broker/1 exchange adds no profile member to its baseline hello.
+	if hello.Profile != "" {
+		result["profile"] = wire.ServiceProfile
+	}
+	if send(ctx, first.ID, result, nil, firstDeadline) != nil {
 		return
 	}
 	for {
