@@ -170,6 +170,11 @@ func (p Policy) Check(uid uint32, r wire.LeaseRequest) (Account, error) {
 	if e != nil {
 		return a, e
 	}
+	// This baseline admits no exposed Claude lane. The 0.13 service dialect
+	// section 1 interlock MUST land with any future exposed Claude lane: agent request
+	// and renewal must check secret_free_lease_required (including unreadable
+	// or indeterminate mode policy) and account_hold_active under the state
+	// lock after section 8.2 step 1 and again immediately before material release.
 	if r.Harness != "codex_cli" {
 		return a, wire.Refuse("lease_harness_mismatch")
 	}

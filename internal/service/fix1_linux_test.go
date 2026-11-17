@@ -583,8 +583,16 @@ func TestServiceBindReplayWithoutAuthority(t *testing.T) {
 		t.Fatal("bind replay required live use authority", err)
 	}
 	r.OperationID = "different-bind"
-	_, err := f.metadata(t, f.operator, "service.bind", r)
-	refused(t, err, "revocation_state_unavailable")
+	before, err := f.custody.LoadServiceState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := f.metadata(t, f.operator, "service.bind", r)
+	refused(t, err, "service_binding_mismatch")
+	after, err := f.custody.LoadServiceState()
+	if err != nil || out != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("unreadable bind policy changed state or published")
+	}
 }
 
 // Reporting typed metadata cannot hold, release or renew a lease; a malformed

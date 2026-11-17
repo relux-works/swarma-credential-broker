@@ -161,34 +161,3 @@ func (a *Account) Status() (Status, error) {
 	}
 	return m.Status, nil
 }
-
-// Hold durably narrows this whole account, independently of any lease or
-// generation. It is an internal persistence primitive, not a detector RPC.
-// Failure means UNKNOWN, never a hold acknowledgment. The service controller
-// supplies the authenticated lessee trigger and exclusive owner lift boundary.
-func (a *Account) Hold() error {
-	if a == nil {
-		return ErrUnavailable
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	m, err := a.readMetadata()
-	if err != nil {
-		return err
-	}
-	// Reserve a readable successor inside the local canonical integer bound.
-	if m.Revision >= 9007199254740990 {
-		return ErrUnavailable
-	}
-	// Even an observed held record is republished durably: a previous attempt
-	// may have failed after rename but before directory sync. Reading that
-	// record through a fresh wrapper cannot itself acknowledge durability.
-	prior := m.Revision
-	m.Revision++
-	m.Status.State = "held"
-	if err = a.store.Put(metadataName, prior, m); err != nil {
-		a.failed = true
-		return ErrUnavailable
-	}
-	return nil
-}

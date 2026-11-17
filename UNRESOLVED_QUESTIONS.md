@@ -2,7 +2,8 @@
 
 ## Claude secret-free service integration
 
-The accepted service dialect is [PR #65 at 26a7f50](https://github.com/relux-works/swarma-credential-broker/blob/26a7f50dcda73562d7e79f4c286bb8c7a32da7ee/spec/secret-free-service-v0.md).
+The accepted service dialect is the landed 0.13
+[secret-free service specification](spec/secret-free-service-v0.md).
 Its closed broker fields, operation replay, durable records, hold window,
 refusal codes and operator act requirements supersede the earlier provisional
 choices. The implementation and scope are described in `docs/claude-custody.md`.
@@ -17,6 +18,15 @@ independent-authority reader, qualified time and publication settlement. The
 publication; it has no default accepting implementation. The standalone daemon
 does not install this controller. This is an explicit integration gate, not
 permission to derive authority from a static UID, name, request or placeholder.
+Explicit activation gates: the provider enforces spec §2.2 (service-account
+record, disjoint roles), including a user-manager service-account record rather
+than an agent or workplace record, admitted local placement, a class other than
+untrusted and disjoint service and agent roles (§5.1 step 3, row 10); journal
+retention and resource admission must keep a durable hold placeable at
+exhaustion, with protected hold headroom. Neither gate is implemented by a
+fixture role or the current protected record-size ceiling. An unrelated journal
+failure still fences all accounts until restart unless the one pending hold is
+reconciled by its identical retry; account-scoped failure isolation remains open.
 Gateway listener/placeholder mapping, matcher inventory and actual stop/use
 closure, deployment and exact harness/vendor qualification remain separate.
 Fixture success grants no live account permission or activation.

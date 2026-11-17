@@ -1,9 +1,8 @@
 # Claude secret-free service source slice
 
-This inactive source slice follows the accepted [secret-free service dialect v0
-at PR #65, head 26a7f50](https://github.com/relux-works/swarma-credential-broker/blob/26a7f50dcda73562d7e79f4c286bb8c7a32da7ee/spec/secret-free-service-v0.md).
-The keeper integrates that specification separately; this branch changes no
-specification and must not be rebased onto the specification branch.
+This inactive source slice follows the landed 0.13
+[secret-free service dialect v0](../spec/secret-free-service-v0.md).
+The implementation changes no specification and grants no activation.
 
 The architecture references remain `book/ru/09-uchetnye-dannye.md`, sections
 "Режим без секретов у агента" and "Растяжка утечки", [mode §§2–5,10](../spec/secret-free-mode.md),
@@ -28,6 +27,12 @@ revocations, selected account policy and trusted time stable through the actual
 bounded publication callback. Admission classes and local placement belong to
 that protected evidence. Static UID, request fields and placeholder possession
 supply none of it. No production provider is supplied.
+
+An explicit activation gate is that the provider enforces spec §2.2
+(service-account record, disjoint roles): a user-manager service-account
+record, never an agent or workplace record, admitted local placement, a class
+other than untrusted, and disjoint service and agent roles (§5.1 step 3,
+negative-table row 10). A role label alone does not discharge this gate.
 
 `View.Caller` returns the originating `binding_id` and exclusive authority
 expiry. The broker records it on issue and compares it on renewal and replay.
@@ -100,7 +105,14 @@ An idle service-protocol connection closes after 30 seconds. Socket capacity
 remains bounded; this does not qualify denial-of-service resistance. There is
 no arbitrary 256-lease limit or eviction of durable retry evidence; the existing
 protected record-size ceiling fails closed on exhaustion. Production retention
-and resource admission still need qualification.
+and resource admission are explicit activation gates: a durable account hold
+must remain placeable at exhaustion, with protected hold headroom. There is no
+retention or reserved hold capacity in this source slice.
+
+An unrelated journal-write failure currently fences the whole controller.
+Only an identical retry of its pending hold can reconcile in-process; other
+holds can be unavailable until restart. Account-scoped failure isolation and
+hold availability during degradation remain open integration work.
 
 ## Whole-account containment
 

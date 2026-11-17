@@ -69,10 +69,18 @@ secret-free decisions: protected custody, service bindings, two-authority leases
 on the existing socket, revocation polling and durable lessee-triggered hold
 with a confirmed account-owner lift. A worker receives only its placeholder environment.
 Secret-free selection never falls back to an exposed lane. Protocol and durable replay records follow the accepted service dialect at
-[spec PR #65, exact head 26a7f50](https://github.com/relux-works/swarma-credential-broker/blob/26a7f50dcda73562d7e79f4c286bb8c7a32da7ee/spec/secret-free-service-v0.md).
-The keeper integrates that specification separately. The standalone
-daemon remains closed pending protected authority-reader integration and runtime
-qualification. See [unresolved integration points](UNRESOLVED_QUESTIONS.md).
+[the landed 0.13 service specification](spec/secret-free-service-v0.md).
+The standalone daemon remains closed pending protected authority-reader
+integration and runtime qualification. Explicit activation gates:
+
+- The provider enforces spec §2.2 (service-account record, disjoint roles):
+  a user-manager service-account record, never an agent or workplace record,
+  admitted local placement, a class other than untrusted, and disjoint service
+  and agent roles (§5.1 step 3, negative-table row 10).
+- Journal retention and resource admission preserve the ability to place a
+  durable account hold at exhaustion, including protected hold headroom.
+
+See [unresolved integration points](UNRESOLVED_QUESTIONS.md).
 
 For the inactive [new-mode topology](spec/secret-free-mode.md#2-processes-and-custody),
 credential-holding services authenticate as themselves and need their own lease

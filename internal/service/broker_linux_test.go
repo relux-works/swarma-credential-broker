@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -644,8 +645,9 @@ func TestServicePublicationBoundaries(t *testing.T) {
 	}
 }
 
-// A second current service is not the lessee; knowing an ID gives it neither
-// renewal nor hold authority. The actual lessee remains usable after rejection.
+// A second current service is not the lessee; knowing an ID gives it no hold,
+// renewal, release, report or poll authority. Refusal leaves durable state and
+// custody untouched; the actual lessee's calls remain usable afterwards.
 func TestServiceNonLessee(t *testing.T) {
 	f := newBrokerFixture(t, nil)
 	f.bind(t)
@@ -665,17 +667,33 @@ func TestServiceNonLessee(t *testing.T) {
 	}{
 		{"account.hold", wire.ServiceHold{LeaseID: l.LeaseID, Reason: "leak_match"}},
 		{"service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID}},
+		{"service.lease.release", wire.ServiceLeaseID{LeaseID: l.LeaseID}},
+		{"event.report", map[string]any{"service_lease_id": l.LeaseID, "event": map[string]any{"kind": "credential_error", "class": "auth"}}},
 		{"service.revocation.check", wire.ServiceLeaseID{LeaseID: l.LeaseID}},
 	} {
 		before := f.custody.entries
-		_, err := f.metadata(t, uid, tc.method, tc.params)
+		state, stateErr := f.custody.LoadServiceState()
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		out, err := f.metadata(t, uid, tc.method, tc.params)
 		refused(t, err, "lease_not_owner")
-		if f.custody.entries != before {
-			t.Fatal("non-lessee entered custody")
+		after, stateErr := f.custody.LoadServiceState()
+		if out != nil || stateErr != nil || !reflect.DeepEqual(state, after) || f.custody.entries != before {
+			t.Fatal("non-lessee published or changed durable state")
 		}
 	}
 	if err := f.call(t, f.uid, "service.lease.renew", wire.ServiceLeaseID{LeaseID: l.LeaseID}, func(any) error { return nil }); err != nil {
 		t.Fatal("lessee control failed")
+	}
+	for _, method := range []string{"event.report", "service.revocation.check", "service.lease.release"} {
+		params := any(wire.ServiceLeaseID{LeaseID: l.LeaseID})
+		if method == "event.report" {
+			params = map[string]any{"service_lease_id": l.LeaseID, "event": map[string]any{"kind": "credential_error", "class": "auth"}}
+		}
+		if _, err := f.metadata(t, f.uid, method, params); err != nil {
+			t.Fatal("own-principal metadata control failed", method, err)
+		}
 	}
 }
 

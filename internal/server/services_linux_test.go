@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,17 @@ type socketServiceAuthority struct {
 	caller           wire.ServiceCaller
 	callerOK         bool
 	counter          atomic.Uint64
+	custody          *socketServiceAccount
+}
+
+type socketServiceAccount struct {
+	*claude.Account
+	publications atomic.Uint64
+}
+
+func (a *socketServiceAccount) Publish(ctx context.Context, until time.Time, now func() time.Time, fn func([]byte) error) error {
+	a.publications.Add(1)
+	return a.Account.Publish(ctx, until, now, fn)
 }
 
 func (a *socketServiceAuthority) WithIdentity(ctx context.Context, fn func(service.View) error) error {
@@ -116,7 +128,8 @@ func newSocketService(t *testing.T) (*service.Broker, *socketServiceAuthority) {
 	}
 	binding := wire.ServiceBinding{Service: service.Gateway, UID: uid, Generation: "socket-service-generation", Account: account, Kind: service.Kind, PolicyDigest: strings.Repeat("a", 64)}
 	view := &socketServiceAuthority{uid: uid, role: "service", generation: binding.Generation, binding: binding, caller: wire.ServiceCaller{Account: account, UID: uid + 2, Generation: "socket-agent-generation", LaunchID: "socket-launch"}, callerOK: true}
-	broker, err := service.New(view, map[string]service.Account{account: a}, nil)
+	view.custody = &socketServiceAccount{Account: a}
+	broker, err := service.New(view, map[string]service.Account{account: view.custody}, nil)
 	if err != nil {
 		t.Fatal("service fixture broker unavailable")
 	}
@@ -191,7 +204,11 @@ func TestServiceSocketMaterialAndPoll(t *testing.T) {
 		t.Fatal("wire deadline exceeds ceiling")
 	}
 	r = request(t, c, "service.revocation.check", "poll-live", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-	if r.Error != nil || !bytes.Contains(r.Result, []byte("not_revoked")) {
+	var verdict struct {
+		Verdict  string          `json:"verdict"`
+		Sequence json.RawMessage `json:"revocation_sequence"`
+	}
+	if r.Error != nil || wire.Decode(r.Result, &verdict) != nil || verdict.Verdict != "not_revoked" {
 		t.Fatal("live poll control failed")
 	}
 	assertGatewayAbsent(t, r.Result)
@@ -204,7 +221,7 @@ func TestServiceSocketMaterialAndPoll(t *testing.T) {
 	}
 	assertGatewayAbsent(t, encodeResponse(t, r))
 	r = request(t, c, "service.revocation.check", "poll-revoked", wire.ServiceLeaseID{LeaseID: l.LeaseID})
-	if r.Error != nil || !bytes.Contains(r.Result, []byte("revoked")) {
+	if r.Error != nil || wire.Decode(r.Result, &verdict) != nil || verdict.Verdict != "revoked" {
 		t.Fatal("revoked poll widened")
 	}
 	assertGatewayAbsent(t, r.Result)
@@ -219,6 +236,70 @@ func encodeResponse(t *testing.T, r response) []byte {
 		t.Fatal("response encoding failed")
 	}
 	return b
+}
+
+// The current baseline has no exposed Claude lane: an admitted agent naming
+// the enrolled Claude account gets no material, record or custody publication.
+// The same listener/controller issues a service lease for that account. Peer
+// identities use the existing test seam; this is not foreign-UID qualification
+// or a test of the future section 1 exposed-lane policy interlock.
+func TestAgentClaudeLeaseRefusalBesideServiceControl(t *testing.T) {
+	broker, a := newSocketService(t)
+	agentUID := a.caller.UID
+	account := a.binding.Account
+	e := testutil.NewPolicy(t, lease.Options{}, func(p *policy.Policy) {
+		p.Accounts[0].Label = account
+		p.Accounts[0].AllowedUIDs = []uint32{agentUID}
+	})
+	var peers atomic.Uint64
+	path := start(t, e, func(s *Server) {
+		s.Services = broker
+		s.peer = func(*net.UnixConn) (uint32, error) {
+			if peers.Add(1) == 1 {
+				return agentUID, nil
+			}
+			return a.uid, nil
+		}
+	})
+	agent := dial(t, path)
+	hello(t, agent)
+	info, err := a.custody.ServiceAccount()
+	if err != nil || info.Kind != service.Kind {
+		t.Fatal("enrolled Claude account control failed")
+	}
+	before, err := a.custody.LoadServiceState()
+	if err != nil || len(before.Leases) != 0 {
+		t.Fatal("initial service journal control failed")
+	}
+	entries := a.custody.publications.Load()
+	raw := e.Request
+	raw.Account, raw.Harness, raw.Channel = account, "claude_code", "env"
+	raw.Binding = e.Policy.Binding(agentUID, e.Policy.Accounts[0], raw.Profile)
+	r := request(t, agent, "lease.request", "agent-claude-refused", raw)
+	if r.Error == nil || r.Error.Code != "lease_harness_mismatch" || r.Result != nil {
+		t.Fatal("agent received an exposed Claude lease")
+	}
+	assertGatewayAbsent(t, encodeResponse(t, r))
+	after, err := a.custody.LoadServiceState()
+	if err != nil || !reflect.DeepEqual(before, after) || a.custody.publications.Load() != entries {
+		t.Fatal("agent refusal changed the service journal or entered custody")
+	}
+	records, err := e.Store.Account(account, false)
+	if err != nil {
+		t.Fatal("legacy account control failed")
+	}
+	if names, err := records.Records(); err != nil || len(names) != 0 {
+		t.Fatal("agent refusal created a legacy lease record")
+	}
+	gateway := dial(t, path)
+	if serviceHello(t, gateway).Error != nil {
+		t.Fatal("service hello control failed")
+	}
+	r = request(t, gateway, "service.lease.request", "service-claude-control", serviceRequest(a))
+	var l wire.ServiceLease
+	if r.Error != nil || wire.Decode(r.Result, &l) != nil || l.Account != account || l.Kind != service.Kind || l.Payload.Value != gatewayFixtureToken || a.custody.publications.Load() <= entries {
+		t.Fatal("same-account service lease control failed")
+	}
 }
 
 // Kernel UID still resolves current role/generation after hello. Workers and
@@ -244,16 +325,32 @@ func TestServiceSocketRoleAndGenerationRefusals(t *testing.T) {
 				a.role = change
 			}
 			a.mu.Unlock()
+			before, err := a.custody.LoadServiceState()
+			if err != nil {
+				t.Fatal("service journal control failed")
+			}
+			entries := a.custody.publications.Load()
 			r := request(t, c, "service.lease.request", "refusal", serviceRequest(a))
-			if r.Error == nil || r.Error.Code != "role_not_permitted" || r.Result != nil {
+			code := "role_not_permitted"
+			if change == "generation" {
+				code = "principal_ledger_mismatch"
+			}
+			if r.Error == nil || r.Error.Code != code || r.Result != nil {
 				t.Fatal("fixed principal changed authority")
 			}
 			assertGatewayAbsent(t, encodeResponse(t, r))
+			after, err := a.custody.LoadServiceState()
+			if err != nil || !reflect.DeepEqual(before, after) || a.custody.publications.Load() != entries {
+				t.Fatal("retired principal changed state or entered custody")
+			}
 			// Fresh wrong-role connections also refuse; a new service generation
 			// remains unbound, despite recycling the same real kernel UID.
 			fresh := dial(t, path)
-			if serviceHello(t, fresh).Error != nil {
+			if h := serviceHello(t, fresh); h.Error != nil {
 				if change == "generation" {
+					if h.Error.Code != "role_not_permitted" || h.Result != nil {
+						t.Fatal("unbound new generation got the wrong hello refusal")
+					}
 					return
 				}
 				t.Fatal("current principal hello failed")

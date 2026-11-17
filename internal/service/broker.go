@@ -403,7 +403,10 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 		resolved := false
 		err := b.authority.WithIdentity(ctx, func(v View) error {
 			current, e := v.Principal(p.UID)
-			if e != nil || current != p || p.Role != "operator" || !v.OperatorAct(p, method, raw) {
+			if e != nil || !validPrincipal(current, p.UID) {
+				return refuse("principal_ledger_mismatch")
+			}
+			if current != p || p.Role != "operator" || !v.OperatorAct(p, method, raw) {
 				return refuse("role_not_permitted")
 			}
 			var r wire.ServiceBind
@@ -430,7 +433,10 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 			return b.call(ctx, v, p, method, raw, publish)
 		})
 		if err != nil {
-			return known(err, "lease_owner_unavailable")
+			if ctx.Err() != nil {
+				return refuse("request_deadline_exceeded")
+			}
+			return known(err, "principal_ledger_mismatch")
 		}
 		if resolved {
 			return nil
@@ -451,7 +457,16 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 			return refuse("request_deadline_exceeded")
 		}
 		current, err := v.Principal(p.UID)
-		if err != nil || !validPrincipal(current, p.UID) || current != p {
+		if err != nil || !validPrincipal(current, p.UID) {
+			return refuse("principal_ledger_mismatch")
+		}
+		if current != p {
+			if p.Role == "service" && current.Role == "service" {
+				if method == "service.lease.request" {
+					return refuse("principal_ledger_mismatch")
+				}
+				return refuse("lease_not_owner")
+			}
 			return refuse("role_not_permitted")
 		}
 		if b.failed {
@@ -517,7 +532,16 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 		}
 		return nil
 	}
-	return known(err, "revocation_state_unavailable")
+	// Identity was settled before a fresh bind's current-policy read. Its
+	// unreadable policy is section 5.1 step 5, not a caller revocation failure.
+	if method == "service.bind" {
+		return known(err, "service_binding_mismatch")
+	}
+	if method == "service.lease.request" || method == "service.lease.renew" {
+		return known(err, "revocation_state_unavailable")
+	}
+	// Identity-only methods have no caller/use-authority read (section 2.2).
+	return known(err, "principal_ledger_mismatch")
 }
 
 // decode requires every closed member, including uid zero, and rejects nulls.
