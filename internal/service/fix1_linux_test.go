@@ -663,3 +663,67 @@ func TestServiceMonotonicProjection(t *testing.T) {
 	f.b.anchorMono = time.Now().Add(-time.Second)
 	refused(t, renew(t, f, l.LeaseID), "lease_not_active")
 }
+
+// An unavailable current read must still return only fixed wire errors when
+// either identity settlement or metadata publication fails. A valid poll is
+// the adjacent control; internal callback/provider text is never returned.
+func TestUnavailablePollErrorSanitization(t *testing.T) {
+	for _, kind := range []string{"callback", "identity"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newBrokerFixture(t, nil)
+			f.bind(t)
+			l := f.issue(t)
+			if out, e := f.metadata(t, f.uid, "service.revocation.check", wire.ServiceLeaseID{LeaseID: l.LeaseID}); e != nil || out.(map[string]any)["verdict"] != "not_revoked" {
+				t.Fatal("poll control failed")
+			}
+			p, e := f.b.Open(context.Background(), f.uid)
+			if e != nil {
+				t.Fatal(e)
+			}
+			f.a.available = false
+			if kind == "identity" {
+				f.b.authority = pollIdentityFailure{f.a}
+			}
+			err := f.b.Call(context.Background(), p, "service.revocation.check", encode(t, wire.ServiceLeaseID{LeaseID: l.LeaseID}), func(any) error { return errors.New(fixtureToken) })
+			r, ok := err.(*wire.Error)
+			if !ok || r.Code != "lease_owner_unavailable" {
+				t.Fatal("unavailable poll returned an unsanitized internal error")
+			}
+			noMaterial(t, encode(t, err))
+		})
+	}
+}
+
+type pollIdentityFailure struct{ *authorityFixture }
+
+func (a pollIdentityFailure) WithIdentity(context.Context, func(View) error) error {
+	return errors.New(fixtureToken)
+}
+
+// A typed current-reader refusal is also unavailable revocation evidence: it
+// takes the same metadata-only fallback as an untyped read failure. Ownership
+// still gates the verdict; the complete current-read control stays accepted.
+func TestTypedUnavailablePoll(t *testing.T) {
+	f := newBrokerFixture(t, nil)
+	f.bind(t)
+	l := f.issue(t)
+	if out, e := f.metadata(t, f.uid, "service.revocation.check", wire.ServiceLeaseID{LeaseID: l.LeaseID}); e != nil || out.(map[string]any)["verdict"] != "not_revoked" {
+		t.Fatal("current poll control")
+	}
+	before, _ := f.custody.LoadServiceState()
+	f.b.authority = pollTypedFailure{f.a}
+	out, e := f.metadata(t, f.uid, "service.revocation.check", wire.ServiceLeaseID{LeaseID: l.LeaseID})
+	if e != nil || out.(map[string]any)["verdict"] != "unavailable" {
+		t.Fatal("typed unavailable read lost its verdict")
+	}
+	after, _ := f.custody.LoadServiceState()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("unavailable poll mutated protected state")
+	}
+}
+
+type pollTypedFailure struct{ *authorityFixture }
+
+func (a pollTypedFailure) WithCurrent(context.Context, func(View) error) error {
+	return wire.Refuse("revocation_state_unavailable")
+}

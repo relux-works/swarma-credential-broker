@@ -151,7 +151,10 @@ string copies are not claimed to be cryptographically erased.
 Source the task's private Go environment before each Go command. HOME, cwd,
 configuration and caches must be physical absolute task-owned paths. Set
 `TMPDIR` and `GOTMPDIR` to the authorized task scratch, unset `GOTELEMETRYDIR`,
-and capture standalone command output and real exits under `.temp/`:
+and capture standalone command output and real exits under `.temp/`.
+Set `GO` to the same absolute executable used for the commands: fixture helper
+builds invoke that variable directly. This task uses `GO=/usr/bin/go`:
+
 
 ```sh
 gofmt -w internal/service internal/claude internal/claudeworker internal/server/services.go internal/server/services_linux_test.go internal/wire/service.go internal/wire/types.go

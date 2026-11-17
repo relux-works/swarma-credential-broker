@@ -483,19 +483,16 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 	if err == nil {
 		return nil
 	}
-	if e, ok := err.(*wire.Error); ok {
-		return wire.Refuse(e.Code)
-	}
 	if ctx.Err() != nil {
 		return refuse("request_deadline_exceeded")
 	}
 	if ran {
-		return refuse("lease_owner_unavailable")
+		return known(err, "lease_owner_unavailable")
 	}
 	// An unavailable revocation read is published only using the provider's own
 	// baseline unavailable-sequence representation, never a locally invented one.
 	if method == "service.revocation.check" {
-		return b.authority.WithIdentity(ctx, func(v View) error {
+		fallbackErr := b.authority.WithIdentity(ctx, func(v View) error {
 			select {
 			case <-ctx.Done():
 				return refuse("request_deadline_exceeded")
@@ -515,8 +512,12 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 			}
 			return poll(publish, "unavailable", v.Sequence())
 		})
+		if fallbackErr != nil {
+			return known(fallbackErr, "lease_owner_unavailable")
+		}
+		return nil
 	}
-	return refuse("revocation_state_unavailable")
+	return known(err, "revocation_state_unavailable")
 }
 
 // decode requires every closed member, including uid zero, and rejects nulls.
