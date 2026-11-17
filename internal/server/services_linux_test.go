@@ -34,6 +34,8 @@ type socketServiceAuthority struct {
 	mu               sync.RWMutex
 	uid              uint32
 	role, generation string
+	identityErr      error
+	currentErr       error
 	binding          wire.ServiceBinding
 	caller           wire.ServiceCaller
 	callerOK         bool
@@ -52,7 +54,12 @@ func (a *socketServiceAccount) Publish(ctx context.Context, until time.Time, now
 }
 
 func (a *socketServiceAuthority) WithIdentity(ctx context.Context, fn func(service.View) error) error {
-	return a.WithCurrent(ctx, fn)
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return fn(a)
 }
 func (a *socketServiceAuthority) OperatorAct(service.Principal, string, json.RawMessage) bool {
 	return true
@@ -80,10 +87,16 @@ func (a *socketServiceAuthority) WithCurrent(ctx context.Context, fn func(servic
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	if a.currentErr != nil {
+		return a.currentErr
+	}
 	return fn(a)
 }
 func (a *socketServiceAuthority) Principal(uid uint32) (service.Principal, error) {
 	if uid == a.uid {
+		if a.identityErr != nil {
+			return service.Principal{}, a.identityErr
+		}
 		p := service.Principal{UID: uid, Role: a.role, Generation: a.generation}
 		if a.role == "service" {
 			p.Service = service.Gateway
@@ -304,9 +317,10 @@ func TestAgentClaudeLeaseRefusalBesideServiceControl(t *testing.T) {
 
 // Kernel UID still resolves current role/generation after hello. Workers and
 // orchestrators cannot request service material or change the fixed role, and
-// a retired connection cannot inherit a replacement generation.
+// a retired connection receives its exact refusal before closing and cannot
+// inherit a replacement generation. This is a synthetic identity-reader seam.
 func TestServiceSocketRoleAndGenerationRefusals(t *testing.T) {
-	for _, change := range []string{"worker", "orchestrator", "generation"} {
+	for _, change := range []string{"worker", "orchestrator", "generation", "missing", "invalid"} {
 		t.Run(change, func(t *testing.T) {
 			e := testutil.New(t, lease.Options{})
 			broker, a := newSocketService(t)
@@ -319,9 +333,14 @@ func TestServiceSocketRoleAndGenerationRefusals(t *testing.T) {
 				t.Fatal("service control failed")
 			}
 			a.mu.Lock()
-			if change == "generation" {
+			switch change {
+			case "generation":
 				a.generation = "replacement-generation"
-			} else {
+			case "missing":
+				a.identityErr = errors.New("fixture identity missing")
+			case "invalid":
+				a.generation = ""
+			default:
 				a.role = change
 			}
 			a.mu.Unlock()
@@ -332,13 +351,14 @@ func TestServiceSocketRoleAndGenerationRefusals(t *testing.T) {
 			entries := a.custody.publications.Load()
 			r := request(t, c, "service.lease.request", "refusal", serviceRequest(a))
 			code := "role_not_permitted"
-			if change == "generation" {
+			if change == "generation" || change == "missing" || change == "invalid" {
 				code = "principal_ledger_mismatch"
 			}
 			if r.Error == nil || r.Error.Code != code || r.Result != nil {
 				t.Fatal("fixed principal changed authority")
 			}
 			assertGatewayAbsent(t, encodeResponse(t, r))
+			closed(t, c)
 			after, err := a.custody.LoadServiceState()
 			if err != nil || !reflect.DeepEqual(before, after) || a.custody.publications.Load() != entries {
 				t.Fatal("retired principal changed state or entered custody")
@@ -347,7 +367,7 @@ func TestServiceSocketRoleAndGenerationRefusals(t *testing.T) {
 			// remains unbound, despite recycling the same real kernel UID.
 			fresh := dial(t, path)
 			if h := serviceHello(t, fresh); h.Error != nil {
-				if change == "generation" {
+				if change == "generation" || change == "missing" || change == "invalid" {
 					if h.Error.Code != "role_not_permitted" || h.Result != nil {
 						t.Fatal("unbound new generation got the wrong hello refusal")
 					}
@@ -360,6 +380,101 @@ func TestServiceSocketRoleAndGenerationRefusals(t *testing.T) {
 				t.Fatal("replacement principal inherited lease")
 			}
 			assertGatewayAbsent(t, encodeResponse(t, r))
+		})
+	}
+}
+
+// A replaced generation closes after each exact refusal, without a journal
+// change or custody entry. Current principals' ordinary non-owner refusals
+// leave the same socket usable. The fallback poll also checks staleness when
+// current use evidence is unavailable but protected identity is readable.
+func TestServiceSocketStaleLeaseMethodsClose(t *testing.T) {
+	for _, method := range []string{"service.lease.renew", "service.lease.release", "event.report", "service.revocation.check", "account.hold", "service.bind", "service.unbind", "account.hold.lift", "status", "account.describe", "poll-current-unavailable"} {
+		t.Run(method, func(t *testing.T) {
+			e := testutil.New(t, lease.Options{})
+			broker, a := newSocketService(t)
+			path := start(t, e, func(s *Server) { s.Services = broker })
+			c := dial(t, path)
+			if serviceHello(t, c).Error != nil {
+				t.Fatal("service hello control failed")
+			}
+			r := request(t, c, "service.lease.request", "control", serviceRequest(a))
+			var l wire.ServiceLease
+			if r.Error != nil || wire.Decode(r.Result, &l) != nil || l.Payload.Value != gatewayFixtureToken {
+				t.Fatal("current service material control failed")
+			}
+			code := "lease_not_owner"
+			callMethod := method
+			if method == "poll-current-unavailable" {
+				callMethod = "service.revocation.check"
+			}
+			params := func(id string) any {
+				switch callMethod {
+				case "service.lease.renew":
+					return wire.ServiceRenew{OperationID: "renew-stale", ServiceLeaseID: wire.ServiceLeaseID{LeaseID: id}}
+				case "account.hold":
+					return wire.ServiceHold{OperationID: "hold-stale", LeaseID: id, Account: l.Account, Reason: "leak_match"}
+				case "event.report":
+					return map[string]any{"service_lease_id": id, "event": map[string]any{"kind": "credential_error", "class": "auth"}}
+				case "service.bind":
+					return wire.ServiceBind{OperationID: "bind-stale", ServiceBinding: a.binding}
+				case "service.unbind":
+					return wire.ServiceUnbind{OperationID: "unbind-stale", BindingID: "binding-stale"}
+				case "account.hold.lift":
+					return wire.ServiceLift{OperationID: "lift-stale", HoldID: "hold-stale", Account: l.Account}
+				case "status":
+					return map[string]any{}
+				case "account.describe":
+					return map[string]any{"account": l.Account}
+				default:
+					return wire.ServiceLeaseID{LeaseID: id}
+				}
+			}
+			switch callMethod {
+			case "service.bind", "service.unbind", "account.hold.lift", "status", "account.describe":
+				code = "role_not_permitted"
+			default:
+				// An ordinary ownership refusal must not carry the stale marker.
+				r = request(t, c, callMethod, "non-owner", params("not-a-lease"))
+				if r.Error == nil || r.Error.Code != "lease_not_owner" || r.Result != nil {
+					t.Fatal("current non-owner refusal changed")
+				}
+				assertGatewayAbsent(t, encodeResponse(t, r))
+				if r = request(t, c, "service.lease.request", "still-current", serviceRequest(a)); r.Error != nil {
+					t.Fatal("current non-owner refusal closed the connection")
+				}
+			}
+			if method == "poll-current-unavailable" {
+				a.mu.Lock()
+				a.currentErr = errors.New("fixture current reader unavailable")
+				a.mu.Unlock()
+				r = request(t, c, callMethod, "unavailable-control", params(l.LeaseID))
+				var verdict struct {
+					Verdict string `json:"verdict"`
+				}
+				if r.Error != nil || json.Unmarshal(r.Result, &verdict) != nil || verdict.Verdict != "unavailable" {
+					t.Fatal("current unavailable poll control failed")
+				}
+				assertGatewayAbsent(t, encodeResponse(t, r))
+			}
+			a.mu.Lock()
+			a.generation = "replacement-generation"
+			a.mu.Unlock()
+			before, err := a.custody.LoadServiceState()
+			if err != nil {
+				t.Fatal("journal control failed")
+			}
+			entries := a.custody.publications.Load()
+			r = request(t, c, callMethod, "stale", params(l.LeaseID))
+			if r.Error == nil || r.Error.Code != code || r.Result != nil {
+				t.Fatalf("stale %s refusal: got %v, want %s", callMethod, r.Error, code)
+			}
+			assertGatewayAbsent(t, encodeResponse(t, r))
+			closed(t, c)
+			after, err := a.custody.LoadServiceState()
+			if err != nil || !reflect.DeepEqual(before, after) || a.custody.publications.Load() != entries {
+				t.Fatal("stale method changed state or entered custody")
+			}
 		})
 	}
 }
@@ -402,7 +517,8 @@ func TestServiceSocketRejectsRoleAndPlaceholderFields(t *testing.T) {
 }
 
 // A real service socket is usable while bound and closes after the durable
-// operator unbind; the disconnected generation cannot negotiate another role.
+// operator unbind. Rebinding the same generation admits a fresh socket and
+// never reopens the disconnected socket.
 func TestServiceSocketUnbindCloses(t *testing.T) {
 	e := testutil.New(t, lease.Options{})
 	broker, a := newSocketService(t)
@@ -427,6 +543,18 @@ func TestServiceSocketUnbindCloses(t *testing.T) {
 	raw, _ = wire.Encode(wire.ServiceUnbind{OperationID: "unbind-socket", BindingID: bindingID})
 	if err = broker.Call(context.Background(), p, "service.unbind", raw, func(any) error { return nil }); err != nil {
 		t.Fatal(err)
+	}
+	closed(t, c)
+	raw, _ = wire.Encode(wire.ServiceBind{OperationID: "rebind-socket", ServiceBinding: a.binding})
+	if err = broker.Call(context.Background(), p, "service.bind", raw, func(any) error { return nil }); err != nil {
+		t.Fatal("rebind control failed")
+	}
+	fresh := dial(t, path)
+	if serviceHello(t, fresh).Error != nil {
+		t.Fatal("rebound hello control failed")
+	}
+	if r := request(t, fresh, "service.lease.request", "after-rebind", serviceRequest(a)); r.Error != nil {
+		t.Fatal("rebound lease control failed")
 	}
 	closed(t, c)
 }

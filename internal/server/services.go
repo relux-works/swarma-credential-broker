@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/relux-works/swarma-credential-broker/internal/lease"
+	"github.com/relux-works/swarma-credential-broker/internal/service"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 )
 
@@ -91,7 +92,10 @@ func (s *Server) serveServices(ctx context.Context, c *net.UnixConn, uid uint32,
 			if send(ctx, r.ID, nil, err, time.Now().Add(2*time.Second)) != nil {
 				return
 			}
-			if lease.ErrorCode(err) == "role_not_permitted" {
+			// Preserve the method's refusal before retiring the fixed principal's
+			// socket; an ordinary non-owner refusal leaves a current socket usable.
+			code := lease.ErrorCode(err)
+			if code == "role_not_permitted" || code == "principal_ledger_mismatch" || service.IsStaleConnection(err) {
 				return
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -183,6 +184,20 @@ func (b *Broker) closeConnections(uid uint32, generation string) {
 	}
 }
 func refuse(code string) error { return wire.Refuse(code) }
+
+// A stale connection must close after its refusal is written. Keep that
+// transport decision separate from an ordinary current lessee's refusal code.
+type staleConnectionError struct{ refusal *wire.Error }
+
+func (e *staleConnectionError) Error() string { return e.refusal.Error() }
+func (e *staleConnectionError) Unwrap() error { return e.refusal }
+
+// IsStaleConnection reports whether Call rejected a retired fixed principal.
+func IsStaleConnection(err error) bool {
+	var stale *staleConnectionError
+	return errors.As(err, &stale)
+}
+
 func New(a Authority, accounts map[string]Account, now func() time.Time) (*Broker, error) {
 	return NewWithLifetime(a, accounts, now, V0LeaseCeiling)
 }
@@ -462,10 +477,12 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 		}
 		if current != p {
 			if p.Role == "service" && current.Role == "service" {
-				if method == "service.lease.request" {
+				switch method {
+				case "service.lease.request":
 					return refuse("principal_ledger_mismatch")
+				case "service.lease.renew", "service.lease.release", "event.report", "service.revocation.check", "account.hold":
+					return &staleConnectionError{wire.Refuse("lease_not_owner")}
 				}
-				return refuse("lease_not_owner")
 			}
 			return refuse("role_not_permitted")
 		}
@@ -516,7 +533,7 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 			defer func() { b.gate <- struct{}{} }()
 			current, e := v.Principal(p.UID)
 			if e != nil || current != p {
-				return refuse("lease_not_owner")
+				return &staleConnectionError{wire.Refuse("lease_not_owner")}
 			}
 			var r wire.ServiceLeaseID
 			if decode(raw, &r, "service_lease_id") != nil {
@@ -1009,6 +1026,10 @@ func (b *Broker) authorities(ctx context.Context, v View, l *wire.ServiceLeaseRe
 	return until, nil
 }
 func known(e error, fallback string) error {
+	var stale *staleConnectionError
+	if errors.As(e, &stale) {
+		return &staleConnectionError{wire.Refuse(stale.refusal.Code)}
+	}
 	if r, ok := e.(*wire.Error); ok {
 		return refuse(r.Code)
 	}

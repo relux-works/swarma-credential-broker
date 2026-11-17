@@ -33,6 +33,10 @@ An explicit activation gate is that the provider enforces spec §2.2
 record, never an agent or workplace record, admitted local placement, a class
 other than untrusted, and disjoint service and agent roles (§5.1 step 3,
 negative-table row 10). A role label alone does not discharge this gate.
+Protected identity-reader availability is also an activation requirement for
+containment: `account.hold` still settles the fixed principal (§5.8 steps 1–2).
+Unbind closes its connections; an unbound generation cannot reconnect as a
+service merely to place a hold.
 
 `View.Caller` returns the originating `binding_id` and exclusive authority
 expiry. The broker records it on issue and compares it on renewal and replay.

@@ -21,11 +21,13 @@ permission to derive authority from a static UID, name, request or placeholder.
 Explicit activation gates: the provider enforces spec §2.2 (service-account
 record, disjoint roles), including a user-manager service-account record rather
 than an agent or workplace record, admitted local placement, a class other than
-untrusted and disjoint service and agent roles (§5.1 step 3, row 10); journal
-retention and resource admission must keep a durable hold placeable at
-exhaustion, with protected hold headroom. Neither gate is implemented by a
-fixture role or the current protected record-size ceiling. An unrelated journal
-failure still fences all accounts until restart unless the one pending hold is
+untrusted and disjoint service and agent roles (§5.1 step 3, row 10); protected
+identity-reader availability for hold admission (§5.8 steps 1–2), including the
+fact that unbind closes connections and an unbound generation cannot reconnect
+as a service to place a hold; journal retention and resource admission must keep
+a durable hold placeable at exhaustion, with protected hold headroom. These gates
+are not discharged by a fixture role or the current protected record-size ceiling.
+An unrelated journal failure still fences all accounts until restart unless the one pending hold is
 reconciled by its identical retry; account-scoped failure isolation remains open.
 Gateway listener/placeholder mapping, matcher inventory and actual stop/use
 closure, deployment and exact harness/vendor qualification remain separate.

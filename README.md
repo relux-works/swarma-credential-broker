@@ -77,6 +77,8 @@ integration and runtime qualification. Explicit activation gates:
   a user-manager service-account record, never an agent or workplace record,
   admitted local placement, a class other than untrusted, and disjoint service
   and agent roles (§5.1 step 3, negative-table row 10).
+- Protected identity-reader availability is required for containment: hold
+  admission still checks the fixed principal, and unbind closes its connections.
 - Journal retention and resource admission preserve the ability to place a
   durable account hold at exhaustion, including protected hold headroom.
 
