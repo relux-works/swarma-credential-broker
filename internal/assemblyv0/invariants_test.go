@@ -144,6 +144,7 @@ var inactiveImportConsumers = []struct {
 	{prefix: "internal/assemblyv0/"},
 	{prefix: "internal/statev0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/assemblyv0"}},
 	{prefix: "internal/activationv0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/assemblyv0"}},
+	{prefix: "internal/servicev0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/assemblyv0", "github.com/relux-works/swarma-credential-broker/internal/statev0"}},
 }
 
 func checkInactiveImports(filename string, contents []byte) error {
