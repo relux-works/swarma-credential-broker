@@ -76,12 +76,35 @@ publication supplies no runtime, native or protected-provenance qualification.
 | Another unit citing C1 as its construction authorization. | C1 names U02 only; every other unit needs its own applicable authorization, with C0's prior U00/U01 scope unchanged. |
 | Adopting a later acceptor change without reopening the affected U02 work. | An explicit U02 fix round updates the affected contract, implementation and tests with fresh exact-head review. |
 
+## Source-pin revision for DN-05 publication
+
+On 2026-11-19 the repository owner authorizes the two expected source-pin
+revisions below for the published candidate texts. The reason for both is
+**DN-05 publication**. In `internal/assemblyv0`, only these two SHA-256 values
+change, synchronized between the constants in `fixtures_test.go` and the
+source-pin metadata in `testdata/construction-v0/index.json`.
+
+| Source | Old SHA-256 | New SHA-256 | Reason |
+| --- | --- | --- | --- |
+| `spec/broker.md` | `e069ccf61e89b2f6efa27227eb80349f5379181f64b6ce46d960a64a609a6834` | `616d58599f78d4ef0e69920198a179d104313299c2cb4d66138e0ff1becc259a` | DN-05 publication |
+| `spec/operator-and-activation-v0.md` | `d242db6d897ffe7a6fc662df9c47f9d67a035ddcbaffbcc245b87b13ad9d7c79` | `c3d3bdfa9a12fe6e7fbc459474259f1f3a8f34600b46dc8b6a6e0ac85b1ec47d` | DN-05 publication |
+
+No test logic, vector payload, vector source-line reference, historical C0
+construction label or historical source-commit field changes. Those historical
+fields remain C0 evidence, not a claim that the amended texts existed at that
+source commit. The source-pin guard must still reject any further change to
+either file: each independent one-byte scratch change must fail its named
+source-pin check, while the unmodified candidate must pass. This revision
+neither supplies Curator Core acceptance nor changes any C1 authority limit.
+
 ## Evidence boundary
 
-No Go code, daemon behavior or existing reviewer test changes in this unit.
+No production Go code, daemon behavior or existing reviewer test logic changes
+in this unit; only the two expected source pins above are revised.
 The brief supplies no attack-surface table: this is a declared brief gap, not a
 waiver of later U02 coverage. O-03 provenance, O-19 final acceptance and all
 other open O-points are outside this unit's contract, not implicitly covered.
-The unchanged Go suite is a no-code-change control, not U02 implementation
+The Go suite with only those source pins revised is a no-production-code-change
+control, not U02 implementation
 evidence or specification acceptance. Publication review is limited to exact
 amendment bytes, conditional applicability, links and these C1 boundaries.

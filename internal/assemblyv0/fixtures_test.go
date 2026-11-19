@@ -24,7 +24,7 @@ const (
 	vectorDirectory     = "testdata/construction-v0"
 	specificationPath   = "spec/operator-and-activation-v0.md"
 	specificationCommit = "e295b4c7c0dc397ecdaa89e73c057d53d2e3f533"
-	specificationSHA256 = "d242db6d897ffe7a6fc662df9c47f9d67a035ddcbaffbcc245b87b13ad9d7c79"
+	specificationSHA256 = "c3d3bdfa9a12fe6e7fbc459474259f1f3a8f34600b46dc8b6a6e0ac85b1ec47d"
 	fixtureInstallation = "fixture-installation-v0"
 	fixtureAccount      = "fixture/claude/subscription"
 	fixtureOperation    = OperationID("00112233445566778899aabbccddeeff")
@@ -32,7 +32,7 @@ const (
 	fixtureToken        = "SYNTHETIC-ONLY-NOT-A-VENDOR-TOKEN"
 )
 
-const baselineSpecificationSHA256 = "e069ccf61e89b2f6efa27227eb80349f5379181f64b6ce46d960a64a609a6834"
+const baselineSpecificationSHA256 = "616d58599f78d4ef0e69920198a179d104313299c2cb4d66138e0ff1becc259a"
 
 type sourceReference struct {
 	Path      string `json:"path"`
