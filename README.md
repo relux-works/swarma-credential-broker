@@ -90,6 +90,10 @@ contracts that prevent safe assembly. The accompanying broker specification
 §3.2 is **PROPOSED**, inactive, and defines no activation switch or new command.
 The [operator and activation v0 proposal](spec/operator-and-activation-v0.md)
 supplies candidate contracts and explicit owner decisions, not installed behavior.
+Its revision-1 fix-round text declares the root-authority ownership **conflict**
+and required amendments, separates narrowing from use gates, and adds DN-09 C
+for a dedicated TEST subscription only. Production remains DN-09 A; no review,
+test-profile decision or documentation change activates the stopped daemon.
 
 The binding managed-identity projection decision of 2026-11-19 resolves the
 historical **P2-UM-LEDGER-CONTRACT** stop. The Linux production service identity

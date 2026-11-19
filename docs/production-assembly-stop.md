@@ -119,13 +119,28 @@ gates. No code, command, activation file or unit is installed by this packet.
 | Original stop point | Proposed resolution |
 | --- | --- |
 | `operator-act-contract` | Section 2: terminal-only per-act password sudo, canonical exact-content act, confirmation and protected authentication receipt; DN-01 through DN-03. |
-| `owner-enrollment-transport` | Section 3: configured operator owns the account; TTY-only no-echo capture, transient digest-prefix commitment and existing custody; DN-04. |
+| `owner-enrollment-transport` | Section 3: configured operator owns the account; exclusive authenticated TTY, 1..4096-byte capture, exact vendor expiry, token-verifier custody and disable/rotation paths; DN-04. |
 | `protected-authority-assembly` | Section 4: protected source inventory, closed schemas, freshness and independent containment; DN-02, DN-05 through DN-07. |
 | `activation-schema` | Section 5: separate root-owned closed file, inactive when absent, explicit enabled semantics; DN-05. |
 | `bootstrap-and-deployment` | Section 6: create managed service, enroll account, bind, then start gateway; broker control plane starts before enrollment; unit fields proposed under DN-08. |
 | `service-lifetime-selector` | Section 5: activation member, default 900 s, startup refusal above 900 without clamping; DN-05. |
 
 The full [DECISION-NEEDED register](../spec/operator-and-activation-v0.md#8-decision-needed-register)
-gives two options and a recommendation for every unfixed bundle. DN-09 preserves
-the separately owned continuity/recovery gates instead of inventing a witness.
+keeps every bundle open. The revision-1 fix-round text closes the review
+counterexamples at proposal level: concrete dedicated-login/outer-TTY/password
+predicates; act-only nonce burning on refusal and fresh corrected admission;
+independent BOOTTIME unbind and separate revocation state; an explicit DN-05
+ownership **CONFLICT** and proposed amendments/equality joins; and unchanged
+token-custody limits/effects with protected token-verifier classification.
+
+DN-09 retains A for production and adds C as a **TEST-PROFILE v0 refinement**:
+restore is unsupported and recovery is a fresh installation; a root-owned
+start/restore fence outside the service home is checked every start; consumer
+high-water persists in the broker store and regression refuses; authenticated
+NTS feeds existing time confidence/watermark; only a dedicated TEST subscription
+is eligible, whole-VM rollback is an owner-accepted residual risk, and no result
+is promoted to production. Acceptance by the continuity owners and qualification
+of the concrete protected inputs remain required; the compiled time consumer
+is still closed. Missing grant-issuance, headroom/isolation, native publication
+and gateway/teardown qualification is not supplied by Option C.
 Accepting this candidate does not itself authorize enrollment or production use.

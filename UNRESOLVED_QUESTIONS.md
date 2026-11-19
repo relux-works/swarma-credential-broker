@@ -14,6 +14,19 @@ bound the missing work; broker §3.2 is **PROPOSED**, not an activation decision
 The [operator and activation v0 candidate](spec/operator-and-activation-v0.md)
 now proposes all six missing contracts. Its DN-01 through DN-09 decisions remain
 open; the stop is pending acceptance, not a claim that no candidate text exists.
+DN-02 now names the password-only PAM/sudo, dedicated human-login, outer-TTY,
+exclusive-input and no-dump launch decisions; their implementation/qualification
+is still absent. DN-05 is explicitly a **CONFLICT** with broker-owned principal
+and machine-policy rules, requiring the listed broker/dialect amendments and
+equality-or-refusal joins. DN-06 proposes versioned service receipt metadata,
+nonsticky refusals and separate revocation storage, not an installed migration.
+DN-09 keeps A for production and proposes C only for an explicitly accepted,
+time-boxed TEST-PROFILE v0: restore unsupported/fresh install, an every-start
+outside-home root fence, persisted consumer high-water, authenticated NTS under
+existing policy, a dedicated test subscription and owner-accepted whole-VM
+rollback risk. No C result may be promoted to production. The initial
+root-to-dispatcher grant ceremony, collector/witness, hold-capacity/isolation,
+native publication, gateway routes and teardown remain qualification gates.
 
 ## Claude secret-free service integration
 
