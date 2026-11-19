@@ -1,0 +1,16 @@
+--- /dev/null
++++ b/internal/activationv0/nested/probe.go
+@@ -0,0 +1,5 @@
++package nested
++
++import "github.com/relux-works/swarma-credential-broker/internal/assemblyv0"
++
++type Document = assemblyv0.ActivationDocument
+--- /dev/null
++++ b/internal/server/zz_inactive_forwarder.go
+@@ -0,0 +1,5 @@
++package server
++
++import "github.com/relux-works/swarma-credential-broker/internal/activationv0/nested"
++
++type inactiveDocument = nested.Document

@@ -30,3 +30,18 @@ remain open. C still refuses with `STOP:O-21`; no backend, publication gate,
 owner identity, filesystem traversal or service-wiring decision is made here.
 The parallel service construction allowance belongs to its own unit and is
 not preemptively granted by this amendment.
+
+## PR #73 non-blocking carryover
+
+- N2: I04 has no outward import allowlist in the construction contract. An
+  additional activation-to-runtime restriction needs a contract decision;
+  this fix does not invent one.
+- N3: the intermediate loader commit predates its guard amendment and is red.
+  This fix preserves the existing signed history; reordering or combining
+  published commits is a separate delivery decision, not a source-boundary fix.
+- N4: safe absence remains the injected reader contract. Joined errors with
+  an unsafe cause and `fs.ErrNotExist` are outside that contract; an exact
+  absence sentinel and future consumer state/error handling remain
+  integration work, not a new guarantee here.
+- N7: native ancestor, symlink, regular-file and permission enforcement still
+  belongs to I02/U02. Synthetic metadata checks do not qualify that reader.

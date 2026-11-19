@@ -153,18 +153,24 @@ func checkInactiveImports(filename string, contents []byte) error {
 		return errFixture
 	}
 	filename = filepath.ToSlash(filename)
+	directory := filepath.ToSlash(filepath.Dir(filename)) + "/"
+	for _, consumer := range inactiveImportConsumers {
+		if directory != consumer.prefix && strings.HasPrefix(directory, consumer.prefix) {
+			return errFixture
+		}
+	}
 	for _, imported := range parsed.Imports {
 		importPath, err := strconv.Unquote(imported.Path.Value)
 		if err != nil {
 			return errFixture
 		}
 		for _, target := range inactiveImportConsumers {
-			if !strings.HasSuffix(importPath, "/"+strings.TrimSuffix(target.prefix, "/")) {
+			if !strings.HasSuffix(importPath, "/"+strings.TrimSuffix(target.prefix, "/")) && !strings.Contains(importPath, "/"+target.prefix) {
 				continue
 			}
 			allowed := false
 			for _, consumer := range inactiveImportConsumers {
-				if strings.HasPrefix(filename, consumer.prefix) {
+				if directory == consumer.prefix {
 					for _, permitted := range consumer.imports {
 						if importPath == permitted {
 							allowed = true
@@ -188,12 +194,17 @@ func checkInactiveImports(filename string, contents []byte) error {
 
 // Claim: no production package imports the inactive declarations, and shared values cannot depend back on runtime consumers.
 func TestInactiveImportGraph(test *testing.T) {
-	root := filepath.Join("..", "..")
-	err := filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
+	if err := checkInactiveImportGraph(filepath.Join("..", "..")); err != nil {
+		test.Fatal("inactive import boundary violated")
+	}
+}
+
+func checkInactiveImportGraph(root string) error {
+	return filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".temp" || entry.Name() == "testdata" || entry.Name() == "vendor") {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".temp") {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || !strings.HasSuffix(filename, ".go") || strings.HasSuffix(filename, "_test.go") {
@@ -209,8 +220,60 @@ func TestInactiveImportGraph(test *testing.T) {
 		}
 		return checkInactiveImports(relative, contents)
 	})
-	if err != nil {
-		test.Fatal("inactive import boundary violated")
+}
+
+// Claim: production forwarding paths and undeclared inactive subpackages refuse beside valid exact-consumer and wire controls; test-only edges stay outside the guard.
+func TestInactiveImportGraphForwardingControls(test *testing.T) {
+	cases := []struct {
+		name     string
+		filename string
+		target   string
+	}{
+		{"activation-subpackage", "internal/activationv0/nested/probe.go", "assemblyv0"},
+		{"assembly-subpackage", "internal/assemblyv0/nested/probe.go", "activationv0"},
+		{"state-subpackage", "internal/statev0/nested/probe.go", "assemblyv0"},
+		{"activation-sibling-prefix", "internal/activationv0-other/probe.go", "assemblyv0"},
+		{"assembly-sibling-prefix", "internal/assemblyv0-other/probe.go", "assemblyv0"},
+		{"state-sibling-prefix", "internal/statev0-other/probe.go", "activationv0"},
+		{"runtime-forwarder", "internal/forwarder/probe.go", "activationv0"},
+		{"fixture-directory-forwarder", "internal/forwarder/testdata/nested/probe.go", "activationv0"},
+		{"public-forwarder", "brokerclient/forwarder/probe.go", "assemblyv0"},
+		{"undeclared-activation-package", "internal/activationv0/nested/probe.go", "time"},
+		{"undeclared-assembly-package", "internal/assemblyv0/nested/probe.go", "time"},
+		{"undeclared-state-package", "internal/statev0/nested/probe.go", "time"},
+	}
+	for _, item := range cases {
+		test.Run(item.name, func(test *testing.T) {
+			root := test.TempDir()
+			writeSource := func(filename string, contents []byte) {
+				test.Helper()
+				path := filepath.Join(root, filepath.FromSlash(filename))
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					test.Fatal(err)
+				}
+				if err := os.WriteFile(path, contents, 0600); err != nil {
+					test.Fatal(err)
+				}
+			}
+			writeSource("internal/activationv0/probe.go", importBoundarySource("assemblyv0"))
+			writeSource("internal/server/probe.go", importBoundarySource("wire"))
+			writeSource("internal/activationv0-other/probe.go", importBoundarySource("wire"))
+			if err := checkInactiveImportGraph(root); err != nil {
+				test.Fatal("valid exact-consumer and wire controls refused")
+			}
+			writeSource("internal/server/probe_test.go", importBoundarySource("activationv0"))
+			if err := checkInactiveImportGraph(root); err != nil {
+				test.Fatal("test-only inactive import control refused")
+			}
+			writeSource(item.filename, importBoundarySource(item.target))
+			forwarder := strings.TrimSuffix(item.filename, "/probe.go")
+			importPath := "github.com/relux-works/swarma-credential-broker/" + forwarder
+			writeSource("internal/bridge/probe.go", []byte("package probe; import _ "+strconv.Quote(importPath)))
+			writeSource("internal/server/probe.go", importBoundarySource("bridge"))
+			if err := checkInactiveImportGraph(root); !errors.Is(err, errFixture) {
+				test.Fatalf("production forwarding plant accepted or wrong refusal: %v", err)
+			}
+		})
 	}
 }
 
@@ -227,6 +290,10 @@ func TestImportBoundaryControls(test *testing.T) {
 		{"activation-consumer", "internal/activationv0/probe.go", "assemblyv0", "statev0"},
 		{"consumer-prefix", "internal/activationv0-other/probe.go", "wire", "assemblyv0"},
 		{"consumer-prefix-activation", "internal/activationv0-other/probe.go", "wire", "activationv0"},
+		{"runtime-activation-subpackage", "internal/server/probe.go", "wire", "activationv0/nested"},
+		{"runtime-assembly-subpackage", "internal/server/probe.go", "wire", "assemblyv0/nested"},
+		{"runtime-state-subpackage", "internal/server/probe.go", "wire", "statev0/nested"},
+		{"activation-assembly-subpackage", "internal/activationv0/probe.go", "assemblyv0", "assemblyv0/nested"},
 		{"reverse-dependency", "internal/assemblyv0/probe.go", "time", "activationv0"},
 		{"shared-runtime-dependency", "internal/assemblyv0/probe.go", "time", "policy"},
 		{"state-runtime-dependency", "internal/statev0/probe.go", "wire", "policy"},
@@ -251,7 +318,7 @@ func importBoundarySource(packageName string) []byte {
 	return []byte("package probe; import _ " + strconv.Quote(importPath))
 }
 
-// Claim: every current runtime Go package and cmd reject each inactive package beside a valid wire control; synthetic source imports do not activate anything.
+// Claim: current cmd/ and internal/ runtime Go packages reject each inactive package beside a valid wire control; synthetic source imports do not activate anything.
 func TestRuntimeImportBoundaryControls(test *testing.T) {
 	root := filepath.Join("..", "..")
 	directories := map[string]bool{"cmd": true}
@@ -271,7 +338,7 @@ func TestRuntimeImportBoundaryControls(test *testing.T) {
 		}
 		directory := filepath.ToSlash(filepath.Dir(relative))
 		for _, consumer := range inactiveImportConsumers {
-			if strings.HasPrefix(directory+"/", consumer.prefix) {
+			if directory+"/" == consumer.prefix {
 				return nil
 			}
 		}

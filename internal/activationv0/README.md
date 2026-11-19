@@ -36,7 +36,14 @@ is selected here.
 The owner's 2026-11-19 authorization admits this inactive I04 consumer through
 the predecessor import guard's explicit consumer/import table. No runtime
 package gains an import grant, and shared declarations cannot import this
-consumer. The parallel service construction unit is not added here. See
+consumer. Grants name exact package directories, not recursive prefixes;
+undeclared subpackages under an inactive directory and imports of those
+subpackages refuse. Non-test Go files, including fixture directories, are
+scanned outside Git metadata and task scratch, so an indirect runtime path
+must contain a refused edge into an exact inactive package or
+one of its undeclared subpackages. Test-only imports remain outside this
+production-file guard. The parallel service construction unit is not added
+here. See
 [the remaining acceptance boundaries](UNRESOLVED_QUESTIONS.md). Passing local
 gates is not owner acceptance, native qualification or runtime activation.
 
@@ -62,3 +69,23 @@ the plant. These are zero-context unified patches: use
 `git apply --unidiff-zero <patch>`. The delivery handoff maps each acceptance
 row to named tests and records real command exit codes. No native qualification
 is inferred.
+
+| Source plant | Named detecting test |
+| --- | --- |
+| `PL-ACTIVATE-ABSENCE` | `TestACTIVATEAbsentStaysStopped`, `TestACTIVATESoleLifetimeSelector` |
+| `PL-LIFETIME-CLAMP` | `TestACTIVATELifetimeRefusals/above-900` |
+| `PL-I04-CONSUMER` | `TestInactiveImportGraph`, `TestImportBoundaryControls/activation-consumer` |
+| `PL-I04-CONSUMER-PREFIX` | `TestImportBoundaryControls/consumer-prefix` |
+| `PL-I04-REVERSE` | `TestImportBoundaryControls/reverse-dependency` |
+| `PL-I04-RUNTIME-ACTIVATION` | `TestRuntimeImportBoundaryControls/internal/server/activationv0` |
+| `PL-I04-RUNTIME-ASSEMBLY` | `TestRuntimeImportBoundaryControls/internal/server/assemblyv0` |
+| `PL-I04-NESTED-FORWARDER` | `TestInactiveImportGraph` |
+| `PL-I04-NESTED-BYPASS` | `TestInactiveImportGraphForwardingControls/activation-subpackage` |
+
+`PL-I04-NESTED-FORWARDER` adds a production subpackage that carries a shared
+declaration into a runtime importer. Pair it with the unchanged valid wire
+control. `TestInactiveImportGraphForwardingControls` also exercises similarly
+named sibling directories, multi-hop, fixture-directory and public runtime
+forwarders, undeclared inactive subpackages, and an allowed test-only import beside the production
+refusals. `PL-I04-NESTED-BYPASS` restores recursive admission and hides nested
+targets to check that the regression detects that original failure class.

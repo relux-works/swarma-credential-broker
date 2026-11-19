@@ -1,0 +1,15 @@
+--- a/internal/assemblyv0/invariants_test.go
++++ b/internal/assemblyv0/invariants_test.go
+@@ -159,6 +158,0 @@
+-	directory := filepath.ToSlash(filepath.Dir(filename)) + "/"
+-	for _, consumer := range inactiveImportConsumers {
+-		if directory != consumer.prefix && strings.HasPrefix(directory, consumer.prefix) {
+-			return errFixture
+-		}
+-	}
+@@ -168 +168 @@
+-			if !strings.HasSuffix(importPath, "/"+strings.TrimSuffix(target.prefix, "/")) && !strings.Contains(importPath, "/"+target.prefix) {
++			if !strings.HasSuffix(importPath, "/"+strings.TrimSuffix(target.prefix, "/")) {
+@@ -173 +173 @@
+-				if directory == consumer.prefix {
++				if strings.HasPrefix(filename, consumer.prefix) {
