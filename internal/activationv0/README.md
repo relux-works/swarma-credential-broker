@@ -56,15 +56,32 @@ with `go list -deps -json <missing-originals>` before applying the boundary.
 This separates injected test imports from production dependencies without
 silently exempting every `ForTest` record. Discovery includes cgo-only
 production sources when cgo is selected. A directory containing only tests
-does not itself add a production package. Coverage is the current
-toolchain/GOOS/GOARCH configuration
-and inherited `GOFLAGS`. Compiled test-binary metadata also supplies explicit
-`-tags` and race/memory-sanitizer build modes to the nested Go invocation.
-Inactive build tags and other platforms are different configurations, not
-an all-configurations claim. Listing or decoding errors fail the check rather
-than becoming an empty or partial successful graph. The parallel service
-construction unit is not added here; it must extend the same exact-path
-table rather than install a second guard. See
+does not itself add a selected production package. The real-tree check lists
+the inherited toolchain/GOOS/GOARCH configuration and inherited `GOFLAGS`;
+compiled test-binary metadata supplies explicit `-tags` and enabled
+race/memory-sanitizer modes for that inherited invocation. It also lists all
+four shipped release profiles: Linux amd64 and arm64, each with `CGO_ENABLED=0`
+from `.scripts/release-build.sh` and `CGO_ENABLED=1` from the conditional native
+cgo matrix in `.github/workflows/release.yml` and `.scripts/release-profile.py`.
+Those invocations override the nested command's environment with the release
+settings (`GOAMD64=v1`, `GOARM64=v8.0`, empty `GOEXPERIMENT`, workspace/Go env
+files disabled, and `GOFLAGS='-mod=readonly -p=2'`), without inherited explicit
+tags or instrumentation. Cross-listing establishes Go dependency selection,
+not a native cgo build, C compiler/profile qualification or release execution.
+
+For every listed production package, each non-test `IgnoredGoFiles` entry is
+also parsed with `ImportsOnly` and checked against the exact direct-edge rule,
+regardless of build constraints. Ignored test files remain exempt. This
+backstop does not discover an unlisted forwarder's own ignored dependencies.
+The remaining bound is a transitive path selected only by a custom tag, race
+or sanitizer mode, another GOOS, or a non-release `GOEXPERIMENT`, `GOAMD64` or
+`GOARM64` variant not selected by the inherited invocation. It is not an
+all-configurations reachability claim. Failed listings, malformed/incomplete
+metadata and empty output refuse rather than becoming a successful graph.
+The parallel construction units in #74 and #75 must each extend the same
+exact-path table with their own authorized row, not install another guard;
+fixture packages are generated from that table, so no second fixture edit is
+needed. No additional production grant is added here. See
 [the remaining acceptance boundaries](UNRESOLVED_QUESTIONS.md). Passing local
 gates is not owner acceptance, native qualification or runtime activation.
 
@@ -78,7 +95,7 @@ Go command. From the task checkout:
 | Go formatter | `gofmt -w internal/activationv0/*.go internal/assemblyv0/*_test.go` | Task scratch formatting log |
 | Go tests | `go test -race ./internal/activationv0` | ACTIVATE controls and refusals |
 | Import boundary tests | `go test -race ./internal/assemblyv0 -run 'Test.*Import'` | Explicit I04 grant, runtime and reverse-edge controls |
-| Go package graph | `go list -deps -test -json ./...` | Compiler-selected production and test package metadata; inherited build configuration |
+| Go package graph | `go list -deps -test -json ./...` | Inherited and four release configurations; ignored non-test direct imports also checked |
 | Tagged import boundary | `GOFLAGS="${GOFLAGS} -tags=swarma_inactive_probe" go test ./internal/assemblyv0 -run '^TestInactiveImportGraph$'` | Selected-tag graph; inactive tags are a different configuration |
 | Go vet | `go vet ./...` | Task scratch vet log |
 | Go race suite | `go test -race ./...` | Task scratch full-suite log |
@@ -111,6 +128,10 @@ is inferred.
 | `PL-I04-GRAPH-DEPENDENCIES` | `TestInactiveImportGraphToolchainControls/hidden-forwarder` |
 | `PL-I04-TEST-VARIANT-COVERAGE` | `TestInactiveImportGraphRecompiledDependencyControls` |
 | `PL-I04-CGO-VARIANT-COVERAGE` | `TestInactiveImportGraphRecompiledDependencyControls/cgo` when cgo is selected |
+| `PL-I04-NOCGO-FORWARDER`, `PL-I04-ARM64-FORWARDER` | `TestInactiveImportGraph` beside the unchanged valid graph |
+| `PL-I04-RELEASE-CONFIGURATIONS` | `TestInactiveImportGraphReleaseConfigurationControls/arm64-pure-forwarder` and `/arm64-cgo-forwarder` |
+| `PL-I04-IGNORED-FILES` | `TestInactiveImportGraphIgnoredFileControls/nocgo`, `/arm64` and `/custom-tag` |
+| `PL-I04-EMPTY-LISTING` | `TestInactiveImportGraphListingFailureControls/empty` |
 
 `PL-I04-NESTED-FORWARDER` adds a production subpackage that carries a shared
 declaration into a runtime importer. Pair it with the unchanged valid wire
@@ -127,7 +148,8 @@ compiler-buildable runtime paths. Each is paired with the unchanged valid
 graph. The tagged plant is a valid inactive-tag control before selecting
 its tag through `GOFLAGS` or an outer `go test -tags`. The narrowing mutants
 separately remove physical package identity, dependency-set enforcement,
-original-package recovery or cgo-only discovery. The toolchain
+original-package recovery, cgo-only discovery, release-matrix traversal,
+ignored-file parsing or empty-output refusal. The toolchain
 controls kill them beside harmless symlink, multi-hop and vendor controls;
 test-variant, recompiled-dependency and listing-failure controls bound the respective exemptions
 and fail-closed behavior. No source plant activates a daemon in these tests.

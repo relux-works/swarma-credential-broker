@@ -67,12 +67,14 @@ Still open, not silently accepted:
 - Earlier second-review N4: downstream consumers must handle the documented
   zero `ServiceLifetime` for Absent/Refused without opening material use;
   integration into those consumers is outside U03.
-- Record delta N5 / second delta N3: PR #74 must adopt this single guard and
-  add the exact `servicev0` consumer row and its controls. No such grant is
-  added or verified by this round.
+- Record delta N5 / second delta N3: PR #74 and #75 must adopt this single
+  guard and each add their authorized exact consumer row and controls.
+  Fixture generation now follows the table; a synthetic one-row extension
+  is tested. No future production grant is added or accepted by this round.
 - Second delta N2: no additional go:linkname rule is introduced. The guard
   checks Go import/dependency reachability, not arbitrary linker directives.
 - Second delta N5: the keeper still owns publication, fresh exact-head remote
   review/checks and landing. Local producer evidence is not those gates.
-- Tag/platform coverage is bounded to the selected graph as documented in
-  README; it does not certify every possible build configuration.
+- Tag/platform coverage includes the inherited and all four release graphs,
+  plus ignored non-test direct imports, as documented in README; transitive
+  reachability in other unselected configurations remains outside the bound.

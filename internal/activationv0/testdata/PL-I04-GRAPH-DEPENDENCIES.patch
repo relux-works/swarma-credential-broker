@@ -1,5 +1,5 @@
 --- a/internal/assemblyv0/importgraph_test.go
 +++ b/internal/assemblyv0/importgraph_test.go
-@@ -187 +187 @@
+@@ -236 +236 @@
 -		for _, dependency := range listed.Deps {
 +		for _, dependency := range []string(nil) {

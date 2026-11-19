@@ -1,0 +1,6 @@
+--- a/internal/assemblyv0/importgraph_test.go
++++ b/internal/assemblyv0/importgraph_test.go
+@@ -108,3 +107,0 @@
+-		if len(packages) == 0 {
+-			return nil, errors.New("go list returned no packages")
+-		}

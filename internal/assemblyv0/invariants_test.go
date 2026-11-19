@@ -197,9 +197,9 @@ func checkInactivePackageImports(directory string, imports []string) error {
 	return nil
 }
 
-// Claim: toolchain-selected production packages cannot reach inactive declarations; test-only imports grant no production admission.
+// Claim: inherited and shipped release graphs cannot reach inactive declarations; ignored production files retain the direct-edge rule.
 func TestInactiveImportGraph(test *testing.T) {
-	if err := checkInactiveImportGraph(filepath.Join("..", "..")); err != nil {
+	if err := checkInactiveImportConfigurations(filepath.Join("..", "..")); err != nil {
 		test.Fatalf("inactive import boundary violated: %v", err)
 	}
 }
@@ -304,7 +304,7 @@ func TestRuntimeImportBoundaryControls(test *testing.T) {
 		test.Fatal(err)
 	}
 	directories := map[string]bool{"cmd": true}
-	packages, err := listInactiveImportPackages(root)
+	packages, err := listInactiveImportPackages(root, nil)
 	if err != nil {
 		test.Fatalf("cannot inspect runtime package controls: %v", err)
 	}

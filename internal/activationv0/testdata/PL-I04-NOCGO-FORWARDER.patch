@@ -1,0 +1,8 @@
+--- /dev/null
++++ b/internal/server/zz_inactive_nocgo.go
+@@ -0,0 +1,5 @@
++//go:build !cgo
++
++package server
++
++import _ "github.com/relux-works/swarma-credential-broker/internal/activationv0"

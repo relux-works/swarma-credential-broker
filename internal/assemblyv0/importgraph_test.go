@@ -21,18 +21,52 @@ import (
 const inactiveImportModule = "github.com/relux-works/swarma-credential-broker"
 
 type inactiveImportPackage struct {
-	Dir        string
-	ImportPath string
-	Name       string
-	ForTest    string
-	Standard   bool
-	GoFiles    []string
-	CgoFiles   []string
-	Imports    []string
-	Deps       []string
+	Dir            string
+	ImportPath     string
+	Name           string
+	ForTest        string
+	Standard       bool
+	GoFiles        []string
+	CgoFiles       []string
+	IgnoredGoFiles []string
+	Imports        []string
+	Deps           []string
 }
 
-func listInactiveImportPackages(root string, buildFlags ...string) ([]inactiveImportPackage, error) {
+func inactiveImportBuildFlags(settings []debug.BuildSetting) []string {
+	var flags []string
+	for _, setting := range settings {
+		if setting.Key == "-tags" {
+			flags = append(flags, "-tags="+setting.Value)
+		}
+		if (setting.Key == "-race" || setting.Key == "-msan" || setting.Key == "-asan") && setting.Value == "true" {
+			flags = append(flags, setting.Key)
+		}
+	}
+	return flags
+}
+
+func checkInactiveImportConfigurations(root string) error {
+	if err := checkInactiveImportGraph(root); err != nil {
+		return fmt.Errorf("inherited configuration: %w", err)
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		for _, cgo := range []string{"0", "1"} {
+			environment := []string{
+				"GOOS=linux", "GOARCH=" + arch, "CGO_ENABLED=" + cgo,
+				"GOAMD64=v1", "GOARM64=v8.0", "GOEXPERIMENT=",
+				"GOTOOLCHAIN=local", "GOWORK=off", "GOENV=off",
+				"GOFLAGS=-mod=readonly -p=2",
+			}
+			if err := checkInactiveImportGraphEnvironment(root, environment); err != nil {
+				return fmt.Errorf("release linux/%s CGO_ENABLED=%s: %w", arch, cgo, err)
+			}
+		}
+	}
+	return nil
+}
+
+func listInactiveImportPackages(root string, environment []string, buildFlags ...string) ([]inactiveImportPackage, error) {
 	tool := os.Getenv("GO")
 	if tool == "" {
 		tool = filepath.Join(runtime.GOROOT(), "bin", "go")
@@ -40,14 +74,9 @@ func listInactiveImportPackages(root string, buildFlags ...string) ([]inactiveIm
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	arguments := []string{"list", "-deps", "-json"}
-	if info, present := debug.ReadBuildInfo(); present {
-		for _, setting := range info.Settings {
-			if setting.Key == "-tags" {
-				arguments = append(arguments, "-tags="+setting.Value)
-			}
-			if (setting.Key == "-race" || setting.Key == "-msan" || setting.Key == "-asan") && setting.Value == "true" {
-				arguments = append(arguments, setting.Key)
-			}
+	if environment == nil {
+		if info, present := debug.ReadBuildInfo(); present {
+			arguments = append(arguments, inactiveImportBuildFlags(info.Settings)...)
 		}
 	}
 	arguments = append(arguments, buildFlags...)
@@ -55,6 +84,7 @@ func listInactiveImportPackages(root string, buildFlags ...string) ([]inactiveIm
 		selected := append(append([]string(nil), arguments...), patterns...)
 		command := exec.CommandContext(ctx, tool, selected...)
 		command.Dir = root
+		command.Env = append(os.Environ(), environment...)
 		var output, diagnostic bytes.Buffer
 		command.Stdout = &output
 		command.Stderr = &diagnostic
@@ -117,7 +147,11 @@ func listInactiveImportPackages(root string, buildFlags ...string) ([]inactiveIm
 }
 
 func checkInactiveImportGraph(root string, buildFlags ...string) error {
-	packages, err := listInactiveImportPackages(root, buildFlags...)
+	return checkInactiveImportGraphEnvironment(root, nil, buildFlags...)
+}
+
+func checkInactiveImportGraphEnvironment(root string, environment []string, buildFlags ...string) error {
+	packages, err := listInactiveImportPackages(root, environment, buildFlags...)
 	if err != nil {
 		return err
 	}
@@ -157,7 +191,7 @@ func checkInactiveImportGraph(root string, buildFlags ...string) error {
 		return ""
 	}
 	for _, listed := range packages {
-		if listed.ForTest != "" || (len(listed.GoFiles) == 0 && len(listed.CgoFiles) == 0) {
+		if listed.ForTest != "" {
 			continue
 		}
 		if original, exists := byImport[strings.TrimSuffix(listed.ImportPath, ".test")]; exists && listed.Name == "main" && listed.ImportPath == original.ImportPath+".test" && listed.Dir == original.Dir && len(listed.GoFiles) == 1 && filepath.IsAbs(listed.GoFiles[0]) {
@@ -168,6 +202,21 @@ func checkInactiveImportGraph(root string, buildFlags ...string) error {
 			return err
 		}
 		directory := filepath.ToSlash(relative) + "/"
+		for _, filename := range listed.IgnoredGoFiles {
+			if strings.HasSuffix(filename, "_test.go") {
+				continue
+			}
+			contents, err := os.ReadFile(filepath.Join(listed.Dir, filename))
+			if err != nil {
+				return err
+			}
+			if err := checkInactiveImports(filepath.Join(relative, filename), contents); err != nil {
+				return fmt.Errorf("%w: ignored imports of %s in %s", err, listed.ImportPath, filename)
+			}
+		}
+		if len(listed.GoFiles) == 0 && len(listed.CgoFiles) == 0 {
+			continue
+		}
 		var permitted []string
 		admitted := false
 		for _, consumer := range inactiveImportConsumers {
@@ -220,9 +269,13 @@ func inactiveImportFixture(test *testing.T) (string, func(string, []byte)) {
 		}
 	}
 	writeSource("go.mod", []byte("module "+inactiveImportModule+"\n\ngo 1.26.0\n"))
-	writeSource("internal/assemblyv0/probe.go", []byte("package probe\n"))
-	writeSource("internal/statev0/probe.go", importBoundarySource("assemblyv0"))
-	writeSource("internal/activationv0/probe.go", importBoundarySource("assemblyv0"))
+	for _, consumer := range inactiveImportConsumers {
+		contents := "package probe\n"
+		for _, importPath := range consumer.imports {
+			contents += fmt.Sprintf("import _ %q\n", importPath)
+		}
+		writeSource(consumer.prefix+"probe.go", []byte(contents))
+	}
 	writeSource("internal/wire/probe.go", []byte("package probe\n"))
 	writeSource("internal/activationv0-other/probe.go", importBoundarySource("wire"))
 	writeSource("internal/bridge/probe.go", importBoundarySource("activationv0-other"))
@@ -308,11 +361,11 @@ func TestInactiveImportGraphVendorControls(test *testing.T) {
 	writeSource("vendor/modules.txt", []byte("# "+forwarder+" v0.0.0\n## explicit; go 1.26.0\n"+forwarder+"\n"))
 	writeSource("vendor/"+forwarder+"/probe.go", importBoundarySource("wire"))
 	writeSource("internal/bridge/probe.go", []byte("package probe; import _ "+fmt.Sprintf("%q", forwarder)))
-	if err := checkInactiveImportGraph(root); err != nil {
+	if err := checkInactiveImportGraph(root, "-mod=vendor"); err != nil {
 		test.Fatalf("valid vendored forwarder control refused: %v", err)
 	}
 	writeSource("vendor/"+forwarder+"/probe.go", importBoundarySource("activationv0"))
-	if err := checkInactiveImportGraph(root); !errors.Is(err, errFixture) {
+	if err := checkInactiveImportGraph(root, "-mod=vendor"); !errors.Is(err, errFixture) {
 		test.Fatalf("vendored inactive forwarder accepted or wrong refusal: %v", err)
 	}
 }
@@ -339,6 +392,28 @@ func TestInactiveImportGraphListingFailureControls(test *testing.T) {
 	writeSource("internal/server/probe.go", importBoundarySource("missing"))
 	if err := checkInactiveImportGraph(root); err == nil || errors.Is(err, errFixture) || !strings.Contains(err.Error(), "go list failed") {
 		test.Fatalf("incomplete graph accepted or misclassified: %v", err)
+	}
+	writeSource("internal/server/probe.go", importBoundarySource("bridge"))
+	for _, item := range []struct {
+		name   string
+		script string
+		want   string
+	}{
+		{"empty", "exit 0", "no packages"},
+		{"failed", "echo listing-refused >&2; exit 7", "go list failed"},
+		{"malformed", "printf '{'", "decode go list"},
+		{"incomplete", "printf '{}'", "incomplete package metadata"},
+	} {
+		test.Run(item.name, func(test *testing.T) {
+			tool := filepath.Join(test.TempDir(), "go-list")
+			if err := os.WriteFile(tool, []byte("#!/bin/sh\n"+item.script+"\n"), 0700); err != nil {
+				test.Fatal(err)
+			}
+			test.Setenv("GO", tool)
+			if err := checkInactiveImportGraph(root); err == nil || errors.Is(err, errFixture) || !strings.Contains(err.Error(), item.want) {
+				test.Fatalf("listing %s accepted or misclassified: %v", item.name, err)
+			}
+		})
 	}
 }
 
