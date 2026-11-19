@@ -84,6 +84,16 @@ integration and runtime qualification. Explicit activation gates:
 
 See [unresolved integration points](UNRESOLVED_QUESTIONS.md).
 
+The P2 production-provider work is **STOP: P2-UM-LEDGER-CONTRACT** at the
+checked user-manager source: its derived ledger has generation rows but no
+record kind, and the required placement/class encodings remain unpublished.
+The exact **PENDING-UM** evidence and the journal-over-ledger contradiction
+are recorded in [the provider contract stop](docs/service-provider-contract-stop.md).
+No production provider or activation selector is added; the daemon stays
+inactive. An accepting provider must use the existing `service.Authority`
+constructor seam only after those contracts and the remaining activation gates
+are satisfied, not a fixture, static UID list or guessed ledger schema.
+
 For the inactive [new-mode topology](spec/secret-free-mode.md#2-processes-and-custody),
 credential-holding services authenticate as themselves and need their own lease
 **and** the originating caller's current narrowing authority for every use.
