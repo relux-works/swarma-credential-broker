@@ -126,12 +126,17 @@ gates. No code, command, activation file or unit is installed by this packet.
 | `service-lifetime-selector` | Section 5: activation member, default 900 s, startup refusal above 900 without clamping; DN-05. |
 
 The full [DECISION-NEEDED register](../spec/operator-and-activation-v0.md#8-decision-needed-register)
-keeps every bundle open. Revision 3 addresses the review counterexamples at
+is supplemented by [Owner decisions (2026-11-19)](../spec/operator-and-activation-v0.md#9-owner-decisions-2026-11-19):
+the repository owner chooses A for DN-01 through DN-08 with their conditions,
+and DN-09 A for production. Curator Core acceptor review, published amendments
+and qualification remain separate; the contracts stay PROPOSED outside that
+record. Revision 4 addresses the review counterexamples at
 proposal level: fresh never-agent caller logins with root-owned launcher/path
 and witness-checked ancestry; post-exec root-witness rendezvous; noncanonical
 SSH-only TTY capture, queue discard, supervised full restoration and channel/pty
 destruction with no successor reader on every exit; a pinned root composer
 supplies the nonsecret candidate through sealed FD0, never caller-writable storage;
+the witness binds the single-launcher thaw/refreeze before the password prompt;
 independent operator and dispatcher unbind storage/routes; and grant-history
 checks for issuer revocation while root/operator-key revocation stays independent.
 The exact custody limits/effects, nonce-only refusal handling and explicit
@@ -147,15 +152,19 @@ explicit time-contract, repository and user-manager owner acceptance:
 restore burns the installation and its time scope permanently. Only the exact
 C1 exception permits a never-reused installation/consumer scope with a fresh
 qualified NTS checkpoint and watermark after old-token revocation and replacement
-of roots/grants/bindings. Old W/holds/history are retained as evidence only,
-never imported, compared or revived; ordinary restart retains current W/holds.
+of roots/grants/bindings. Recoverable retired W/hold bounds and the off-VM
+retirement instant are refusal-only floors for first consumption and expiry,
+never imported/admitting or revived. C1 is no hold-release route: same-source
+use stays closed until protected recovery qualification. Off-VM pre-start
+approval checks expiry against an off-VM clock. Ordinary restart retains W/holds.
 A root-owned start/restore fence outside the service home is checked every start; consumer
 high-water persists in the broker store and regression refuses; authenticated
 NTS feeds existing time confidence/watermark; only a dedicated TEST subscription
 is eligible under protected account and qualified-VM selectors. Fresh independent
 VM identity evidence is mandatory; a cloned guest image/fence cannot select C
-elsewhere. An undetected live whole-VM revert remains owner-accepted residual
-risk; no result is promoted to production. Exact amendment acceptance and
+elsewhere. An undetected live whole-VM revert is a proposed residual awaiting
+the owners' decision along with the exact time-contract amendment. Nothing
+in C is in force; no result is promoted to production. Exact amendment acceptance and
 qualification of the concrete protected inputs remain required; the compiled
 time consumer is still closed. Missing grant/revocation ceremonies, VM verifier,
 headroom/isolation, native publication and gateway/teardown qualification are

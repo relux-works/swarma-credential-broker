@@ -89,15 +89,23 @@ records the unaccepted operator-act, protected-facts, activation and enrollment
 contracts that prevent safe assembly. The accompanying broker specification
 §3.2 is **PROPOSED**, inactive, and defines no activation switch or new command.
 The [operator and activation v0 proposal](spec/operator-and-activation-v0.md)
-supplies candidate contracts and explicit owner decisions, not installed behavior.
-Its revision-3 fix-round text defines the pinned candidate composer/sealed FD0,
+supplies PROPOSED contracts, not installed behavior. Its
+[Owner decisions (2026-11-19)](spec/operator-and-activation-v0.md#9-owner-decisions-2026-11-19)
+record the repository owner's choices: A for DN-01 through DN-08, with their
+conditions, and A for DN-09 production. Curator Core acceptor review remains
+separate; nothing in C is in force pending the owners' residual-risk and exact
+time-amendment decisions. Revision 4 defines the pinned composer/sealed FD0
+and witnessed single-launcher freeze/thaw/refreeze,
 admits only direct SSH ceremonies with no server-side successor TTY reader,
 keeps both unbind paths independent of widening history, and
 preserves issuer revocation's grant-evidence requirement. Root-authority
 ownership and DN-09 C's time-witness/replacement-history exceptions are explicit
 **conflicts** with exact proposed amendments. C1 burns the old installation/time
-scope; only an accepted new-scope exception permits a fresh history, never old
-W/hold reuse or comparison. C requires protected test-account selection and
+scope; only an accepted new-scope exception permits a fresh history. Retired
+W/hold bounds and the off-VM retirement instant are refusal-only floors, never
+admitting history; a held same-source reinstall cannot reopen use without
+protected recovery qualification. Off-VM pre-start approval also checks expiry
+against an off-VM clock. C requires protected test-account selection and
 independent qualified-VM identity evidence; production remains DN-09 A. No review,
 test-profile decision or documentation change activates the stopped daemon.
 

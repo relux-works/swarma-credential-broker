@@ -12,11 +12,17 @@ bootstrap ordering also require publication before implementation. The
 [source-backed stop and resume decisions](docs/production-assembly-stop.md)
 bound the missing work; broker §3.2 is **PROPOSED**, not an activation decision.
 The [operator and activation v0 candidate](spec/operator-and-activation-v0.md)
-now proposes all six missing contracts. Its DN-01 through DN-09 decisions remain
-open; the stop is pending acceptance, not a claim that no candidate text exists.
-Revision 3 names the password-only PAM/sudo, fresh never-agent caller,
+now proposes all six missing contracts. Its
+[Owner decisions (2026-11-19)](spec/operator-and-activation-v0.md#9-owner-decisions-2026-11-19)
+record A for DN-01 through DN-08 with their conditions, and DN-09 A for production;
+Curator Core acceptor review, required amendments and qualification remain open.
+C stays a PROPOSAL pending the owners' residual-risk and exact time-amendment
+decisions; nothing in C is in force. The stop remains pending acceptance, not
+a claim that no candidate text exists. Revision 4 names password-only PAM/sudo,
+fresh never-agent caller,
 root-owned composer/sealed candidate and launcher/trusted path, SSH-only login,
-witness-checked ancestry, root-witness rendezvous and every-exit TTY queue/mode
+witnessed single-launcher freeze/thaw/refreeze, compatible root-witness FD0
+access, root-witness rendezvous and every-exit TTY queue/mode
 cleanup with no successor reader decisions; their implementation
 and native qualification are still absent. DN-05 is explicitly a **CONFLICT**
 with broker-owned principal
@@ -32,12 +38,16 @@ contract, requiring its exact exception text and clause disposition audit.
 C1 explicitly **conflicts** with the time contract's no-replacement-history,
 scope and hold-continuity rules: only the exact accepted amendment retires the
 old installation/time scope permanently and permits a fresh never-reused
-installation/consumer scope and qualified checkpoint. Old W/holds/history are
-evidence only, never imported, compared or revived; ordinary restart retains
-the current history. C also requires an every-start
+installation/consumer scope and qualified checkpoint. Retired W/hold bounds and
+the off-VM retirement instant are refusal-only floors for first consumption
+and expiry, never imported/admitting or revived. A held same-source reinstall
+still needs protected recovery qualification; off-VM pre-start checks expiry
+against an off-VM clock. Ordinary restart retains current history. C also
+requires an every-start
 outside-home root fence, persisted consumer high-water, authenticated NTS under
 existing policy, a protected test-subscription marker and fresh independent VM
-identity evidence, with owner-accepted live whole-VM rollback risk. No C result
+identity evidence, with live whole-VM rollback risk still awaiting the owners'
+decision. No C result
 may be promoted to production. Exact amendment acceptance, the VM verifier,
 initial root-to-dispatcher grant and narrowing revocation ceremonies,
 collector/witness, hold-capacity/isolation,
