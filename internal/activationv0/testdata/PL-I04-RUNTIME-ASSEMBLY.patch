@@ -1,0 +1,5 @@
+--- a/internal/assemblyv0/invariants_test.go
++++ b/internal/assemblyv0/invariants_test.go
+@@ -162 +162 @@
+-			if !strings.HasSuffix(importPath, "/"+strings.TrimSuffix(target.prefix, "/")) {
++			if target.prefix == "internal/assemblyv0/" || !strings.HasSuffix(importPath, "/"+strings.TrimSuffix(target.prefix, "/")) {

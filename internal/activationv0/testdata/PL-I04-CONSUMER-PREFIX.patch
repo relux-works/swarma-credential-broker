@@ -1,0 +1,5 @@
+--- a/internal/assemblyv0/invariants_test.go
++++ b/internal/assemblyv0/invariants_test.go
+@@ -167 +167 @@
+-				if strings.HasPrefix(filename, consumer.prefix) {
++				if strings.HasPrefix(filename, strings.TrimSuffix(consumer.prefix, "/")) {

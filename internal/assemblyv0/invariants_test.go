@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -137,25 +138,48 @@ func TestDocumentDigestJoins(test *testing.T) {
 	}
 }
 
+var inactiveImportConsumers = []struct {
+	prefix  string
+	imports []string
+}{
+	{prefix: "internal/assemblyv0/"},
+	{prefix: "internal/statev0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/assemblyv0", "github.com/relux-works/swarma-credential-broker/internal/statev0"}},
+	{prefix: "internal/activationv0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/assemblyv0"}},
+}
+
 func checkInactiveImports(filename string, contents []byte) error {
 	parsed, err := parser.ParseFile(token.NewFileSet(), filename, contents, parser.ImportsOnly)
 	if err != nil {
 		return errFixture
 	}
+	filename = filepath.ToSlash(filename)
 	for _, imported := range parsed.Imports {
 		importPath, err := strconv.Unquote(imported.Path.Value)
 		if err != nil {
 			return errFixture
 		}
-		if strings.HasSuffix(importPath, "/internal/assemblyv0") || strings.HasSuffix(importPath, "/internal/statev0") {
-			if !strings.HasPrefix(filepath.ToSlash(filename), "internal/statev0/") {
+		for _, target := range inactiveImportConsumers {
+			if !strings.HasSuffix(importPath, "/"+strings.TrimSuffix(target.prefix, "/")) {
+				continue
+			}
+			allowed := false
+			for _, consumer := range inactiveImportConsumers {
+				if strings.HasPrefix(filename, consumer.prefix) {
+					for _, permitted := range consumer.imports {
+						if importPath == permitted {
+							allowed = true
+						}
+					}
+				}
+			}
+			if !allowed {
 				return errFixture
 			}
 		}
-		if strings.HasPrefix(filepath.ToSlash(filename), "internal/assemblyv0/") && strings.HasPrefix(importPath, "github.com/") {
+		if strings.HasPrefix(filename, "internal/assemblyv0/") && strings.HasPrefix(importPath, "github.com/") {
 			return errFixture
 		}
-		if strings.HasPrefix(filepath.ToSlash(filename), "internal/statev0/") && strings.HasPrefix(importPath, "github.com/") && importPath != "github.com/relux-works/swarma-credential-broker/internal/assemblyv0" && importPath != "github.com/relux-works/swarma-credential-broker/internal/wire" {
+		if strings.HasPrefix(filename, "internal/statev0/") && strings.HasPrefix(importPath, "github.com/") && importPath != "github.com/relux-works/swarma-credential-broker/internal/assemblyv0" && importPath != "github.com/relux-works/swarma-credential-broker/internal/wire" {
 			return errFixture
 		}
 	}
@@ -190,12 +214,98 @@ func TestInactiveImportGraph(test *testing.T) {
 	}
 }
 
-// Claim: the import-boundary instrument detects actual forbidden imports beside a valid unchanged transport import.
+// Claim: explicit consumer and reverse-edge controls distinguish permitted imports from neighboring forbidden imports.
 func TestImportBoundaryControls(test *testing.T) {
-	valid := []byte(`package daemon; import _ "github.com/relux-works/swarma-credential-broker/internal/wire"`)
-	plant := []byte(`package daemon; import _ "github.com/relux-works/swarma-credential-broker/internal/assemblyv0"`)
-	if checkInactiveImports("cmd/daemon.go", valid) != nil || !errors.Is(checkInactiveImports("cmd/daemon.go", plant), errFixture) {
-		test.Fatal("import checker failed its bounded control")
+	cases := []struct {
+		name     string
+		filename string
+		valid    string
+		plant    string
+	}{
+		{"command", "cmd/daemon.go", "wire", "assemblyv0"},
+		{"state-consumer", "internal/statev0/probe.go", "assemblyv0", "activationv0"},
+		{"activation-consumer", "internal/activationv0/probe.go", "assemblyv0", "statev0"},
+		{"consumer-prefix", "internal/activationv0-other/probe.go", "wire", "assemblyv0"},
+		{"consumer-prefix-activation", "internal/activationv0-other/probe.go", "wire", "activationv0"},
+		{"reverse-dependency", "internal/assemblyv0/probe.go", "time", "activationv0"},
+		{"shared-runtime-dependency", "internal/assemblyv0/probe.go", "time", "policy"},
+		{"state-runtime-dependency", "internal/statev0/probe.go", "wire", "policy"},
+	}
+	for _, item := range cases {
+		test.Run(item.name, func(test *testing.T) {
+			if checkInactiveImports(item.filename, importBoundarySource(item.valid)) != nil {
+				test.Fatal("valid import control refused")
+			}
+			if !errors.Is(checkInactiveImports(item.filename, importBoundarySource(item.plant)), errFixture) {
+				test.Fatal("forbidden import plant accepted")
+			}
+		})
+	}
+}
+
+func importBoundarySource(packageName string) []byte {
+	importPath := packageName
+	if packageName != "time" {
+		importPath = "github.com/relux-works/swarma-credential-broker/internal/" + packageName
+	}
+	return []byte("package probe; import _ " + strconv.Quote(importPath))
+}
+
+// Claim: every current runtime Go package and cmd reject each inactive package beside a valid wire control; synthetic source imports do not activate anything.
+func TestRuntimeImportBoundaryControls(test *testing.T) {
+	root := filepath.Join("..", "..")
+	directories := map[string]bool{"cmd": true}
+	err := filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".temp" || entry.Name() == "testdata" || entry.Name() == "vendor") {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() || !strings.HasSuffix(filename, ".go") || strings.HasSuffix(filename, "_test.go") {
+			return nil
+		}
+		relative, err := filepath.Rel(root, filename)
+		if err != nil {
+			return err
+		}
+		directory := filepath.ToSlash(filepath.Dir(relative))
+		for _, consumer := range inactiveImportConsumers {
+			if strings.HasPrefix(directory+"/", consumer.prefix) {
+				return nil
+			}
+		}
+		if directory == "cmd" || strings.HasPrefix(directory, "cmd/") || strings.HasPrefix(directory, "internal/") {
+			directories[directory] = true
+		}
+		return nil
+	})
+	if err != nil {
+		test.Fatal("cannot inspect runtime package controls")
+	}
+	for _, required := range []string{"internal/service", "internal/server", "internal/runner"} {
+		if !directories[required] {
+			test.Fatal("required runtime package control missing")
+		}
+	}
+	names := make([]string, 0, len(directories))
+	for directory := range directories {
+		names = append(names, directory)
+	}
+	sort.Strings(names)
+	for _, directory := range names {
+		for _, consumer := range inactiveImportConsumers {
+			packageName := strings.TrimSuffix(strings.TrimPrefix(consumer.prefix, "internal/"), "/")
+			test.Run(directory+"/"+packageName, func(test *testing.T) {
+				filename := directory + "/probe.go"
+				if checkInactiveImports(filename, importBoundarySource("wire")) != nil {
+					test.Fatal("valid runtime import control refused")
+				}
+				if !errors.Is(checkInactiveImports(filename, importBoundarySource(packageName)), errFixture) {
+					test.Fatal("inactive import plant accepted in runtime package")
+				}
+			})
+		}
 	}
 }
 

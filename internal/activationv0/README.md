@@ -33,10 +33,12 @@ O-01/O-19 specification/engineering acceptance and every other applicability
 point remain open. No signing, identity, time, continuity or custody backend
 is selected here.
 
-Delivery is currently `STOP:O-19`: the unchanged predecessor import guard
-rejects I04's required import of the landed shared types. See
-[the unresolved scope decision](UNRESOLVED_QUESTIONS.md). Passing package tests
-are not a passing repository landing gate or an accepted implementation.
+The owner's 2026-11-19 authorization admits this inactive I04 consumer through
+the predecessor import guard's explicit consumer/import table. No runtime
+package gains an import grant, and shared declarations cannot import this
+consumer. The parallel service construction unit is not added here. See
+[the remaining acceptance boundaries](UNRESOLVED_QUESTIONS.md). Passing local
+gates is not owner acceptance, native qualification or runtime activation.
 
 ## Tools and evidence
 
@@ -47,6 +49,7 @@ Go command. From the task checkout:
 | --- | --- | --- |
 | Go formatter | `gofmt -w internal/activationv0/*.go` | Task scratch formatting log |
 | Go tests | `go test -race ./internal/activationv0` | ACTIVATE controls and refusals |
+| Import boundary tests | `go test -race ./internal/assemblyv0 -run 'Test.*Import'` | Explicit I04 grant, runtime and reverse-edge controls |
 | Go vet | `go vet ./...` | Task scratch vet log |
 | Go race suite | `go test -race ./...` | Task scratch full-suite log |
 
