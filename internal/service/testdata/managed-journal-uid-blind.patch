@@ -1,0 +1,6 @@
+--- a/internal/service/managed_linux.go
++++ b/internal/service/managed_linux.go
+@@ -360 +360,2 @@ func (v *managedView) Principal(uid uint32) (Principal, error) {
+-	if !v.live() || !exists || account.Kind != "service" || account.State != "active" || account.Class != "trusted" || account.Placement != "local" || v.journal.Active(int64(uid), account.Generation) != nil {
++	row, journaled := v.journal.Generation(account.Generation)
++	if !v.live() || !exists || account.Kind != "service" || account.State != "active" || account.Class != "trusted" || account.Placement != "local" || !journaled || row.State != "active" {
