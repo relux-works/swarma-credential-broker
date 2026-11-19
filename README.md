@@ -84,15 +84,17 @@ integration and runtime qualification. Explicit activation gates:
 
 See [unresolved integration points](UNRESOLVED_QUESTIONS.md).
 
-The P2 production-provider work is **STOP: P2-UM-LEDGER-CONTRACT** at the
-checked user-manager source: its derived ledger has generation rows but no
-record kind, and the required placement/class encodings remain unpublished.
-The exact **PENDING-UM** evidence and the journal-over-ledger contradiction
-are recorded in [the provider contract stop](docs/service-provider-contract-stop.md).
-No production provider or activation selector is added; the daemon stays
-inactive. An accepting provider must use the existing `service.Authority`
-constructor seam only after those contracts and the remaining activation gates
-are satisfied, not a fixture, static UID list or guessed ledger schema.
+The binding managed-identity projection decision of 2026-11-19 resolves the
+historical **P2-UM-LEDGER-CONTRACT** stop. The Linux production service identity
+provider, `service.NewManagedAuthority(root, protectedFacts)`, reads protected
+`lib/user-manager/identities.json` and the current generation journal together;
+it maps only trusted active local service records and fails closed otherwise.
+Future activation selects it explicitly at `service.New(authority, accounts, now)`;
+the default daemon still installs no provider or service controller. No new
+CLI activation selector, static UID fallback or installation is added. Missing
+use facts, installation, trusted time/continuity and journal restore/high-water
+integration remain activation gates. See the [provider contract and shared
+fixtures](docs/managed-identity-provider.md) and [custody gates](docs/claude-custody.md).
 
 For the inactive [new-mode topology](spec/secret-free-mode.md#2-processes-and-custody),
 credential-holding services authenticate as themselves and need their own lease
@@ -164,7 +166,8 @@ vectors, a Linux Go daemon and runner with fixture tests, and a
 runner command refuses execution until protected policy and broker transport
 are integrated. Only isolated fixture tests are supplied for the migration tool;
 real installation and writer-lifecycle qualification remain pending.
-The daemon uses Go 1.25 or later. The contained owner adds the pinned
+The module uses Go 1.26.0 or later to reuse the user-manager generation verifier
+at its pinned published revision, rather than copying that protocol. The contained owner adds the pinned
 `github.com/godbus/dbus/v5 v5.1.0` dependency for user-manager D-Bus and private
 Unix descriptor passing; production never invokes `systemd-run`. Development
 checks use Go 1.26.10 through `CURATOR_GO`, with `GOTOOLCHAIN=local`; preserve the
@@ -179,6 +182,7 @@ isolated helpers and that fake vendor, with fresh homes. No logged-in home is us
 | Python 3 metadata / digest verification | `.scripts/release-verify.sh /absolute/assets EXPECTED_FRAGMENT_SHA256`; builder invokes `.scripts/release-metadata.py create`, verifier invokes `check` | Canonical metadata and digest consistency; installer trusts only the aggregate set digest approved by the owner in person before any root step; tag allowlist is no trust root |
 | Release fixture controls / actionlint (optional) | `GO=/absolute/path/to/go .scripts/release-test.sh /absolute/new/scratch`; `actionlint .github/workflows/release.yml` when installed | Real Git/SSH/Go positive and negative controls plus local GitHub CLI double; named logs in isolated scratch; lint output |
 | Claude service / custody / worker fixtures | `go test -race -p=1 -count=1 -timeout=20m ./internal/service ./internal/claude ./internal/server ./internal/wire ./internal/claudeworker ./internal/store ./internal/qualify`; [scope and validation](docs/claude-custody.md) | Synthetic protected broker records, broker/1 socket exchanges and a placeholder-only child under private absolute `TMPDIR`; task logs in `.temp/`. No live credential, installation or release qualification |
+| Managed service identity provider / fixture seals | `"$GO" test ./internal/service -run "^TestManaged" -count=1`; `sha256sum --check SHA256SUMS` inside `internal/service/testdata/identities-v1/`; [read contract and activation limits](docs/managed-identity-provider.md) | Shared canonical projection/journal fixtures with adjacent refusal controls; logs and plant overlays in task-owned `.temp/` or private scratch. No daemon activation or root-installation qualification |
 | Go immutable storage fixture | `GOTOOLCHAIN=local GOMAXPROCS=2 GO="$CURATOR_GO" SWARMA_TEST_UNPRIVILEGED=1 "$CURATOR_GO" test -p=2 ./internal/freshstore ./internal/store -run '^(TestFresh\|TestImmutable)' -count=1`; [bounded contract and build command](docs/immutable-storage.md#focused-validation) | Synthetic files under isolated `TMPDIR`; full logs and overlay controls in private scratch outside Git |
 | Go generation selection fixture | `GOTOOLCHAIN=local GOMAXPROCS=2 go test -p=2 -count=1 -timeout=90s ./internal/generationcas`; [contract and focused validation](docs/generation-cas.md#focused-validation) | Synthetic files under isolated `TMPDIR`; full logs and overlay controls in private scratch outside Git |
 | Bash migration tool (5.3 or later) | `bash scripts/migrate-service-user close-admission <absolute-config>`, then operator reconciliation, then `bash scripts/migrate-service-user migrate <absolute-config>`; see the [operator guide](docs/service-user-migration.md) for prerequisites and required site driver | Protected run directory: preflight metadata, append-only intent/recovery journal and phase records; fixed sanitized stderr |
@@ -187,7 +191,7 @@ isolated helpers and that fake vendor, with fresh homes. No logged-in home is us
 | strace (Linux fixture tests) | `MIGRATION_TEST_FILTER='ProcessLookup*' bash tests/migration/run <absolute-fresh-scratch-directory>` injects EACCES/EIO into actual process metadata syscalls; Python's standard-library `ctypes` enables a test-only subreaper for abandoned fixture children | Exact injected-call traces, child/reclose evidence and narrowing-control logs under the supplied scratch directory |
 | Git | Review whitespace with `git diff --check`; verify signed changes with `git log --format='%G? %an %s' origin/main..HEAD` | Terminal; capture private evidence in a scratch `.tmp` directory outside the versioned tree |
 | Go importable v0 client | `GO="$CURATOR_GO" "$CURATOR_GO" test ./brokerclient -count=1`; [API and observer protocol](docs/brokerclient.md) | Synthetic socket/external-module fixtures in test-owned `TMPDIR`; use a short isolated root for Unix socket limits and private logs outside Git. No provider or cross-UID deployment qualification |
-| Go 1.25+ | Build with `go build -o ../.tmp/swarma-credential-broker ./cmd/swarma-credential-broker`; build the fake with `go build -o ../.tmp/fake-app-server ./internal/runner/testdata/appserver`; check with `go vet ./internal/runner ./cmd/swarma-credential-broker`, `gofmt -l internal/runner cmd/swarma-credential-broker`, and `GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -count=1` | Set `CURATOR_GO` to the selected Go executable. Helper builds use explicit `GO` or the running toolchain GOROOT, and verify the same Go version. Binary in private scratch; tests build the fake app-server and command under `TMPDIR` (set it to a scratch directory outside the versioned tree) |
+| Go 1.26.0+ | Build with `go build -o ../.tmp/swarma-credential-broker ./cmd/swarma-credential-broker`; build the fake with `go build -o ../.tmp/fake-app-server ./internal/runner/testdata/appserver`; check with `go vet ./internal/runner ./cmd/swarma-credential-broker`, `gofmt -l internal/runner cmd/swarma-credential-broker`, and `GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -count=1` | Set `CURATOR_GO` to the selected Go executable. Helper builds use explicit `GO` or the running toolchain GOROOT, and verify the same Go version. Binary in private scratch; tests build the fake app-server and command under `TMPDIR` (set it to a scratch directory outside the versioned tree) |
 | strace (Linux tests) | Reproduce real proc metadata disappearance with `GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -run 'Test(CommandProcDisappearance\|StopProcDisappearance)$' -count=1 -v`; development runs skip with `UNVERIFIED` when strace or ptrace permission is unavailable (a native typed-errno probe runs first). Require every observation row with `RUNNER_QUALIFICATION=1 GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -count=1`; unavailable strace/ptrace or a skipped required row fails with a named `UNVERIFIED` diagnostic | Test-owned syscall traces under `TMPDIR`; no errno substitution or live account access |
 | Python 3 / Linux seccomp (fixture control) | `GO="$CURATOR_GO" GOTOOLCHAIN=local "$CURATOR_GO" test -race ./internal/runner -run '^TestTraceAvailability$' -count=1 -v`; the x86_64 `testdata/ptrace_denied.py` wrapper returns EPERM only for ptrace in its own subprocess tree | Named unavailable and applied-assertion controls in test output; no host policy changes |
 | Qualified-time provider (inactive) | `go test ./timeconf -count=1 -v`; `go test ./cmd/swarma-credential-broker -run '^TestQualification(AuthorityContainment\|Containment\|TimeFixture)' -count=1 -v`; see [API and settlement format](docs/qualified-time-api.md). `NewConsumer` always returns typed activation refusals on consumption until the independent witness and native path are qualified | Isolated test-owned records, original evidence and receipt files under `TMPDIR`; logs belong in private scratch. No real clock service or account access |

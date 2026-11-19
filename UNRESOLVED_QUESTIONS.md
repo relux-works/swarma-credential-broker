@@ -33,18 +33,17 @@ Gateway listener/placeholder mapping, matcher inventory and actual stop/use
 closure, deployment and exact harness/vendor qualification remain separate.
 Fixture success grants no live account permission or activation.
 
-P2 is **STOP: P2-UM-LEDGER-CONTRACT**, not a supplied production provider.
-At user-manager `ebea7d32a89be5b9330e91a8d1387e9456afc04a`,
-`DiskStore.Ledger` writes only `genjournal.View` (`tail`, `rows` of
-`uid,generation,state,seq`), omitting the service-account `kind` required by
-service spec §2.2. **PENDING-UM:** the protected per-generation `kind`
-projection/join; verifiable admitted-local-placement and admission-class
-encodings (no JSON members are assigned by the current specs); and the ledger
-store-epoch envelope/floor encoding. Helper §4.5 also forbids accepting ledger
-`active` over a retiring/removed or unavailable generation journal. A protected
-JSON read alone cannot implement current generation. See the
-[pinned contract evidence and exact resumption inputs](docs/service-provider-contract-stop.md).
-Do not infer these facts from names, policy defaults or fixture role labels.
+The binding managed-identity projection decision of 2026-11-19 resolves the
+historical **P2-UM-LEDGER-CONTRACT** stop. The [production service identity
+provider](docs/managed-identity-provider.md) consumes that separate protected
+artifact joined to the verified generation journal; it does not reinterpret
+the derived ledger. Shared producer/consumer fixture-byte reconciliation and
+specification-acceptor review remain separate owner gates. Activation still
+requires installation, independently protected operator/use facts, trusted
+time/continuity, external restore-fence custody and a durable consumer
+high-water. The identity-only reader supplies neither that independent
+rollback evidence nor a daemon activation selector. The producer retains the
+lifetime UID-kind invariant across consumer restarts.
 
 ## Owner close diagnostic mitigation
 

@@ -1,5 +1,11 @@
 # P2 production Authority/View provider: contract stop
 
+**Historical finding, resolved for P2 by the binding owner decision of
+2026-11-19.** The separate managed-identity projection is implemented by the
+[production service identity provider](managed-identity-provider.md). The
+original finding below is retained as checkpoint evidence, not a current STOP.
+Installation, trusted time, restore/high-water and other activation gates remain.
+
 **STOP: P2-UM-LEDGER-CONTRACT.** This is a bounded contract finding, not a
 production implementation, accepting stub, qualification result or activation.
 No runtime source, provider interface, daemon wiring or specification changes.

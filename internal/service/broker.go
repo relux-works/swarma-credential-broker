@@ -48,8 +48,8 @@ type View interface {
 // WithIdentity settles only protected principal/operator evidence and remains
 // available when caller grants or use-authority readers are unavailable.
 // WithCurrent acquires current use facts before the broker state lock, holding
-// them stable through fn and its bounded material write. There is no accepting
-// production provider; installation and trusted-time continuity remain gates.
+// them stable through fn and its bounded material write. ManagedAuthority reads
+// production service identity; installed use facts and trusted time remain gates.
 type Authority interface {
 	WithIdentity(context.Context, func(View) error) error
 	WithCurrent(context.Context, func(View) error) error
@@ -346,7 +346,10 @@ func (b *Broker) Open(ctx context.Context, uid uint32) (Principal, error) {
 	err := b.authority.WithIdentity(ctx, func(v View) error {
 		var e error
 		p, e = v.Principal(uid)
-		if e != nil || !validPrincipal(p, uid) {
+		if e != nil {
+			return known(e, "role_not_permitted")
+		}
+		if !validPrincipal(p, uid) {
 			return refuse("role_not_permitted")
 		}
 		select {
@@ -361,6 +364,10 @@ func (b *Broker) Open(ctx context.Context, uid uint32) (Principal, error) {
 		return ctx.Err()
 	})
 	if err != nil {
+		var refusal *wire.Error
+		if errors.As(err, &refusal) && refusal.Code == "principal_ledger_mismatch" {
+			return Principal{}, refuse("principal_ledger_mismatch")
+		}
 		return Principal{}, refuse("role_not_permitted")
 	}
 	return p, nil

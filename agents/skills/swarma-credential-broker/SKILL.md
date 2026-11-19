@@ -6,7 +6,7 @@ description: Explain Swarma Credential Broker public Go interfaces and implement
 # Swarma Credential Broker
 
 Use this skill for module usage and source-backed integration questions in
-`github.com/relux-works/swarma-credential-broker`. The module declares Go 1.25.
+`github.com/relux-works/swarma-credential-broker`. The module declares Go 1.26.0.
 The baseline here is commit `e43b4b2b0c643eb0255ab1ae349af9eb7aa5cd23`;
 check source at the consumer's exact pin before applying these interfaces.
 

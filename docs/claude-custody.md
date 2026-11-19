@@ -26,7 +26,18 @@ lock. The current view must hold service generation, caller binding/chain,
 revocations, selected account policy and trusted time stable through the actual
 bounded publication callback. Admission classes and local placement belong to
 that protected evidence. Static UID, request fields and placeholder possession
-supply none of it. No production provider is supplied.
+supply none of it. The production service identity leg is now supplied by
+`service.NewManagedAuthority(root, protectedFacts)` under the binding
+managed-identity projection decision of 2026-11-19; the
+[provider contract](managed-identity-provider.md) specifies the protected read
+pass, exact mapping, shared fixture seals and limits. Future activation selects
+it at `service.New(authority, accounts, now)`, never through a configured UID
+or fixture fallback. The default daemon remains inactive and installs neither
+this provider nor a service controller. Installation of the independent
+operator/use-facts readers, trusted time and restart continuity, restore-fence
+custody and the durable journal consumer high-water remain gates; the
+identity-only reader does not claim to supply them. Missing facts refuse before
+a current-use callback, and operators are not invented from service records.
 
 An explicit activation gate is that the provider enforces spec §2.2
 (service-account record, disjoint roles): a user-manager service-account
