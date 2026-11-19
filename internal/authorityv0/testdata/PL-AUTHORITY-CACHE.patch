@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -167 +167 @@
+-		if pins != nil && (current.document.Revision != pins.Revision || !bytes.Equal(current.authority, pins.contents)) {
++		if pins != nil && current.document.Revision != pins.Revision {

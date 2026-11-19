@@ -1,0 +1,5 @@
+--- a/internal/protectedio/read_linux.go
++++ b/internal/protectedio/read_linux.go
+@@ -238 +238 @@
+-	if identity(leaf.stat) != gate.pin || unix.Flock(int(leaf.file.Fd()), unix.LOCK_SH|unix.LOCK_NB) != nil {
++	if unix.Flock(int(leaf.file.Fd()), unix.LOCK_SH|unix.LOCK_NB) != nil {

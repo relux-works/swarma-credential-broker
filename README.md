@@ -210,6 +210,12 @@ Its fix-round controls cover bounded re-entry refusal, maximal narrowing and
 hold-first reserves, held-account delivery refusal and transitive import isolation.
 U01 review-round controls remain in [the fix-round evidence](docs/assembly-v0-fix-round-1.md).
 
+[Construction stage C1](docs/assembly-v0-construction-contract-c1.md) additionally
+authorizes the inactive [U02 protected reader](internal/protectedio/README.md)
+and [authority equality windows](internal/authorityv0/README.md). These libraries
+are not imported by the daemon and do not satisfy activation, dedicated-human
+history or final acceptor gates.
+
 For diagram-source validation, an installed PlantUML can render both labeled
 views in each source with `plantuml -o <absolute-scratch-directory> diagrams/*.puml`.
 Keep generated images and validation logs in private scratch, outside versioned
@@ -236,6 +242,7 @@ isolated helpers and that fake vendor, with fresh homes. No logged-in home is us
 | Tool | Purpose and command | Outputs |
 |---|---|---|
 | Inactive assembly construction vectors (Go) | `go test ./internal/assemblyv0 ./internal/statev0`; explicit corpus refresh: `go test ./internal/assemblyv0 -run '^TestConstructionVectors$' -update-assembly-vectors` then `go test ./internal/statev0 -run '^TestJournalNonEmptyVectors$' -update-state-vectors`; review every byte change against the pinned spec | Exact synthetic CCJ-1/preimage files and source-line/digest index in `internal/assemblyv0/testdata/construction-v0/`, non-empty journal files in `internal/statev0/testdata/construction-v0/`; private logs/plants under task-owned `.temp/`. Closed inactive record codecs only; no admission validator, gate implementation or activation |
+| Inactive protected authority construction (Go) | `go test -race ./internal/protectedio ./internal/authorityv0 ./internal/assemblyv0`; `go vet ./...`; `go test -race ./...`; [row and plant map](internal/authorityv0/coverage-map.md) | Synthetic kernel-backed file/directory/flock witnesses and inert source narrowing patches in the new packages; exact exits and plant logs under task-owned `.temp/`. No daemon wiring, provisioning, activation or native qualification. |
 | Linux pre-release template (Bash 4+, Go 1.26.10, Git, GNU coreutils, Python 3) | On main: `.scripts/release-admit.sh v1.2.3`; `GO=/absolute/path/to/go .scripts/release-build.sh /absolute/new/dist /absolute/source`; `gh workflow run release.yml --ref main -f tag=v1.2.3`; see [release trust and isolated build setup](docs/releasing.md) | Linux amd64/arm64 binaries, `SHA256SUMS`, `provenance.json`, canonical `release-set.json`; workflow creates a PRE-RELEASE draft |
 | OpenSSH / GitHub CLI optional bot signature | `GO=/absolute/path/to/go .scripts/release-sign.sh v1.2.3`; independent rebuild and exact digest comparison before local signature/upload | `SHA256SUMS.sig`; `.temp/release-sign.*` rebuild/readback evidence; agent-held key, proves nothing about origin |
 | Python 3 metadata / digest verification | `.scripts/release-verify.sh /absolute/assets EXPECTED_FRAGMENT_SHA256`; builder invokes `.scripts/release-metadata.py create`, verifier invokes `check` | Canonical metadata and digest consistency; installer trusts only the aggregate set digest approved by the owner in person before any root step; tag allowlist is no trust root |

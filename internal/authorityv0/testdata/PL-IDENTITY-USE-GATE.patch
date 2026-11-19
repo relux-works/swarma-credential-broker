@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -142 +142 @@
+-	if !directoryJoins(result.document, result.passwd, result.group) || use && !reader.equalConfig(result.document) {
++	if !directoryJoins(result.document, result.passwd, result.group) || !reader.equalConfig(result.document) {

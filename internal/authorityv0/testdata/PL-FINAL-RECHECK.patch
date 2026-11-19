@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -183 +183 @@
+-		if !bytes.Equal(current.authority, after.authority) || !bytes.Equal(current.passwd, after.passwd) || !bytes.Equal(current.group, after.group) {
++		if !bytes.Equal(current.passwd, after.passwd) || !bytes.Equal(current.group, after.group) {
