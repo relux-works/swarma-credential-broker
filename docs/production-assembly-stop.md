@@ -108,7 +108,7 @@ checks, landing, installation or native qualification is claimed.
 ## Proposed contract section for owner review
 
 The six gaps above are now addressed by one candidate:
-[Operator and activation v0](../spec/operator-and-activation-v0.md), revision 1,
+[Operator and activation v0](../spec/operator-and-activation-v0.md), revision 2,
 **PROPOSED**, test profile v0, single Linux host, Claude service only.
 The evidence and gap table above describe the inspected baseline; the new
 section proposes bytes and integration, not an accepted revision of section 14.
@@ -126,21 +126,31 @@ gates. No code, command, activation file or unit is installed by this packet.
 | `service-lifetime-selector` | Section 5: activation member, default 900 s, startup refusal above 900 without clamping; DN-05. |
 
 The full [DECISION-NEEDED register](../spec/operator-and-activation-v0.md#8-decision-needed-register)
-keeps every bundle open. The revision-1 fix-round text closes the review
-counterexamples at proposal level: concrete dedicated-login/outer-TTY/password
-predicates; act-only nonce burning on refusal and fresh corrected admission;
-independent BOOTTIME unbind and separate revocation state; an explicit DN-05
-ownership **CONFLICT** and proposed amendments/equality joins; and unchanged
-token-custody limits/effects with protected token-verifier classification.
+keeps every bundle open. Revision 2 addresses the review counterexamples at
+proposal level: fresh never-agent caller logins with root-owned launcher/path
+and witness-checked ancestry; post-exec root-witness rendezvous; noncanonical
+TTY capture, queue discard and supervised full restoration on every exit;
+independent operator and dispatcher unbind storage/routes; and grant-history
+checks for issuer revocation while root/operator-key revocation stays independent.
+The exact custody limits/effects, nonce-only refusal handling and explicit
+DN-05 ownership **CONFLICT**/equality joins remain. Missing-as-empty service
+journal handling, initial enrollment reconciliation, protected readers and the
+new local journal formats are implementation deltas, not current capabilities.
 
-DN-09 retains A for production and adds C as a **TEST-PROFILE v0 refinement**:
+DN-09 retains A for production and proposes C as a **TEST-PROFILE v0 CONFLICT**
+with the published time contract's prohibition on co-restorable history/witness.
+Its exact time-contract/API amendment and full clause disposition audit require
+explicit time-contract, repository and user-manager owner acceptance:
 restore is unsupported and recovery is a fresh installation; a root-owned
 start/restore fence outside the service home is checked every start; consumer
 high-water persists in the broker store and regression refuses; authenticated
 NTS feeds existing time confidence/watermark; only a dedicated TEST subscription
-is eligible, whole-VM rollback is an owner-accepted residual risk, and no result
-is promoted to production. Acceptance by the continuity owners and qualification
-of the concrete protected inputs remain required; the compiled time consumer
-is still closed. Missing grant-issuance, headroom/isolation, native publication
-and gateway/teardown qualification is not supplied by Option C.
+is eligible under protected account and qualified-VM selectors. Fresh independent
+VM identity evidence is mandatory; a cloned guest image/fence cannot select C
+elsewhere. An undetected live whole-VM revert remains owner-accepted residual
+risk; no result is promoted to production. Exact amendment acceptance and
+qualification of the concrete protected inputs remain required; the compiled
+time consumer is still closed. Missing grant/revocation ceremonies, VM verifier,
+headroom/isolation, native publication and gateway/teardown qualification are
+not supplied by Option C.
 Accepting this candidate does not itself authorize enrollment or production use.

@@ -14,18 +14,27 @@ bound the missing work; broker §3.2 is **PROPOSED**, not an activation decision
 The [operator and activation v0 candidate](spec/operator-and-activation-v0.md)
 now proposes all six missing contracts. Its DN-01 through DN-09 decisions remain
 open; the stop is pending acceptance, not a claim that no candidate text exists.
-DN-02 now names the password-only PAM/sudo, dedicated human-login, outer-TTY,
-exclusive-input and no-dump launch decisions; their implementation/qualification
-is still absent. DN-05 is explicitly a **CONFLICT** with broker-owned principal
+Revision 2 names the password-only PAM/sudo, fresh never-agent caller,
+root-owned launcher/trusted path, witness-checked ancestry, root-witness
+rendezvous and every-exit TTY queue/mode cleanup decisions; their implementation
+and native qualification are still absent. DN-05 is explicitly a **CONFLICT**
+with broker-owned principal
 and machine-policy rules, requiring the listed broker/dialect amendments and
 equality-or-refusal joins. DN-06 proposes versioned service receipt metadata,
-nonsticky refusals and separate revocation storage, not an installed migration.
+nonsticky refusals and independent revocation/caller-binding storage, not an
+installed migration. Issuer revocation needs verified grant history; only
+root/operator-key revocation is independent of it. Both unbind routes retain
+their own identity/storage requirements without widening gates.
 DN-09 keeps A for production and proposes C only for an explicitly accepted,
-time-boxed TEST-PROFILE v0: restore unsupported/fresh install, an every-start
+time-boxed, qualified-VM-bound TEST-PROFILE v0 **CONFLICT** with the time
+contract, requiring its exact exception text and clause disposition audit.
+C requires restore unsupported/fresh install, an every-start
 outside-home root fence, persisted consumer high-water, authenticated NTS under
-existing policy, a dedicated test subscription and owner-accepted whole-VM
-rollback risk. No C result may be promoted to production. The initial
-root-to-dispatcher grant ceremony, collector/witness, hold-capacity/isolation,
+existing policy, a protected test-subscription marker and fresh independent VM
+identity evidence, with owner-accepted live whole-VM rollback risk. No C result
+may be promoted to production. Exact amendment acceptance, the VM verifier,
+initial root-to-dispatcher grant and narrowing revocation ceremonies,
+collector/witness, hold-capacity/isolation,
 native publication, gateway routes and teardown remain qualification gates.
 
 ## Claude secret-free service integration
