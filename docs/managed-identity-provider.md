@@ -123,30 +123,46 @@ release is activated. This unit never starts a daemon or opens live credentials.
 projection documents have canonical sorted-key JSON with no trailing LF;
 `journal.jsonl` has canonical LF-terminated records. Deliberately malformed,
 duplicate-key and noncanonical cases are negative byte fixtures, not claimed
-canonical documents. The producer-owned `cases.json` identifies each lookup,
-its exact verdict, transition history and filesystem condition. `SHA256SUMS`
-seals every case including that manifest and journal; the producer README and
+canonical documents. The producer-owned `cases.json` at snapshot `316c860`
+identifies each check kind, its consumer operation, exact verdict, transition
+history and filesystem condition. `SHA256SUMS` seals every case including that
+manifest and all journals; the producer README and
 checksum list itself are the only unsealed metadata. All files, including those
 two metadata files, are copied unchanged from the canonical producer set.
+
+The broker consumes decode checks directly through `decodeManaged`, service
+checks through UID-only `View.Principal(uid)` using each case's separate verified
+journal and exact expected UID, generation and service, and custody checks
+through temporary filesystem conditions. Decode accepts do not promise a
+Principal. Producer-only transitions declare `consumer=none` and are skipped
+with a recorded reason; they do not claim a broker pairwise transition API.
+The shared decode refusals include zero UID, zero generation and NUL names;
+`TestManagedIdentityScalars` also checks these bounds across all supported kinds.
 
 The broker consumes the fixtures in `TestManagedSharedFixtures`, verifies the
 seal in `TestManagedFixtureChecksums`, checks complete case-file coverage in
 `TestManagedFixtureInventory`, and rejects closed-schema violations independently
 in `TestManagedClosedDocument`. The inventory checker has added-file, missing-file,
-nonregular-file, duplicate-case and missing-history negative controls. Manifest
-custody cases apply the named condition to temporary copies, not the checked-in
+nonregular-file, duplicate-case and missing-history negative controls.
+`TestManagedFixtureFileSet` removes every listed file in turn, including the
+per-service journals and metadata, and rejects an extra file beside intact
+controls. `TestManagedFixtureConsumerContract` checks per-kind metadata and
+rejects missing service journals, UID/output mismatches and invalid promises.
+Manifest custody cases apply the named condition to temporary copies, not the checked-in
 files; valid bytes alone do not represent a filesystem refusal. Additional
 consumer-only schema and filesystem negatives generate their own temporary data.
-Optional per-case `uid` and `generation` fields override the manifest defaults
-independently, including for additional accepting rows. Consumer-only controls
-exercise a different active journal tuple without changing shared fixture bytes.
+Service rows explicitly supply the lookup UID and case journal/head; accepting
+rows also supply the exact Principal and repeated expected generation, never a
+generation lookup argument. Consumer-only controls exercise a different active
+journal tuple without changing shared fixture bytes.
 `TestManagedNonselectedRecords` drives closed values, members and uniqueness
 outside the selected record. `TestManagedPendingAtReadBoundary`,
 `TestManagedGateDataOrdering`, `TestManagedReadDeadlineBeforeEffects` and
 `TestManagedReadMetadataChange` drive the private nil-by-default read boundaries,
 including marker publication before gate acquisition and metadata changes on the
 opened descriptor. These are package-private test seams, not runtime overrides.
-`TestManagedRefusalsBeforeMaterial` also consumes every refusing manifest row and
+`TestManagedRefusalsBeforeMaterial` also consumes every consumer-expressible
+refusing manifest row, skips producer-only transitions with a reason, and
 checks that connection admission and lease requests leave publication, custody,
 lease count, durable state and identity evidence unchanged. Effect none is an
 observed invariant, not an invented wire-error member.

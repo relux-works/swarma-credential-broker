@@ -217,7 +217,7 @@ func decodeManaged(raw []byte, head string) (map[uint32]managedAccount, error) {
 		if _, exists := accounts[account.UID]; exists {
 			return nil, managedRefusal()
 		}
-		if !managedHex(account.Generation, 32) || account.Name == "" || account.Placement != "local" || (account.Class != "trusted" && account.Class != "untrusted") || (account.State != "active" && account.State != "retired") {
+		if account.UID == 0 || !managedHex(account.Generation, 32) || account.Generation == "00000000000000000000000000000000" || account.Name == "" || strings.ContainsRune(account.Name, '\x00') || account.Placement != "local" || (account.Class != "trusted" && account.Class != "untrusted") || (account.State != "active" && account.State != "retired") {
 			return nil, managedRefusal()
 		}
 		switch account.Kind {

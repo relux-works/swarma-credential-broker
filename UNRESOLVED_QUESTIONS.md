@@ -1,30 +1,5 @@
 # Unresolved questions
 
-## Managed identity fixture resync: producer c22a436
-
-The broker #67 consumer copy is byte-identical to the supplied user-manager #93
-fixture snapshot at `c22a436`, but the requested all-ACCEPT exact-Principal
-contract is blocked. The producer README distinguishes document decoding,
-pairwise transitions and service lookup. `valid-empty` accepts decoding an empty
-projection; `same-kind-transition` accepts retirement. Neither can produce an
-active service Principal without violating the broker identity contract.
-
-The sealed journal contains only the default active UID/generation. Service
-ACCEPT rows `valid-other-generation` and `uid-max` name other UIDs absent from
-that journal, so the current reader correctly returns
-`principal_ledger_mismatch`. `mixed-wrong-generation` also expects rejection of
-an external generation coordinate, whereas `View.Principal(uid)` receives only
-the UID and returns the actual journal-backed generation.
-
-Required owner/producer decision: provide a broker-ready canonical fixture set
-with journal-backed service ACCEPT rows and distinct decoding/transition
-expectations, or explicitly authorize a separate schema/transition compatibility
-suite alongside the stricter broker Principal suite, with producer-owned journal
-evidence for additional service tuples. Do not fabricate journal authority,
-accept empty/retired identities, modify the sealed inputs locally, or weaken
-existing assertions to make this resync green. The existing service race suite
-fails at the manifest active-pair preflight; no review-ready candidate is claimed.
-
 ## Claude secret-free service integration
 
 The accepted service dialect is the landed 0.13

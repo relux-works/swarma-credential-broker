@@ -32,14 +32,24 @@ type managedFixture struct {
 }
 
 type managedFixtureCase struct {
-	Check      string  `json:"check"`
-	Condition  string  `json:"condition,omitempty"`
-	File       string  `json:"file"`
-	Name       string  `json:"name"`
-	Previous   string  `json:"previous,omitempty"`
-	Verdict    string  `json:"verdict"`
-	UID        *uint32 `json:"uid,omitempty"`
-	Generation string  `json:"generation,omitempty"`
+	Check       string                   `json:"check"`
+	Condition   string                   `json:"condition,omitempty"`
+	File        string                   `json:"file"`
+	Name        string                   `json:"name"`
+	Previous    string                   `json:"previous,omitempty"`
+	Verdict     string                   `json:"verdict"`
+	UID         *uint32                  `json:"uid,omitempty"`
+	Generation  string                   `json:"generation,omitempty"`
+	Consumer    string                   `json:"consumer"`
+	Journal     string                   `json:"journal,omitempty"`
+	JournalHead string                   `json:"journal_head,omitempty"`
+	Principal   *managedFixturePrincipal `json:"principal,omitempty"`
+}
+
+type managedFixturePrincipal struct {
+	UID        uint32 `json:"uid"`
+	Generation string `json:"generation"`
+	Service    string `json:"service"`
 }
 
 type managedFixtureManifest struct {
@@ -62,11 +72,8 @@ func managedCases(t *testing.T) managedFixtureManifest {
 	if err != nil || journal.Tail.Hash != manifest.JournalHead || journal.Active(int64(manifest.UID), manifest.Generation) != nil {
 		t.Fatal("manifest does not identify the active journal vector")
 	}
-	for _, item := range manifest.Cases {
-		want := managedExpectedPrincipal(manifest, item)
-		if item.Verdict == "accept" && journal.Active(int64(want.UID), want.Generation) != nil {
-			t.Fatalf("accept case %s does not identify an active journal pair", item.Name)
-		}
+	if err := managedFixtureContract(manifest); err != nil {
+		t.Fatal(err)
 	}
 	if err := managedFixtureInventory(managedFixtureDirectory, manifest); err != nil {
 		t.Fatal(err)
@@ -74,14 +81,54 @@ func managedCases(t *testing.T) managedFixtureManifest {
 	return manifest
 }
 
+func managedFixtureContract(manifest managedFixtureManifest) error {
+	journals := map[string]bool{manifest.Journal: true}
+	for _, item := range manifest.Cases {
+		if item.Verdict != "accept" && item.Verdict != "principal_ledger_mismatch" {
+			return fmt.Errorf("unknown fixture verdict: %s", item.Name)
+		}
+		consumer := map[string]string{"decode": "decode", "service": "View.Principal", "transition": "none", "custody": "custody"}[item.Check]
+		if consumer == "" || item.Consumer != consumer {
+			return fmt.Errorf("invalid consumer kind: %s", item.Name)
+		}
+		if (item.Check == "transition") != (item.Previous != "") || (item.Check == "custody") != (item.Condition != "") {
+			return fmt.Errorf("invalid case precondition: %s", item.Name)
+		}
+		if item.Check != "service" {
+			if item.UID != nil || item.Generation != "" || item.Principal != nil || item.Journal != "" || item.JournalHead != "" {
+				return fmt.Errorf("nonservice principal promise: %s", item.Name)
+			}
+			continue
+		}
+		if item.UID == nil || item.Journal == "" || filepath.Base(item.Journal) != item.Journal || journals[item.Journal] || !managedHex(item.JournalHead, 64) {
+			return fmt.Errorf("invalid service journal or UID: %s", item.Name)
+		}
+		journals[item.Journal] = true
+		if item.Verdict == "accept" {
+			if item.Principal == nil || item.Principal.UID != *item.UID || item.Principal.Generation != item.Generation || !managedHex(item.Generation, 32) || item.Principal.Service != Gateway {
+				return fmt.Errorf("invalid service principal promise: %s", item.Name)
+			}
+		} else if item.Principal != nil || item.Generation != "" {
+			return fmt.Errorf("refusal promises a principal: %s", item.Name)
+		}
+	}
+	return nil
+}
+
 func managedFixtureInventory(directory string, manifest managedFixtureManifest) error {
 	listed := map[string]bool{"README.md": true, "SHA256SUMS": true, "cases.json": true, manifest.Journal: true}
 	names := make(map[string]bool)
 	for _, item := range manifest.Cases {
-		if item.Name == "" || names[item.Name] || item.File == "" || filepath.Base(item.File) != item.File || listed[item.File] {
+		if item.Name == "" || names[item.Name] || item.File == "" || filepath.Base(item.File) != item.File {
 			return fmt.Errorf("duplicate or invalid fixture case: %s", item.Name)
 		}
 		names[item.Name], listed[item.File] = true, true
+		if item.Journal != "" {
+			if filepath.Base(item.Journal) != item.Journal {
+				return fmt.Errorf("invalid fixture journal: %s", item.Journal)
+			}
+			listed[item.Journal] = true
+		}
 	}
 	for _, item := range manifest.Cases {
 		if item.Previous != "" && !listed[item.Previous] {
@@ -105,6 +152,9 @@ func managedFixtureInventory(directory string, manifest managedFixtureManifest) 
 }
 
 func managedExpectedPrincipal(manifest managedFixtureManifest, item managedFixtureCase) Principal {
+	if item.Principal != nil {
+		return Principal{UID: item.Principal.UID, Generation: item.Principal.Generation, Service: item.Principal.Service, Role: "service"}
+	}
 	uid, generation := manifest.UID, manifest.Generation
 	if item.UID != nil {
 		uid = *item.UID
@@ -117,12 +167,18 @@ func managedExpectedPrincipal(manifest managedFixtureManifest, item managedFixtu
 
 func managedApplyCase(t *testing.T, fixture *managedFixture, manifest managedFixtureManifest, item managedFixtureCase) {
 	t.Helper()
-	if item.Previous != "" {
-		managedWrite(t, filepath.Join(fixture.parent, "identities.json"), managedBytes(t, item.Previous))
-		want := managedExpectedPrincipal(manifest, item)
-		if principal, err := managedPrincipal(fixture.authority, want.UID); err != nil || principal != want {
-			t.Fatalf("transition control: got %#v, %v; want %#v", principal, err, want)
+	if item.Check == "service" {
+		journal, err := genjournal.Verify(bytes.NewReader(managedBytes(t, item.Journal)), genjournal.Floor{Hash: genjournal.ZeroHash})
+		if err != nil || journal.Tail.Hash != item.JournalHead {
+			t.Fatal("service case journal head mismatch")
 		}
+		if item.Verdict == "accept" {
+			want := managedExpectedPrincipal(manifest, item)
+			if journal.Active(int64(want.UID), want.Generation) != nil {
+				t.Fatal("service accept does not identify an active case journal pair")
+			}
+		}
+		managedWrite(t, filepath.Join(fixture.journal, "journal"), managedBytes(t, item.Journal))
 	}
 	path := filepath.Join(fixture.parent, "identities.json")
 	managedWrite(t, path, managedBytes(t, item.File))
@@ -132,9 +188,7 @@ func managedApplyCase(t *testing.T, fixture *managedFixture, manifest managedFix
 			t.Fatal("unexpected case precondition")
 		}
 	case "transition":
-		if item.Previous == "" || item.Condition != "" {
-			t.Fatal("missing transition precondition")
-		}
+		t.Fatal("producer-only transition must not run as a consumer check")
 	case "custody":
 		var err error
 		switch item.Condition {
@@ -284,18 +338,42 @@ func managedSnapshot(t *testing.T, root string) string {
 	return snapshot.String()
 }
 
-// Claim: every shared consumer verdict has its sealed exact bytes; successful
-// cases map the exact service triple, and refusals leave protected bytes intact.
+// Claim: shared verdicts apply only to their declared consumer operation;
+// services use their own journals and exact triples, with no protected writes.
+// Producer-only pairwise transitions are explicitly skipped, not consumer passes.
 func TestManagedSharedFixtures(t *testing.T) {
 	manifest := managedCases(t)
 	for _, item := range manifest.Cases {
 		t.Run(item.Name, func(t *testing.T) {
+			if item.Check == "transition" {
+				t.Skip("consumer=none: producer-only ValidateTransition; no broker pairwise transition API")
+			}
 			managedPositive(t, newManagedFixture(t).authority)
 			fixture := newManagedFixture(t)
 			managedApplyCase(t, fixture, manifest, item)
 			before := managedSnapshot(t, fixture.authority.root)
+			if item.Check == "decode" {
+				accounts, err := decodeManaged(managedBytes(t, item.File), manifest.JournalHead)
+				if item.Verdict == "accept" {
+					if err != nil || accounts == nil {
+						t.Fatalf("valid decode: got %#v, %v", accounts, err)
+					}
+				} else {
+					refused(t, err, item.Verdict)
+					if accounts != nil {
+						t.Fatal("decode refusal returned accounts")
+					}
+				}
+				managedCaseUnchanged(t, fixture, item, before)
+				t.Logf("check=decode consumer=decode verdict=%s effect=none", item.Verdict)
+				return
+			}
 			want := managedExpectedPrincipal(manifest, item)
-			principal, err := managedPrincipal(fixture.authority, want.UID)
+			uid := manifest.UID
+			if item.Check == "service" {
+				uid = *item.UID
+			}
+			principal, err := managedPrincipal(fixture.authority, uid)
 			if item.Verdict == "accept" {
 				if err != nil || principal != want {
 					t.Fatalf("valid fixture: got %#v, %v; want %#v", principal, err, want)
@@ -310,16 +388,16 @@ func TestManagedSharedFixtures(t *testing.T) {
 				}
 			}
 			managedCaseUnchanged(t, fixture, item, before)
-			t.Logf("verdict=%s effect=none principal=%#v", item.Verdict, principal)
+			t.Logf("check=%s consumer=%s verdict=%s effect=none principal=%#v", item.Check, item.Consumer, item.Verdict, principal)
 		})
 	}
 }
 
-// Claim: cases.json lists every case file exactly once and names present files;
-// only the manifest, checksum seal, journal and producer README are metadata.
+// Claim: cases.json names every projection and service journal; repeated file
+// references are valid, but missing/unlisted files and duplicate case names fail.
 func TestManagedFixtureInventory(t *testing.T) {
 	manifest := managedCases(t)
-	for _, fault := range []string{"extra", "missing", "directory", "duplicate", "unlisted-previous"} {
+	for _, fault := range []string{"extra", "missing", "missing-journal", "directory", "duplicate", "unlisted-previous"} {
 		t.Run(fault, func(t *testing.T) {
 			directory := t.TempDir()
 			entries, err := os.ReadDir(managedFixtureDirectory)
@@ -334,8 +412,11 @@ func TestManagedFixtureInventory(t *testing.T) {
 			switch fault {
 			case "extra":
 				managedWrite(t, filepath.Join(directory, "unlisted.json"), nil)
-			case "missing", "directory":
+			case "missing", "missing-journal", "directory":
 				path := filepath.Join(directory, candidate.Cases[0].File)
+				if fault == "missing-journal" {
+					path = filepath.Join(directory, candidate.Cases[0].Journal)
+				}
 				if err := os.Remove(path); err != nil {
 					t.Fatal(err)
 				}
@@ -349,7 +430,7 @@ func TestManagedFixtureInventory(t *testing.T) {
 			case "unlisted-previous":
 				candidate.Cases[0].Previous = "unlisted.json"
 			}
-			if err := managedFixtureInventory(directory, candidate); err == nil || !strings.Contains(err.Error(), map[string]string{"extra": "unlisted or nonregular", "missing": "missing listed", "directory": "unlisted or nonregular", "duplicate": "duplicate or invalid", "unlisted-previous": "unlisted previous"}[fault]) {
+			if err := managedFixtureInventory(directory, candidate); err == nil || !strings.Contains(err.Error(), map[string]string{"extra": "unlisted or nonregular", "missing": "missing listed", "missing-journal": "missing listed", "directory": "unlisted or nonregular", "duplicate": "duplicate or invalid", "unlisted-previous": "unlisted previous"}[fault]) {
 				t.Fatalf("inventory control did not detect %s: %v", fault, err)
 			}
 			if err := managedFixtureInventory(managedFixtureDirectory, manifest); err != nil {
@@ -359,7 +440,96 @@ func TestManagedFixtureInventory(t *testing.T) {
 	}
 }
 
-// Claim: the producer seal covers every case, cases.json and journal.jsonl;
+// Claim: removing any canonical file fails inventory, including metadata and
+// per-service journals; an added file also fails, beside the intact control.
+func TestManagedFixtureFileSet(t *testing.T) {
+	manifest := managedCases(t)
+	directory := t.TempDir()
+	entries, err := os.ReadDir(managedFixtureDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		managedWrite(t, filepath.Join(directory, entry.Name()), nil)
+	}
+	if err := managedFixtureInventory(directory, manifest); err != nil {
+		t.Fatalf("intact inventory refused: %v", err)
+	}
+	for _, entry := range entries {
+		t.Run("missing-"+entry.Name(), func(t *testing.T) {
+			path := filepath.Join(directory, entry.Name())
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := managedFixtureInventory(directory, manifest); err == nil || err.Error() != "missing listed fixture: "+entry.Name() {
+				t.Fatalf("missing file not detected: %v", err)
+			}
+			managedWrite(t, path, nil)
+			if err := managedFixtureInventory(directory, manifest); err != nil {
+				t.Fatalf("restored inventory refused: %v", err)
+			}
+		})
+	}
+	managedWrite(t, filepath.Join(directory, "unlisted.json"), nil)
+	if err := managedFixtureInventory(directory, manifest); err == nil || err.Error() != "unlisted or nonregular fixture: unlisted.json" {
+		t.Fatalf("extra file not detected: %v", err)
+	}
+}
+
+// Claim: consumer metadata cannot change the operation, invent a service
+// promise, reuse the shared journal or omit the UID and exact output fields.
+func TestManagedFixtureConsumerContract(t *testing.T) {
+	manifest := managedCases(t)
+	for _, fault := range []string{"consumer", "uid-missing", "uid-mismatch", "generation", "service", "journal-missing", "journal-shared", "journal-head", "principal-missing", "verdict", "nonservice-promise"} {
+		t.Run(fault, func(t *testing.T) {
+			candidate := manifest
+			candidate.Cases = append([]managedFixtureCase(nil), manifest.Cases...)
+			item := &candidate.Cases[0]
+			principal := *item.Principal
+			item.Principal = &principal
+			wantError := "invalid service principal promise"
+			switch fault {
+			case "consumer":
+				item.Consumer = "decode"
+				wantError = "invalid consumer kind"
+			case "uid-missing":
+				item.UID = nil
+				wantError = "invalid service journal or UID"
+			case "uid-mismatch":
+				item.Principal.UID++
+			case "generation":
+				item.Principal.Generation = "22222222222222222222222222222222"
+			case "service":
+				item.Principal.Service = "unknown-service"
+			case "journal-missing":
+				item.Journal = ""
+				wantError = "invalid service journal or UID"
+			case "journal-shared":
+				item.Journal = manifest.Journal
+				wantError = "invalid service journal or UID"
+			case "journal-head":
+				item.JournalHead = "invalid"
+				wantError = "invalid service journal or UID"
+			case "principal-missing":
+				item.Principal = nil
+			case "verdict":
+				item.Verdict = "unknown"
+				wantError = "unknown fixture verdict"
+			case "nonservice-promise":
+				item.Check, item.Consumer = "decode", "decode"
+				wantError = "nonservice principal promise"
+			}
+			if err := managedFixtureContract(candidate); err == nil || !strings.HasPrefix(err.Error(), wantError+":") {
+				t.Fatalf("invalid %s contract not detected: %v", fault, err)
+			}
+			if err := managedFixtureContract(manifest); err != nil {
+				t.Fatalf("valid contract refused: %v", err)
+			}
+		})
+	}
+}
+
+// Claim: the producer seal covers every case, cases.json and every journal;
 // only SHA256SUMS itself and the explanatory producer README are unsealed.
 func TestManagedFixtureChecksums(t *testing.T) {
 	entries, err := os.ReadDir(managedFixtureDirectory)
@@ -405,8 +575,46 @@ func TestManagedClosedDocument(t *testing.T) {
 		}
 		t.Run(item.Name, func(t *testing.T) {
 			_, err := decodeManaged(managedBytes(t, item.File), valid.JournalHead)
-			refused(t, err, item.Verdict)
+			if item.Verdict == "accept" {
+				if err != nil {
+					t.Fatalf("valid decode refused: %v", err)
+				}
+			} else {
+				refused(t, err, item.Verdict)
+			}
 		})
+	}
+}
+
+// Claim: zero UID, zero generation and NUL names refuse decoding for every
+// supported kind, beside valid controls; rejected documents return no accounts.
+func TestManagedIdentityScalars(t *testing.T) {
+	for _, kind := range []string{"service", "agent", "workplace"} {
+		for _, fault := range []string{"uid-zero", "generation-zero", "name-nul"} {
+			t.Run(kind+"/"+fault, func(t *testing.T) {
+				var document managedDocument
+				if err := json.Unmarshal(managedBytes(t, "valid.json"), &document); err != nil {
+					t.Fatal(err)
+				}
+				document.Accounts[0].Kind = kind
+				if _, err := decodeManaged(encode(t, document), document.JournalHead); err != nil {
+					t.Fatalf("valid scalar control refused: %v", err)
+				}
+				switch fault {
+				case "uid-zero":
+					document.Accounts[0].UID = 0
+				case "generation-zero":
+					document.Accounts[0].Generation = "00000000000000000000000000000000"
+				case "name-nul":
+					document.Accounts[0].Name += "\x00suffix"
+				}
+				accounts, err := decodeManaged(encode(t, document), document.JournalHead)
+				refused(t, err, "principal_ledger_mismatch")
+				if accounts != nil {
+					t.Fatal("invalid scalar returned accounts")
+				}
+			})
+		}
 	}
 }
 
@@ -810,6 +1018,9 @@ func TestManagedRefusalsBeforeMaterial(t *testing.T) {
 	}
 	for _, item := range cases {
 		t.Run(item.Name, func(t *testing.T) {
+			if item.Check == "transition" {
+				t.Skip("consumer=none: producer-only transition verdict does not govern broker material calls")
+			}
 			fixture := newManagedFixture(t)
 			broker := newBrokerFixture(t, nil)
 			delete(broker.a.principals, broker.uid)
@@ -823,10 +1034,15 @@ func TestManagedRefusalsBeforeMaterial(t *testing.T) {
 			broker.b.authority = fixture.authority
 			broker.issue(t)
 			managedApplyCase(t, fixture, manifest, item)
+			uid := broker.uid
+			if item.Check == "service" {
+				uid = *item.UID
+				principal.UID = uid
+			}
 			before, leases := broker.custody.entries, len(broker.b.leases)
 			state := managedSnapshot(t, broker.root)
 			identities := managedSnapshot(t, fixture.authority.root)
-			_, err := broker.b.Open(context.Background(), broker.uid)
+			_, err := broker.b.Open(context.Background(), uid)
 			refused(t, err, "principal_ledger_mismatch")
 			replies := 0
 			err = broker.b.Call(context.Background(), principal, "service.lease.request", encode(t, broker.request()), func(any) error { replies++; return nil })

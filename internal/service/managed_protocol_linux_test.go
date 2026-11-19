@@ -22,7 +22,7 @@ import (
 func TestManagedPerCasePrincipal(t *testing.T) {
 	manifest := managedCases(t)
 	var item managedFixtureCase
-	if err := wire.Decode([]byte(`{"check":"service","file":"additional.json","generation":"33333333333333333333333333333333","name":"additional","uid":40002,"verdict":"accept"}`), &item); err != nil {
+	if err := wire.Decode([]byte(`{"check":"service","consumer":"View.Principal","file":"additional.json","generation":"33333333333333333333333333333333","name":"additional","uid":40002,"verdict":"accept"}`), &item); err != nil {
 		t.Fatal(err)
 	}
 	want := managedExpectedPrincipal(manifest, item)
