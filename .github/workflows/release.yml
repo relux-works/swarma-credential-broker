@@ -30,6 +30,8 @@ jobs:
       commit: ${{ steps.admit.outputs.commit }}
       tag_object: ${{ steps.admit.outputs.tag_object }}
       policy_commit: ${{ steps.admit.outputs.policy_commit }}
+      cgo: ${{ steps.admit.outputs.cgo }}
+      cgo_image: ${{ steps.admit.outputs.cgo_image }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -44,6 +46,7 @@ jobs:
           set -euo pipefail
           .scripts/release-admit.sh "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           printf 'policy_commit=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          python3 .scripts/release-profile.py info "$(pwd -P)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.26.10'
@@ -66,7 +69,7 @@ jobs:
           unset GOTELEMETRYDIR
           git clone --quiet --no-local --no-checkout "$policy_root" "$work/source"
           git -C "$work/source" checkout --quiet --detach "$RELEASE_COMMIT"
-          "$policy_root/.scripts/release-build.sh" "$RUNNER_TEMP/dist" "$work/source"
+          "$policy_root/.scripts/release-build.sh" "$RUNNER_TEMP/dist" "$work/source" pure
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v4
         with:
           name: linux-release-${{ github.run_id }}
@@ -74,9 +77,70 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  draft:
+  cgo:
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'
+    if: github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main' && needs.build.outputs.cgo == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ${{ needs.build.outputs.cgo_image }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - name: Recheck main policy and build twice on the native architecture
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG_OBJECT: ${{ needs.build.outputs.tag_object }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+          POLICY_COMMIT: ${{ needs.build.outputs.policy_commit }}
+          RELEASE_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$POLICY_COMMIT"
+          .scripts/release-admit.sh "$RELEASE_TAG"
+          policy_root=$(pwd -P)
+          work=$(mktemp -d "$RUNNER_TEMP/native-cgo.XXXXXX")
+          work=$(cd "$work" && pwd -P)
+          mkdir -p "$work"/{home,config,cache,tmp,go-build,go-mod,go-path}
+          export HOME="$work/home" USERPROFILE="$work/home"
+          export XDG_CONFIG_HOME="$work/config" XDG_CACHE_HOME="$work/cache"
+          export TMPDIR="$work/tmp" TMP="$work/tmp" TEMP="$work/tmp" GOTMPDIR="$work/tmp"
+          export GOCACHE="$work/go-build" GOMODCACHE="$work/go-mod" GOPATH="$work/go-path"
+          unset GOTELEMETRYDIR
+          git clone --quiet --no-local --no-checkout "$policy_root" "$work/source"
+          git -C "$work/source" checkout --quiet --detach "$RELEASE_COMMIT"
+          python3 "$policy_root/.scripts/release-profile.py" build \
+            "$RUNNER_TEMP/cgo-$RELEASE_ARCH" "$policy_root" "$work/source" "$RELEASE_ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v4
+        with:
+          name: linux-cgo-${{ matrix.arch }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/cgo-${{ matrix.arch }}/*
+          if-no-files-found: error
+          retention-days: 1
+
+  draft:
+    needs: [build, cgo]
+    if: >-
+      always() && github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main' &&
+      needs.build.result == 'success' &&
+      (needs.cgo.result == 'success' || (needs.build.outputs.cgo == 'false' && needs.cgo.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -90,7 +154,17 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: linux-release-${{ github.run_id }}
-          path: ${{ runner.temp }}/dist
+          path: ${{ runner.temp }}/pure
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.build.outputs.cgo == 'true'
+        with:
+          name: linux-cgo-amd64-${{ github.run_id }}
+          path: ${{ runner.temp }}/cgo-amd64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.build.outputs.cgo == 'true'
+        with:
+          name: linux-cgo-arm64-${{ github.run_id }}
+          path: ${{ runner.temp }}/cgo-arm64
       - name: Recheck main admission and create a labelled pre-release draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -107,6 +181,12 @@ jobs:
           remote=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha)
           test "$remote" = "$RELEASE_TAG_OBJECT"
           .scripts/release-admit.sh "$RELEASE_TAG"
+          native=()
+          if test -s .github/release/cgo-packages; then
+            native=("$RUNNER_TEMP/cgo-amd64" "$RUNNER_TEMP/cgo-arm64")
+          fi
+          python3 .scripts/release-profile.py collect "$RUNNER_TEMP/dist" "$(pwd -P)" \
+            "$RELEASE_COMMIT" "$RUNNER_TEMP/pure" "${native[@]}"
           python3 .scripts/release-metadata.py check "$RUNNER_TEMP/dist"
           cd "$RUNNER_TEMP/dist"
           sha256sum --strict --check SHA256SUMS

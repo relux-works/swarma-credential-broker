@@ -1,0 +1,1 @@
+{"CGO_CFLAGS":"-O2 -g0","CGO_CPPFLAGS":"","CGO_CXXFLAGS":"-O2 -g0","CGO_FFLAGS":"-O2 -g0","CGO_LDFLAGS":"-Wl,--build-id=none","compiler_version":"14.2.0","image":"gcc:14.2.0-bookworm@sha256:b99b86a28812b1e6453a231a947dc43d76fe192788a12f344a9b568bf9f5d24c","libc_version":"glibc 2.36"}

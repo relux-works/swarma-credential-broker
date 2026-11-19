@@ -32,6 +32,8 @@ read -r kind public_key _ < "$scratch/key.pub"
 printf 'release-tag namespaces="git" %s %s\n' "$kind" "$public_key" > .github/release/allowed_signers
 cp "$source_root"/.scripts/release-* .scripts/
 cp "$source_root/.github/workflows/release.yml" .github/workflows/
+cp "$source_root/.github/release/cgo-toolchain.json" .github/release/
+printf 'example_linux_amd64\nexample_linux_arm64\n' > .github/release/expected-artifacts
 printf 'module example.invalid/releasefixture\n\ngo 1.25\n' > go.mod
 printf 'package main\nfunc main() { println("inert release fixture") }\n' > cmd/example/main.go
 printf 'main fixture\n' > content
@@ -64,6 +66,12 @@ git -c "user.signingkey=$scratch/other-key" tag -s v1.2.0 -m 'Allowlist replacem
 git restore --source="$base" -- .github/release/allowed_signers
 git add .github/release/allowed_signers
 git commit -q -S -m 'Restore default-branch policy'
+printf './cmd/example\n' > .github/release/cgo-packages
+git add .github/release/cgo-packages
+git commit -q -S -m 'Fixture tag edits cgo opt-in'
+git tag -s v1.3.0 -m 'Cgo policy replacement control'
+git rm -q .github/release/cgo-packages
+git commit -q -S -m 'Restore empty cgo policy'
 git update-ref refs/remotes/origin/main HEAD
 main=$(git rev-parse HEAD)
 git switch -q -c side
@@ -104,6 +112,7 @@ sign="$scratch/work/.scripts/release-sign.sh"
 
 # Real signed objects prove each distinct admission refusal beside a valid ancestor.
 expect_ok ancestor_tag_on_main "$admit" v1.0.0
+expect_refusal tag_owned_cgo_policy tagged-release-policy-differs "$admit" v1.3.0
 expect_refusal lightweight_tag annotated-tag-required "$admit" v1.0.1
 expect_refusal unsigned_tag ssh-signature-required "$admit" v1.0.2
 expect_refusal untrusted_tag inconsistent-tag-signature "$admit" v1.0.3
@@ -231,6 +240,8 @@ expect_ok rebuilt_signature ssh-keygen -Y verify -f "$scratch/fixture-file-signe
   -I fixture -n file -s "$GH_FIXTURE/SHA256SUMS.sig" < "$scratch/original-sums"
 expect_refusal existing_signature existing-asset "$sign" v1.0.0
 expect_ok no_signature_overwrite cmp "$scratch/uploaded-signature" "$GH_FIXTURE/SHA256SUMS.sig"
+expect_refusal cgo_controls_direct_invocation run-release-test-required bash "$source_root/.scripts/release-cgo-test.sh"
+source "$source_root/.scripts/release-cgo-test.sh"
 # Finite template assertions cover the reviewed workflow contract, not hosted execution.
 workflow_policy() {
   python3 - "$source_root" <<'POLICY'
@@ -240,8 +251,13 @@ import sys
 root = pathlib.Path(sys.argv[1])
 workflow = (root / ".github/workflows/release.yml").read_text()
 assert "  workflow_dispatch:" in workflow and not re.search(r"^  push:", workflow, re.M)
-assert workflow.count("if: github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'") == 2
-assert workflow.count("          ref: main\n") == 2
+assert workflow.count("github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'") == 3
+assert workflow.count("          ref: main\n") == 3
+assert "runner: ubuntu-24.04\n" in workflow and "runner: ubuntu-24.04-arm\n" in workflow
+assert "image: ${{ needs.build.outputs.cgo_image }}" in workflow
+assert "needs.build.outputs.cgo == 'false' && needs.cgo.result == 'skipped'" in workflow
+assert "needs.cgo.result == 'success'" in workflow
+assert "python3 .scripts/release-profile.py collect" in workflow
 assert "--draft --prerelease" in workflow
 assert "agent-held key, proves nothing about origin" in workflow
 assert "python3 .scripts/release-metadata.py check" in workflow
