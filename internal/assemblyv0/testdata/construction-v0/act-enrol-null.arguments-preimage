@@ -1,0 +1,3 @@
+swarma-credential-broker operator-arguments/1
+account.enrol
+{"account":"fixture/claude/subscription","harness":"claude_code","kind":"claude-oauth-token","operation_id":"00112233445566778899aabbccddeeff","token_expires_at":null,"token_sha256_prefix":"2789d553e32faf7ac302ebabf65a88c5"}

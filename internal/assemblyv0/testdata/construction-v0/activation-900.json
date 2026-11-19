@@ -1,0 +1,1 @@
+{"authority_digest":"sha256:ae3f39157f22e24e3bf20de2f4d1864bac47a978afd0e986605129f80942d055","continuity":{"kind":"production"},"enabled":false,"format":"swarma-broker-activation/1","installation_id":"fixture-installation-v0","kind":"claude-oauth-token","platform_root":"/opt/swarma","service_lease_max_lifetime_seconds":900,"service_name":"credential-gateway","test_profile":"v0"}

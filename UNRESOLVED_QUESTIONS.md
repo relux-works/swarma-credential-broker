@@ -1,5 +1,17 @@
 # Unresolved questions
 
+## Inactive assembly construction
+
+[Construction contract C0](docs/assembly-v0-construction-contract.md) supplies
+U00/U01 declarations and source-derived synthetic vectors only. All O-01
+through O-21 remain explicitly recorded in the
+[applicability register](docs/assembly-v0-applicability.md#open-o-points).
+O-07 enrollment result/reply types and O-09 producer/principal/effect/replacement
+schemas are absent, without placeholder members or accepting stubs. O-01/O-19
+acceptance remains a review/publication gate; the supplied owner's construction
+assignment is not final specification acceptance. No daemon, custody, live
+authority or C selector is enabled by these artifacts.
+
 ## Production assembly contract stop
 
 **STOP:operator-act-contract.** Broker §14 explicitly leaves the operator

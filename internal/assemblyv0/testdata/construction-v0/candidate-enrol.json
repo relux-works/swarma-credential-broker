@@ -1,0 +1,1 @@
+{"arguments":{"account":"fixture/claude/subscription","harness":"claude_code","kind":"claude-oauth-token","operation_id":"00112233445566778899aabbccddeeff","token_expires_at":null},"method":"account.enrol"}

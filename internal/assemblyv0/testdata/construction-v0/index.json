@@ -1,0 +1,688 @@
+{
+  "baseline_spec_sha256": "e069ccf61e89b2f6efa27227eb80349f5379181f64b6ce46d960a64a609a6834",
+  "construction": "C0-inactive",
+  "spec_commit": "e295b4c7c0dc397ecdaa89e73c057d53d2e3f533",
+  "spec_sha256": "d242db6d897ffe7a6fc662df9c47f9d67a035ddcbaffbcc245b87b13ad9d7c79",
+  "unresolved": [
+    "O-01: publication/acceptance",
+    "O-07: enrollment result/reply",
+    "O-09: producer/principal/effect/replacement",
+    "O-19: engineering acceptance",
+    "O-21: C excluded"
+  ],
+  "vectors": [
+    {
+      "file": "act-bind.arguments-preimage",
+      "sha256": "sha256:5a339cc9ad822fe91b2f2d4d6c710bccd98c15e15fd5b6df120221a5bd5d017d",
+      "claim": "Separate arguments domain, LF, exact method, LF and canonical complete arguments.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 447,
+          "last_line": 450
+        }
+      ]
+    },
+    {
+      "file": "act-bind.body.json",
+      "sha256": "sha256:7082dd3db66a1180a905e749c8dac77252561eb22eced9165ac1eaeaa8a54eb1",
+      "claim": "Exact closed act body, method-specific freshness and equal inner/body operation identities.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 409,
+          "last_line": 433
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 454,
+          "last_line": 488
+        }
+      ]
+    },
+    {
+      "file": "act-bind.envelope.json",
+      "sha256": "sha256:da8c2acde8384616c1c4e1c27b83a9b8bfae3f5353f4eddfc1d75a8756b81eae",
+      "claim": "Closed envelope, recomputed id and deterministic signature from a public synthetic test seed only.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-bind.preimage",
+      "sha256": "sha256:a70129347be3431199a2f029a05dfb9d3c660047156da8e0991f539a8310a0cc",
+      "claim": "Exact act domain, one LF, CCJ-1 body, no terminal LF; envelope id hashes these bytes.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-bind.receipt.json",
+      "sha256": "sha256:8740dfd26da8508b0e4503ca7295981dbcc75a41dfff072c1c5dfaf1a759e81c",
+      "claim": "Closed synthetic root-receipt values; no token or arguments and no claim of protected provenance.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 826,
+          "last_line": 850
+        }
+      ]
+    },
+    {
+      "file": "act-bind.request.json",
+      "sha256": "sha256:739c06401a078337586de5eb1daab901e9c70d9b9265b32aa3fd8e19743c0e5f",
+      "claim": "Exactly act/receipt_nonce/token, with null token for every non-enrollment method.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 518,
+          "last_line": 536
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-expiry.arguments-preimage",
+      "sha256": "sha256:097223f5d12606dc8eb7bcc0c641cf4587e6ef69b92cb58cec9a9b6f57280837",
+      "claim": "Separate arguments domain, LF, exact method, LF and canonical complete arguments.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 447,
+          "last_line": 450
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-expiry.body.json",
+      "sha256": "sha256:f35092d0a32ef1871ad7e9a32e73c2184e6ffb3d8eec104370b42d9a83aa2464",
+      "claim": "Exact closed act body, method-specific freshness and equal inner/body operation identities.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 409,
+          "last_line": 433
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 454,
+          "last_line": 488
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-expiry.envelope.json",
+      "sha256": "sha256:7ab8602f2f3d2d0fad0e08f25945701e1c104079e01a180df328e72d85e7cd89",
+      "claim": "Closed envelope, recomputed id and deterministic signature from a public synthetic test seed only.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-expiry.preimage",
+      "sha256": "sha256:829849f20cbbde78f16d984ab48968b44c555df2204b79f1cff1f47ea2c7f977",
+      "claim": "Exact act domain, one LF, CCJ-1 body, no terminal LF; envelope id hashes these bytes.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-expiry.receipt.json",
+      "sha256": "sha256:4ea76beac3745bdad903499100284fcf575806a0583a02c6aa213d2134db60af",
+      "claim": "Closed synthetic root-receipt values; no token or arguments and no claim of protected provenance.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 826,
+          "last_line": 850
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-expiry.request.json",
+      "sha256": "sha256:1e341a0f02e8d207e920b856e98e1cf4f809ad147608a8a73922f282233691e6",
+      "claim": "Exactly act/receipt_nonce/token, with null token for every non-enrollment method.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 518,
+          "last_line": 536
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-null.arguments-preimage",
+      "sha256": "sha256:1a9c93d13a6148d5f46f3995288860e1284d4746001ea47a88d5f433ab46599a",
+      "claim": "Separate arguments domain, LF, exact method, LF and canonical complete arguments.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 447,
+          "last_line": 450
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-null.body.json",
+      "sha256": "sha256:50e1b1adf25c2287b46ac270f7b6acceb70ccea07251f936a39208f6f436b99c",
+      "claim": "Exact closed act body, method-specific freshness and equal inner/body operation identities.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 409,
+          "last_line": 433
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 454,
+          "last_line": 488
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-null.envelope.json",
+      "sha256": "sha256:715bfe8f5d053d078d9729b395a7611b7b8ad3f8e5f653221f54754c816f5d0b",
+      "claim": "Closed envelope, recomputed id and deterministic signature from a public synthetic test seed only.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-null.preimage",
+      "sha256": "sha256:3783f23cb12419335f33fcc7f7689b0506fa4328a2a60e81a132842d19a886f0",
+      "claim": "Exact act domain, one LF, CCJ-1 body, no terminal LF; envelope id hashes these bytes.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-null.receipt.json",
+      "sha256": "sha256:8efba37ae33692fa986b471db26231865e9accbfd434a405849df568392e4bd0",
+      "claim": "Closed synthetic root-receipt values; no token or arguments and no claim of protected provenance.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 826,
+          "last_line": 850
+        }
+      ]
+    },
+    {
+      "file": "act-enrol-null.request.json",
+      "sha256": "sha256:fe0cb226c717107fdacd091109b69e08167797a6ef04b12849acde788242d555",
+      "claim": "Exactly act/receipt_nonce/token, with null token for every non-enrollment method.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 518,
+          "last_line": 536
+        }
+      ]
+    },
+    {
+      "file": "act-lift.arguments-preimage",
+      "sha256": "sha256:3538a5ca5172a35c05086371194ca0cbd6c6dff2922337cbdc4d23561a910c49",
+      "claim": "Separate arguments domain, LF, exact method, LF and canonical complete arguments.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 447,
+          "last_line": 450
+        }
+      ]
+    },
+    {
+      "file": "act-lift.body.json",
+      "sha256": "sha256:a2e486db557bd5a61e29fdf494c575d326553b84ca83d55817eb6e98b0d740d1",
+      "claim": "Exact closed act body, method-specific freshness and equal inner/body operation identities.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 409,
+          "last_line": 433
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 454,
+          "last_line": 488
+        }
+      ]
+    },
+    {
+      "file": "act-lift.envelope.json",
+      "sha256": "sha256:ace4f66e2698658912c82493ce9375e407dcc0b5ef6bd426c709f608361208ca",
+      "claim": "Closed envelope, recomputed id and deterministic signature from a public synthetic test seed only.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-lift.preimage",
+      "sha256": "sha256:ec527cb86a2eeea3cee62420a06541314b9f0d729144bb74e8b4c702aeb6891b",
+      "claim": "Exact act domain, one LF, CCJ-1 body, no terminal LF; envelope id hashes these bytes.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-lift.receipt.json",
+      "sha256": "sha256:29ceccd3dd67a6bec8ddf12c8f042dc512d88e6986a8c37ce8f091162a6a5cc8",
+      "claim": "Closed synthetic root-receipt values; no token or arguments and no claim of protected provenance.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 826,
+          "last_line": 850
+        }
+      ]
+    },
+    {
+      "file": "act-lift.request.json",
+      "sha256": "sha256:2aecfb1041f28419f9ecdce075bc8632a04837f22b5ca55d6f501e3892d9bcf4",
+      "claim": "Exactly act/receipt_nonce/token, with null token for every non-enrollment method.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 518,
+          "last_line": 536
+        }
+      ]
+    },
+    {
+      "file": "act-unbind.arguments-preimage",
+      "sha256": "sha256:8bcdf1e633eeb07a3b8b4a7491f7e59b337ed36b69688e8281b41847afa8b5b6",
+      "claim": "Separate arguments domain, LF, exact method, LF and canonical complete arguments.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 447,
+          "last_line": 450
+        }
+      ]
+    },
+    {
+      "file": "act-unbind.body.json",
+      "sha256": "sha256:ae20163794bb06c3893be8d903733ca878b785bec5abc887ffadfb2dd238c560",
+      "claim": "Exact closed act body, method-specific freshness and equal inner/body operation identities.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 409,
+          "last_line": 433
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 454,
+          "last_line": 488
+        }
+      ]
+    },
+    {
+      "file": "act-unbind.envelope.json",
+      "sha256": "sha256:7a07ae6e3d3de2614cfea80895e938cd05c870a86132b24c042da615281a76ae",
+      "claim": "Closed envelope, recomputed id and deterministic signature from a public synthetic test seed only.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-unbind.preimage",
+      "sha256": "sha256:06b26a6e5db3d3a797430d3f0425d15e8323b7ef4f9101278015d8761eda8ed3",
+      "claim": "Exact act domain, one LF, CCJ-1 body, no terminal LF; envelope id hashes these bytes.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        }
+      ]
+    },
+    {
+      "file": "act-unbind.receipt.json",
+      "sha256": "sha256:18a4387f5fc3a1156ecfbb141f1e842b32fda4e967077fa885c98d5994b8e26f",
+      "claim": "Closed synthetic root-receipt values; no token or arguments and no claim of protected provenance.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 826,
+          "last_line": 850
+        }
+      ]
+    },
+    {
+      "file": "act-unbind.request.json",
+      "sha256": "sha256:c2df571243dc00d8654222a7eead920a77a4f4264703daaa18121ba6ba4be76b",
+      "claim": "Exactly act/receipt_nonce/token, with null token for every non-enrollment method.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 518,
+          "last_line": 536
+        }
+      ]
+    },
+    {
+      "file": "activation-1.json",
+      "sha256": "sha256:78e8e32fcf2f1a2614cac75f0882f67ce21e01d184265c2a30896efdbaea5505",
+      "claim": "Disabled document with an explicit admitted lifetime boundary, without clamping.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1405,
+          "last_line": 1427
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1506,
+          "last_line": 1515
+        }
+      ]
+    },
+    {
+      "file": "activation-900.json",
+      "sha256": "sha256:fb82f990da42e5d9c0b930d0c32cd258fd7bff4e827956d2c0706bf3677d11ad",
+      "claim": "Disabled document with an explicit admitted lifetime boundary, without clamping.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1405,
+          "last_line": 1427
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1506,
+          "last_line": 1515
+        }
+      ]
+    },
+    {
+      "file": "activation-default.json",
+      "sha256": "sha256:11340c9b9ffd62a885dadfb2a003ec64c59d249192d34131daaada0cf8cb3301",
+      "claim": "Disabled document with omitted lifetime; sole selector defaults to 900 seconds.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1405,
+          "last_line": 1427
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1446,
+          "last_line": 1456
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1506,
+          "last_line": 1515
+        }
+      ]
+    },
+    {
+      "file": "activation-enabled-synthetic.json",
+      "sha256": "sha256:5ddb694693a0f3940b05efc3093b2e890bb39f8ba174ec2efa15488f50b6cbec",
+      "claim": "Structurally enabled test bytes only; no installed file, protected-source join or use authority.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1405,
+          "last_line": 1427
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1466,
+          "last_line": 1486
+        }
+      ]
+    },
+    {
+      "file": "authority-empty-arrays.json",
+      "sha256": "sha256:8b954f3399522c4a7c4bafd3d4923d6e5f003acf4bf07500f499e89096621f1c",
+      "claim": "Required arrays are explicit, not null or omitted; empty facts grant no runtime authority.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 75,
+          "last_line": 85
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 785,
+          "last_line": 824
+        }
+      ]
+    },
+    {
+      "file": "authority.json",
+      "sha256": "sha256:ae3f39157f22e24e3bf20de2f4d1864bac47a978afd0e986605129f80942d055",
+      "claim": "Complete synthetic authority with explicit empty dispatchers and full-byte policy digest.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 75,
+          "last_line": 85
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 785,
+          "last_line": 824
+        }
+      ]
+    },
+    {
+      "file": "candidate-enrol.json",
+      "sha256": "sha256:275829dcd73664cc7a4445899516ba3a5e2ae7addc74d965eacc7b5f3a4bb363",
+      "claim": "Pre-sudo enrollment candidate omits the derived token prefix; nullable vendor expiry is required.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 91,
+          "last_line": 113
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 148,
+          "last_line": 151
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 458,
+          "last_line": 468
+        }
+      ]
+    },
+    {
+      "file": "enrollment-token.preimage",
+      "sha256": "sha256:2789d553e32faf7ac302ebabf65a88c5d5240862061e822376cfeb2fe8246680",
+      "claim": "Synthetic token prefix preimage with exact scoped identity and domain; no real token.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 469,
+          "last_line": 474
+        }
+      ]
+    },
+    {
+      "file": "event-error-auth.json",
+      "sha256": "sha256:5e9b407a193cd3d83f06e924424ac9e3a244856cbdabaf2707e90f842bfa0ecb",
+      "claim": "Closed credential_error class from the four allowed values.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1055,
+          "last_line": 1061
+        }
+      ]
+    },
+    {
+      "file": "event-error-permission.json",
+      "sha256": "sha256:30ac15873352c1eb82060c9b93681f4bf2c77a53a46cac468904b00fbddfb993",
+      "claim": "Closed credential_error class from the four allowed values.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1055,
+          "last_line": 1061
+        }
+      ]
+    },
+    {
+      "file": "event-error-quota.json",
+      "sha256": "sha256:e5ef5e66bf4364e11e141e95dfda14a5c983f6386727096bb41a283f7d5db0f9",
+      "claim": "Closed credential_error class from the four allowed values.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1055,
+          "last_line": 1061
+        }
+      ]
+    },
+    {
+      "file": "event-error-unknown.json",
+      "sha256": "sha256:678c0b533493029760a9c0fac2f49a01f4ada19f8a8825fc2b568b6d0cdda004",
+      "claim": "Closed credential_error class from the four allowed values.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1055,
+          "last_line": 1061
+        }
+      ]
+    },
+    {
+      "file": "event-lease_expired.json",
+      "sha256": "sha256:d6b0a4443c4d1bb97585662631b9dd2fe41bd8f219642c44a6c4c4ff15bff280",
+      "claim": "Closed nonauthorizing tagged event without class or arbitrary metadata.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1055,
+          "last_line": 1061
+        }
+      ]
+    },
+    {
+      "file": "event-lease_expiring.json",
+      "sha256": "sha256:49440cda38a4489c46dd129c398035eb93b994d5908c2cf5c55e644eb3f0a58b",
+      "claim": "Closed nonauthorizing tagged event without class or arbitrary metadata.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1055,
+          "last_line": 1061
+        }
+      ]
+    },
+    {
+      "file": "event-reauth_required.json",
+      "sha256": "sha256:ede3591709259d53bdef4e217532ca5e0e313ff1b2b81915265822d5a35e897f",
+      "claim": "Closed nonauthorizing tagged event without class or arbitrary metadata.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1055,
+          "last_line": 1061
+        }
+      ]
+    },
+    {
+      "file": "grant-envelope.json",
+      "sha256": "sha256:f045d6a930c1360c52807e0313b8b328de847e5d4cee8bd88185dd46605c47c1",
+      "claim": "Unchanged baseline signed value shape with required null parent; no new root-delegation ceremony.",
+      "sources": [
+        {
+          "path": "spec/broker.md",
+          "first_line": 367,
+          "last_line": 389
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 81,
+          "last_line": 85
+        }
+      ]
+    },
+    {
+      "file": "revocation-grant.json",
+      "sha256": "sha256:cca64b794185ce7b7f3bdab60fadd4d76a63822b2185fd7f43c06c7a8baaa05f",
+      "claim": "Unchanged baseline revocation target sum and omitted optional reason; no publication or revocation authority.",
+      "sources": [
+        {
+          "path": "spec/broker.md",
+          "first_line": 417,
+          "last_line": 429
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 81,
+          "last_line": 85
+        }
+      ]
+    },
+    {
+      "file": "revocation-key.json",
+      "sha256": "sha256:a286b44da81bc2db87b7c287defa2279257b1cff4d6f60723ebd8c12da59e440",
+      "claim": "Unchanged baseline revocation target sum and omitted optional reason; no publication or revocation authority.",
+      "sources": [
+        {
+          "path": "spec/broker.md",
+          "first_line": 417,
+          "last_line": 429
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 81,
+          "last_line": 85
+        }
+      ]
+    },
+    {
+      "file": "session-unbind.json",
+      "sha256": "sha256:eb5534a0b334e98075de0ac1f10f74779a6e7dd91392e7af0d2fd485c1e91758",
+      "claim": "Unbind terminal session retains required null account_policy/continuity, not omitted members.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 349,
+          "last_line": 364
+        }
+      ]
+    }
+  ]
+}

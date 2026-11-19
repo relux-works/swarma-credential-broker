@@ -1,0 +1,3 @@
+swarma-credential-broker operator-arguments/1
+service.bind
+{"account":"fixture/claude/subscription","installation_policy_digest":"sha256:ae3f39157f22e24e3bf20de2f4d1864bac47a978afd0e986605129f80942d055","kind":"claude-oauth-token","operation_id":"00112233445566778899aabbccddeeff","service_generation":"aabbccddeeff00112233445566778899","service_name":"credential-gateway","uid":4006}

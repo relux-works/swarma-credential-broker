@@ -179,6 +179,11 @@ immutable units. It grants no production currentness or durable recovery authori
 
 ## Tools
 
+The inactive [assembly v0 construction contract](docs/assembly-v0-construction-contract.md)
+and [applicability register](docs/assembly-v0-applicability.md) cover U00/U01
+declarations and synthetic vectors only. They install no activation file or
+daemon wiring and leave owner/specification acceptance gates open.
+
 For diagram-source validation, an installed PlantUML can render both labeled
 views in each source with `plantuml -o <absolute-scratch-directory> diagrams/*.puml`.
 Keep generated images and validation logs in private scratch, outside versioned
@@ -204,6 +209,7 @@ isolated helpers and that fake vendor, with fresh homes. No logged-in home is us
 
 | Tool | Purpose and command | Outputs |
 |---|---|---|
+| Inactive assembly construction vectors (Go) | `go test ./internal/assemblyv0 ./internal/statev0`; explicit corpus refresh: `go test ./internal/assemblyv0 -run '^TestConstructionVectors$' -update-assembly-vectors`; review every byte change against the pinned spec | Exact synthetic CCJ-1/preimage files and source-line/digest index in `internal/assemblyv0/testdata/construction-v0/`; private logs/plants under task-owned `.temp/`. No production validator, gate implementation or activation |
 | Linux pre-release template (Bash 4+, Go 1.26.10, Git, GNU coreutils, Python 3) | On main: `.scripts/release-admit.sh v1.2.3`; `GO=/absolute/path/to/go .scripts/release-build.sh /absolute/new/dist /absolute/source`; `gh workflow run release.yml --ref main -f tag=v1.2.3`; see [release trust and isolated build setup](docs/releasing.md) | Linux amd64/arm64 binaries, `SHA256SUMS`, `provenance.json`, canonical `release-set.json`; workflow creates a PRE-RELEASE draft |
 | OpenSSH / GitHub CLI optional bot signature | `GO=/absolute/path/to/go .scripts/release-sign.sh v1.2.3`; independent rebuild and exact digest comparison before local signature/upload | `SHA256SUMS.sig`; `.temp/release-sign.*` rebuild/readback evidence; agent-held key, proves nothing about origin |
 | Python 3 metadata / digest verification | `.scripts/release-verify.sh /absolute/assets EXPECTED_FRAGMENT_SHA256`; builder invokes `.scripts/release-metadata.py create`, verifier invokes `check` | Canonical metadata and digest consistency; installer trusts only the aggregate set digest approved by the owner in person before any root step; tag allowlist is no trust root |
