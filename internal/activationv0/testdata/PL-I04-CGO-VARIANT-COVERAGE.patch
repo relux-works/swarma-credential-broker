@@ -1,0 +1,5 @@
+--- a/internal/assemblyv0/importgraph_test.go
++++ b/internal/assemblyv0/importgraph_test.go
+@@ -100 +100 @@
+-		for _, filename := range append(append([]string(nil), listed.GoFiles...), listed.CgoFiles...) {
++		for _, filename := range listed.GoFiles {

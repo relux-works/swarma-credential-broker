@@ -1,4 +1,4 @@
 --- a/internal/assemblyv0/invariants_test.go
 +++ b/internal/assemblyv0/invariants_test.go
-@@ -147 +146,0 @@
+@@ -146 +145,0 @@
 -	{prefix: "internal/activationv0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/assemblyv0"}},

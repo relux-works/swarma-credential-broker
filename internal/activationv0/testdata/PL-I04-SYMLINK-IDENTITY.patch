@@ -1,0 +1,7 @@
+--- a/internal/assemblyv0/importgraph_test.go
++++ b/internal/assemblyv0/importgraph_test.go
+@@ -148,4 +147,0 @@
+-			directory := protected[consumer.prefix]
+-			if physical[listed.ImportPath] == directory || strings.HasPrefix(physical[listed.ImportPath], directory+string(filepath.Separator)) {
+-				return consumer.prefix
+-			}

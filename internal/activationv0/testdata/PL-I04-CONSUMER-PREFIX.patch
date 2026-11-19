@@ -1,5 +1,5 @@
 --- a/internal/assemblyv0/invariants_test.go
 +++ b/internal/assemblyv0/invariants_test.go
-@@ -167 +167 @@
+@@ -178 +178 @@
 -				if directory == consumer.prefix {
 +				if strings.HasPrefix(directory, strings.TrimSuffix(consumer.prefix, "/")) {

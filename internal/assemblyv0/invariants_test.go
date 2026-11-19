@@ -6,7 +6,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -143,7 +142,7 @@ var inactiveImportConsumers = []struct {
 	imports []string
 }{
 	{prefix: "internal/assemblyv0/"},
-	{prefix: "internal/statev0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/assemblyv0", "github.com/relux-works/swarma-credential-broker/internal/statev0"}},
+	{prefix: "internal/statev0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/assemblyv0"}},
 	{prefix: "internal/activationv0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/assemblyv0"}},
 }
 
@@ -152,18 +151,24 @@ func checkInactiveImports(filename string, contents []byte) error {
 	if err != nil {
 		return errFixture
 	}
-	filename = filepath.ToSlash(filename)
-	directory := filepath.ToSlash(filepath.Dir(filename)) + "/"
-	for _, consumer := range inactiveImportConsumers {
-		if directory != consumer.prefix && strings.HasPrefix(directory, consumer.prefix) {
-			return errFixture
-		}
-	}
+	imports := make([]string, 0, len(parsed.Imports))
 	for _, imported := range parsed.Imports {
 		importPath, err := strconv.Unquote(imported.Path.Value)
 		if err != nil {
 			return errFixture
 		}
+		imports = append(imports, importPath)
+	}
+	return checkInactivePackageImports(filepath.ToSlash(filepath.Dir(filename))+"/", imports)
+}
+
+func checkInactivePackageImports(directory string, imports []string) error {
+	for _, consumer := range inactiveImportConsumers {
+		if directory != consumer.prefix && strings.HasPrefix(directory, consumer.prefix) {
+			return errFixture
+		}
+	}
+	for _, importPath := range imports {
 		for _, target := range inactiveImportConsumers {
 			if !strings.HasSuffix(importPath, "/"+strings.TrimSuffix(target.prefix, "/")) && !strings.Contains(importPath, "/"+target.prefix) {
 				continue
@@ -182,44 +187,21 @@ func checkInactiveImports(filename string, contents []byte) error {
 				return errFixture
 			}
 		}
-		if strings.HasPrefix(filename, "internal/assemblyv0/") && strings.HasPrefix(importPath, "github.com/") {
+		if directory == "internal/assemblyv0/" && strings.HasPrefix(importPath, "github.com/") {
 			return errFixture
 		}
-		if strings.HasPrefix(filename, "internal/statev0/") && strings.HasPrefix(importPath, "github.com/") && importPath != "github.com/relux-works/swarma-credential-broker/internal/assemblyv0" && importPath != "github.com/relux-works/swarma-credential-broker/internal/wire" {
+		if directory == "internal/statev0/" && strings.HasPrefix(importPath, "github.com/") && importPath != "github.com/relux-works/swarma-credential-broker/internal/assemblyv0" && importPath != "github.com/relux-works/swarma-credential-broker/internal/wire" {
 			return errFixture
 		}
 	}
 	return nil
 }
 
-// Claim: no production package imports the inactive declarations, and shared values cannot depend back on runtime consumers.
+// Claim: toolchain-selected production packages cannot reach inactive declarations; test-only imports grant no production admission.
 func TestInactiveImportGraph(test *testing.T) {
 	if err := checkInactiveImportGraph(filepath.Join("..", "..")); err != nil {
-		test.Fatal("inactive import boundary violated")
+		test.Fatalf("inactive import boundary violated: %v", err)
 	}
-}
-
-func checkInactiveImportGraph(root string) error {
-	return filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".temp") {
-			return filepath.SkipDir
-		}
-		if entry.IsDir() || !strings.HasSuffix(filename, ".go") || strings.HasSuffix(filename, "_test.go") {
-			return nil
-		}
-		relative, err := filepath.Rel(root, filename)
-		if err != nil {
-			return err
-		}
-		contents, err := os.ReadFile(filename)
-		if err != nil {
-			return err
-		}
-		return checkInactiveImports(relative, contents)
-	})
 }
 
 // Claim: production forwarding paths and undeclared inactive subpackages refuse beside valid exact-consumer and wire controls; test-only edges stay outside the guard.
@@ -244,20 +226,7 @@ func TestInactiveImportGraphForwardingControls(test *testing.T) {
 	}
 	for _, item := range cases {
 		test.Run(item.name, func(test *testing.T) {
-			root := test.TempDir()
-			writeSource := func(filename string, contents []byte) {
-				test.Helper()
-				path := filepath.Join(root, filepath.FromSlash(filename))
-				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-					test.Fatal(err)
-				}
-				if err := os.WriteFile(path, contents, 0600); err != nil {
-					test.Fatal(err)
-				}
-			}
-			writeSource("internal/activationv0/probe.go", importBoundarySource("assemblyv0"))
-			writeSource("internal/server/probe.go", importBoundarySource("wire"))
-			writeSource("internal/activationv0-other/probe.go", importBoundarySource("wire"))
+			root, writeSource := inactiveImportFixture(test)
 			if err := checkInactiveImportGraph(root); err != nil {
 				test.Fatal("valid exact-consumer and wire controls refused")
 			}
@@ -308,6 +277,16 @@ func TestImportBoundaryControls(test *testing.T) {
 			}
 		})
 	}
+	for _, consumer := range inactiveImportConsumers {
+		test.Run("undeclared-"+strings.Trim(consumer.prefix, "/"), func(test *testing.T) {
+			if checkInactiveImports(consumer.prefix+"probe.go", importBoundarySource("time")) != nil {
+				test.Fatal("valid exact package control refused")
+			}
+			if !errors.Is(checkInactiveImports(consumer.prefix+"nested/probe.go", importBoundarySource("time")), errFixture) {
+				test.Fatal("undeclared nested package accepted")
+			}
+		})
+	}
 }
 
 func importBoundarySource(packageName string) []byte {
@@ -320,35 +299,33 @@ func importBoundarySource(packageName string) []byte {
 
 // Claim: current cmd/ and internal/ runtime Go packages reject each inactive package beside a valid wire control; synthetic source imports do not activate anything.
 func TestRuntimeImportBoundaryControls(test *testing.T) {
-	root := filepath.Join("..", "..")
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		test.Fatal(err)
+	}
 	directories := map[string]bool{"cmd": true}
-	err := filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	packages, err := listInactiveImportPackages(root)
+	if err != nil {
+		test.Fatalf("cannot inspect runtime package controls: %v", err)
+	}
+	for _, listed := range packages {
+		if listed.Standard || listed.ForTest != "" {
+			continue
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".temp" || entry.Name() == "testdata" || entry.Name() == "vendor") {
-			return filepath.SkipDir
-		}
-		if entry.IsDir() || !strings.HasSuffix(filename, ".go") || strings.HasSuffix(filename, "_test.go") {
-			return nil
-		}
-		relative, err := filepath.Rel(root, filename)
+		directory, err := filepath.Rel(root, listed.Dir)
 		if err != nil {
-			return err
+			test.Fatal(err)
 		}
-		directory := filepath.ToSlash(filepath.Dir(relative))
+		directory = filepath.ToSlash(directory)
+		admitted := false
 		for _, consumer := range inactiveImportConsumers {
 			if directory+"/" == consumer.prefix {
-				return nil
+				admitted = true
 			}
 		}
-		if directory == "cmd" || strings.HasPrefix(directory, "cmd/") || strings.HasPrefix(directory, "internal/") {
+		if !admitted && (directory == "cmd" || strings.HasPrefix(directory, "cmd/") || strings.HasPrefix(directory, "internal/")) {
 			directories[directory] = true
 		}
-		return nil
-	})
-	if err != nil {
-		test.Fatal("cannot inspect runtime package controls")
 	}
 	for _, required := range []string{"internal/service", "internal/server", "internal/runner"} {
 		if !directories[required] {

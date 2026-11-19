@@ -45,3 +45,34 @@ not preemptively granted by this amendment.
   integration work, not a new guarantee here.
 - N7: native ancestor, symlink, regular-file and permission enforcement still
   belongs to I02/U02. Synthetic metadata checks do not qualify that reader.
+
+## PR #73 second delta review disposition
+
+The directory-alias and unscanned-forwarder findings are addressed by the
+toolchain dependency graph, physical directory identity and exact admission
+table. No filesystem-walk completeness claim remains. Separate controls cover
+inactive aliases, hidden forwarders, the earlier nested-package mechanism,
+selected tags, vendor resolution and production dependencies of test variants.
+The last row includes production dependencies rebuilt only for external
+tests, including cgo-only sources; their original dependency graphs are
+resolved separately rather than exempted with test-injected imports.
+
+Cheap notes folded into this round: isolated time-only undeclared-package
+controls, a harmless multi-hop control, removal of the impossible state
+self-import grant, regenerated plant headers, and a claim limited to the two
+environment variables actually tested by the lifetime-selector test.
+
+Still open, not silently accepted:
+
+- Earlier second-review N4: downstream consumers must handle the documented
+  zero `ServiceLifetime` for Absent/Refused without opening material use;
+  integration into those consumers is outside U03.
+- Record delta N5 / second delta N3: PR #74 must adopt this single guard and
+  add the exact `servicev0` consumer row and its controls. No such grant is
+  added or verified by this round.
+- Second delta N2: no additional go:linkname rule is introduced. The guard
+  checks Go import/dependency reachability, not arbitrary linker directives.
+- Second delta N5: the keeper still owns publication, fresh exact-head remote
+  review/checks and landing. Local producer evidence is not those gates.
+- Tag/platform coverage is bounded to the selected graph as documented in
+  README; it does not certify every possible build configuration.

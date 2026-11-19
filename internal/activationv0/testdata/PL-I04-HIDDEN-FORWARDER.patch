@@ -1,0 +1,16 @@
+--- /dev/null
++++ b/internal/x/.temp/fwd/probe.go
+@@ -0,0 +1,5 @@
++package fwd
++
++import "github.com/relux-works/swarma-credential-broker/internal/activationv0"
++
++type Loader = activationv0.Loader
+--- /dev/null
++++ b/internal/server/zz_inactive_hidden.go
+@@ -0,0 +1,5 @@
++package server
++
++import "github.com/relux-works/swarma-credential-broker/internal/x/.temp/fwd"
++
++type inactiveLoader = fwd.Loader

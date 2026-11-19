@@ -1,8 +1,8 @@
 --- a/internal/assemblyv0/invariants_test.go
 +++ b/internal/assemblyv0/invariants_test.go
-@@ -145 +145 @@
+@@ -144 +144 @@
 -	{prefix: "internal/assemblyv0/"},
 +	{prefix: "internal/assemblyv0/", imports: []string{"github.com/relux-works/swarma-credential-broker/internal/activationv0"}},
-@@ -179 +179 @@
--		if strings.HasPrefix(filename, "internal/assemblyv0/") && strings.HasPrefix(importPath, "github.com/") {
-+		if strings.HasPrefix(filename, "internal/assemblyv0/") && strings.HasPrefix(importPath, "github.com/") && importPath != "github.com/relux-works/swarma-credential-broker/internal/activationv0" {
+@@ -190 +190 @@
+-		if directory == "internal/assemblyv0/" && strings.HasPrefix(importPath, "github.com/") {
++		if directory == "internal/assemblyv0/" && strings.HasPrefix(importPath, "github.com/") && importPath != "github.com/relux-works/swarma-credential-broker/internal/activationv0" {

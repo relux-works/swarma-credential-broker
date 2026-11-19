@@ -322,7 +322,7 @@ func TestACTIVATETestCStopsO21(t *testing.T) {
 	}
 }
 
-// Operational legacy lifetime and environment variables cannot supply an activation ceiling or opt in.
+// Claim: these legacy lifetime values and two named environment variables neither select a ceiling nor enable safe absence.
 func TestACTIVATESoleLifetimeSelector(t *testing.T) {
 	t.Setenv("SWARMA_SERVICE_LEASE_MAX_LIFETIME_SECONDS", "1")
 	t.Setenv("SWARMA_ACTIVATION", "enabled")
