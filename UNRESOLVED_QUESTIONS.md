@@ -12,6 +12,13 @@ acceptance remains a review/publication gate; the supplied owner's construction
 assignment is not final specification acceptance. No daemon, custody, live
 authority or C selector is enabled by these artifacts.
 
+U05 adds only the [inactive journal and shared-gate bridge](docs/assembly-v0-service-journal.md).
+It does not close any O-point or supply the U19 enrollment-intent recovery proof,
+the later constructor/catalog integration, or native qualification. O-19 still
+gates complete version-aware runtime plumbing and the provenance/assignment of
+unchanged binding/hold timestamps when operation `at` is null; no timestamp is
+fabricated by this storage implementation.
+
 ## Production assembly contract stop
 
 **STOP:operator-act-contract.** Broker §14 explicitly leaves the operator

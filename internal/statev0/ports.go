@@ -15,8 +15,6 @@ type Tx struct {
 	scope *transactionScope
 }
 
-type transactionScope struct{}
-
 type NonceStore interface {
 	ConsumeLocked(*Tx, assemblyv0.TerminalReceipt) error
 }

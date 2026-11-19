@@ -183,9 +183,12 @@ The inactive [assembly v0 construction contract](docs/assembly-v0-construction-c
 and [applicability register](docs/assembly-v0-applicability.md) cover U00/U01
 declarations, closed record sum codecs and synthetic vectors only. They install
 no activation file or daemon wiring and leave owner/specification acceptance gates open.
-The inactive journal records include closed sum-member decoding, not a store,
-admission validator or signature verifier. Review-round controls and plant
-evidence are in [the fix-round evidence](docs/assembly-v0-fix-round-1.md).
+U05 adds an [inactive service journal and shared-gate bridge](docs/assembly-v0-service-journal.md),
+with explicit fresh `/2` storage, complete narrowing reservations and synthetic
+fault controls. It does not wire the daemon, replace the existing `/1` reader,
+authenticate operators or select a production custody role. The linked note
+documents APIs, test commands and task-owned `.temp/` evidence locations.
+U01 review-round controls remain in [the fix-round evidence](docs/assembly-v0-fix-round-1.md).
 
 For diagram-source validation, an installed PlantUML can render both labeled
 views in each source with `plantuml -o <absolute-scratch-directory> diagrams/*.puml`.

@@ -446,6 +446,36 @@ func (a *Account) Records() (map[string][]byte, error) {
 	return out, nil
 }
 
+func (a *Account) HasRecords() (bool, error) {
+	if a == nil {
+		return false, ErrUnavailable
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.Healthy() != nil {
+		return false, ErrUnavailable
+	}
+	directory, err := a.root.Open(".")
+	if err != nil {
+		return false, ErrUnavailable
+	}
+	defer directory.Close()
+	for {
+		names, err := directory.Readdirnames(1)
+		for _, name := range names {
+			if name != "identity.json" && name != "owner.lock" {
+				return true, nil
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return false, nil
+		}
+		if err != nil {
+			return false, ErrUnavailable
+		}
+	}
+}
+
 // Read selects one protected record without opening other account records.
 // Callers own the returned bytes, including clearing material-bearing buffers.
 func (a *Account) Read(name string) ([]byte, error) {

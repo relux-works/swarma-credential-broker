@@ -1,4 +1,4 @@
-// Package statev0 declares inactive records and ports; it implements no store or gate.
+// Package statev0 supplies inactive construction records and serialization ports.
 package statev0
 
 import (
