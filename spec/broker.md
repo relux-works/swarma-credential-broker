@@ -207,6 +207,30 @@ The socket lives in its own directory outside the broker's data tree (§15.2). Q
 
 ### 4.2 Principals
 
+For enabled v0 only, the following amendment changes the principal-authority
+source. All other requirements still apply; absent or disabled activation
+uses the unchanged baseline text below.
+
+**DN-05 amendment (v0 integration): published by the repository owner 2026-11-19; PROPOSED for acceptor review by Curator Core; in force only for an enabled v0 activation, which stays impossible until that acceptance**
+
+The protected root-owned authority document names operator/observer/broker directory pins, root keys, dispatchers and account machine-policy rows. Broker-owned operational config grants no additional principal authority. Existing managed/unmanaged identity checks still apply.
+
+**Equality or startup refusal, never precedence.** Enabled startup and every
+enabled use/read authority window require `config.policy.installation_id` to equal
+`authority.installation_id`, `config.policy.broker_uid` to equal
+`authority.broker.uid`, and the distinct `observer_uids` set to equal exactly
+the authority observer UID set. The operational account-label set equals the
+authority account set; selected accounts are enabled and their legacy
+`allowed_uids` is empty, never an exposed-lane grant. Contradictory account
+selection, an extra config observer or any duplicated fact mismatch refuses
+startup/current admission. Socket/store paths must equal the installed paths.
+`D/config.json` remains authoritative only for its operational socket/store,
+executable, time-confidence policy and vendor/profile metadata; its static
+allowlist is not enabled-mode authority. Facts with no operational counterpart
+are read only from authority, not invented in config. There is no dual source
+or config-wins/root-wins fallback. Absent/disabled activation preserves the
+existing baseline reader without claiming adoption of the proposed locus.
+
 The broker's configuration (owned by the broker user, §15) names `swarma-operator` as its configured operator and account owner, `swarma-observer` as its mandatory read-only principal, and the configured dispatchers. `swarma-operator` MUST NOT host a harness session. A person's interactive account is not the operator or account owner; its sessions have no operator authority. The user manager's `operator` UID is this same `swarma-operator` account. Each principal is recorded as follows:
 
 - **Managed principals** (accounts created by swarma-user-manager: agents, and dispatchers or services that run under helper-created service accounts) are keyed by `(uid, generation)` and are valid only while the helper ledger shows that generation as `active` for that UID. The broker reads the ledger file directly (helper §4.5); a missing, ambiguous, retired, malformed or unreadable entry refuses (`principal_ledger_mismatch`). The check is repeated on bind, lease and renew.
@@ -751,6 +775,17 @@ The broker holds every enrolled credential, so it stays minimal: one service use
 
 ### 12.4 Files
 
+For enabled v0 only, the following amendment defines the root-owned exceptions
+to the ownership rule below. All other requirements still apply; absent or
+disabled activation uses the unchanged baseline text below. The enabled-mode
+[equality-or-refusal joins](#42-principals) apply, never ownership precedence.
+
+**DN-05 amendment (v0 integration): published by the repository owner 2026-11-19; PROPOSED for acceptor review by Curator Core; in force only for an enabled v0 activation, which stays impossible until that acceptance**
+
+Broker mutable state, custody, operational config and journals remain broker-owned 0600/0700. Installed authority, activation, start fence, executable/confinement configuration and root witness receipts are explicit root-owned exceptions with the exact modes of this profile and independent writers; atomicity alone is not freshness.
+
+Here, "this profile" means [operator and activation v0](operator-and-activation-v0.md).
+
 Figure [M-CB4 — storage layout](../diagrams/storage-layout.puml) shows ownership, modes, atomic state replacement and the append-only audit boundary (§12.3).
 
 All broker files are owned by the broker user; directories are 0700. Every state file (configuration, accounts, grants, revocations, leases) is replaced atomically within its own directory. The broker refuses to start if its store or configuration, or any parent directory, is writable by another user. Durable receiver intent, results and removal tombstones (§7), refresh attempt evidence (§9.4), retained admission-class evidence and the R-ALLSTOP freeze journal (§15.5) obey the same protected storage boundary; their concrete layouts remain unpublished. Atomic replacement and readable ownership do not establish freshness after restore. The restore mark and surviving reconciliation evidence MUST be outside the restored failure domain (§6.4, §15.4), not another file rolled back with this home. No new v0 namespace field is introduced.
@@ -877,6 +912,17 @@ Agent leaves (`agent:<generation>`) are issued by the dispatcher when it binds a
 
 ### 15.1 Service user and time
 
+For enabled v0 only, the following amendment changes operator/observer
+provisioning and configuration. All other requirements still apply; absent
+or disabled activation uses the unchanged baseline text below. The enabled-mode
+[equality-or-refusal joins](#42-principals) apply.
+
+**DN-05 amendment (v0 integration): published by the repository owner 2026-11-19; PROPOSED for acceptor review by Curator Core; in force only for an enabled v0 activation, which stays impossible until that acceptance**
+
+Installer publishes root authority pins and dedicated terminal-caller/login/PAM/sudo enforcement; unmanaged operator/observer pins in this profile are not helper-created accounts. Other no-shell helper operator entries retain per-act password rules and cannot mint broker receipts.
+
+Here, "this profile" means [operator and activation v0](operator-and-activation-v0.md).
+
 > **Proposed secret-free mode (inactive):** Separate holder identities, listener/client policy, custody, route and teardown need installation qualification. No new paths, interception trust material or time-provider activation is implied; unknown cleanup defers removal.
 > See [the separate contract](secret-free-mode.md#11-operator-and-installation-boundaries).
 
@@ -891,6 +937,17 @@ The broker keeps its own durable time **watermark**, independent of the dispatch
 Expiry-driven binding removal also requires boot-inclusive monotonic elapsed time of at least the lifetime, counted from activation (`CLOCK_BOOTTIME` on Linux, continuous time on macOS). Accumulate elapsed time durably at each sweep across boot epochs; downtime is not counted, and missing or untrusted elapsed evidence defers destruction. A wall-clock expiry alone makes the binding unusable but cannot delete it. This is the same dual gate the dispatcher applies to expiry-driven home deletion; explicit authorised cleanup is unaffected. Storage, lifetime accounting and reset evidence would need publication (§18.12), without new `binding/1` fields.
 
 ### 15.2 Paths
+
+For enabled v0 only, the following amendment changes the authority/configuration
+layout and start checks. All other requirements still apply; absent or disabled
+activation uses the unchanged baseline text below. The enabled-mode
+[equality-or-refusal joins](#42-principals) apply.
+
+**DN-05 amendment (v0 integration): published by the repository owner 2026-11-19; PROPOSED for acceptor review by Curator Core; in force only for an enabled v0 activation, which stays impossible until that acceptance**
+
+`D/config.json` remains broker-owned operational input. Root authority/activation/fence paths are outside `D`; each start and authority window enforces the joins and scoped continuity rules in this proposal. No automatic adoption of old deployment files is authorized.
+
+Here, "this proposal" means [operator and activation v0](operator-and-activation-v0.md).
 
 Figure [M-CB4 — storage layout](../diagrams/storage-layout.puml) shows these paths and the uninstall retention boundary (§15.3); logical record boxes do not introduce new file basenames.
 

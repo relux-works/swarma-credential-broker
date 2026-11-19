@@ -1372,17 +1372,27 @@ machine-identity verifier or qualified collector is supplied by this document.
 
 ### 4.4 Required ownership amendments: DN-05 CONFLICT
 
-Acceptance of DN-05 requires an explicit owner decision and these amendments
-to the published texts; none is applied to the accepted specifications here:
+The repository owner selected DN-05 = A as a declared **CONFLICT** in
+[section 9](#9-owner-decisions-2026-11-19) and published the exact amendments
+below at the linked clauses on 2026-11-19. Publication is satisfied; only
+Curator Core's acceptor review remains for these DN-05 amendments. They remain
+**PROPOSED**, in force only for an enabled v0 activation, which stays impossible
+until that acceptance. All other activation and qualification gates remain.
+[Construction stage C1](../docs/assembly-v0-construction-contract-c1.md)
+authorizes inactive U02 construction only, not activation or acceptance.
 
-| Published clause | Proposed replacement/addition for accepted v0 integration |
+| Published clause | Published amendment text, PROPOSED for acceptor review |
 | --- | --- |
-| Broker §4.2, broker-owned config names principals | The protected root-owned authority document names operator/observer/broker directory pins, root keys, dispatchers and account machine-policy rows. Broker-owned operational config grants no additional principal authority. Existing managed/unmanaged identity checks still apply. |
-| Broker §12.4, all broker files broker-owned | Broker mutable state, custody, operational config and journals remain broker-owned 0600/0700. Installed authority, activation, start fence, executable/confinement configuration and root witness receipts are explicit root-owned exceptions with the exact modes of this profile and independent writers; atomicity alone is not freshness. |
-| Broker §15.1, operator/observer provisioning and configuration | Installer publishes root authority pins and dedicated terminal-caller/login/PAM/sudo enforcement; unmanaged operator/observer pins in this profile are not helper-created accounts. Other no-shell helper operator entries retain per-act password rules and cannot mint broker receipts. |
-| Broker §15.2, data/config and start checks | `D/config.json` remains broker-owned operational input. Root authority/activation/fence paths are outside `D`; each start and authority window enforces the joins and scoped continuity rules in this proposal. No automatic adoption of old deployment files is authorized. |
-| Service dialect §1, machine policy in broker configuration | In enabled v0, machine policy is the root authority account selection. Under the broker state lock, both baseline agent-lease interlocks read those rows and fail closed on missing/undetermined policy. No config-only observer or legacy lease path bypasses that source. |
-| Service dialect §5.1 step 5, source of policy digest | Compare the request pin to the complete current protected authority document digest under the state/configuration locks, and require its account/kind row to select secret-free. A request or service binding is never the source. |
+| [Broker §4.2, broker-owned config names principals](broker.md#42-principals) | The protected root-owned authority document names operator/observer/broker directory pins, root keys, dispatchers and account machine-policy rows. Broker-owned operational config grants no additional principal authority. Existing managed/unmanaged identity checks still apply. |
+| [Broker §12.4, all broker files broker-owned](broker.md#124-files) | Broker mutable state, custody, operational config and journals remain broker-owned 0600/0700. Installed authority, activation, start fence, executable/confinement configuration and root witness receipts are explicit root-owned exceptions with the exact modes of this profile and independent writers; atomicity alone is not freshness. |
+| [Broker §15.1, operator/observer provisioning and configuration](broker.md#151-service-user-and-time) | Installer publishes root authority pins and dedicated terminal-caller/login/PAM/sudo enforcement; unmanaged operator/observer pins in this profile are not helper-created accounts. Other no-shell helper operator entries retain per-act password rules and cannot mint broker receipts. |
+| [Broker §15.2, data/config and start checks](broker.md#152-paths) | `D/config.json` remains broker-owned operational input. Root authority/activation/fence paths are outside `D`; each start and authority window enforces the joins and scoped continuity rules in this proposal. No automatic adoption of old deployment files is authorized. |
+| [Service dialect §1, machine policy in broker configuration](secret-free-service-v0.md#1-scope-and-precedence) | In enabled v0, machine policy is the root authority account selection. Under the broker state lock, both baseline agent-lease interlocks read those rows and fail closed on missing/undetermined policy. No config-only observer or legacy lease path bypasses that source. |
+| [Service dialect §5.1 step 5, source of policy digest](secret-free-service-v0.md#51-servicebind) | Compare the request pin to the complete current protected authority document digest under the state/configuration locks, and require its account/kind row to select secret-free. A request or service binding is never the source. |
+
+The following exact joins paragraph is also published in
+[broker §4.2](broker.md#42-principals); the other amended clauses link to it.
+Absent or disabled activation preserves every baseline clause verbatim.
 
 **Equality or startup refusal, never precedence.** Enabled startup and every
 enabled use/read authority window require `config.policy.installation_id` to equal
@@ -1739,7 +1749,7 @@ record remains **PROPOSED**; the stopped daemon and closed gates do not change.
 | DN-02 | **A, conditional** | Qualify every DN-02a-e predicate, root witness/rendezvous, login gate, sealed-FD join with compatible confinement, exact pinned-launcher freeze/thaw/refreeze and no-dump exec boundary before freezing the bytes. Retain password-only PAM/sudo, closefrom=3 and no I/O plugin; root/kernel/login and owner-endpoint recording exclusions remain explicit trust/ceremony boundaries. |
 | DN-03 | **A** | Exact section 2 CCJ-1/domain, method-specific freshness, full display/typed confirmation and scoped 128-bit token verifier prefix; no phone-signature or grant-domain substitution. |
 | DN-04 | **A, conditional** | Native qualification of **ENROL-TERMIOS** and **ENROL-RESIDUE-SUCCESSOR** is mandatory, as are ENROL-RESIDUE and supervisor cleanup. SSH-only admission and server-side channel/pty destruction remain required. Client-side paste spill into the owner endpoint's local shell/history after retirement is an owner-accepted residual, not claimed prevented by server cleanup. |
-| DN-05 | **A as a declared CONFLICT** | Accept the ownership move on its merits with the explicit section 4.4 broker/dialect amendments and equality-or-refusal joins. Those published amendments and acceptor review remain required; operational config stays broker-owned and never becomes parallel authority. This decision does not apply the amendments. |
+| DN-05 | **A as a declared CONFLICT** | The section 4.4 amendments and equality-or-refusal joins are now published in broker §§4.2/12.4/15.1/15.2 and service dialect §1/§5.1 step 5 at that section's links. Only Curator Core acceptor review remains for those amendments; they are PROPOSED and no enabled v0 activation is possible before acceptance. Operational config stays broker-owned and never becomes parallel authority. Construction stage C1 authorizes inactive U02 only; no other activation or qualification gate is closed. |
 | DN-06 | **A** | Independent revocation/caller-binding storage and reserved removal capacity; root/operator-key revocation is independent of grant history, issuer revocation requires verified grant history, and each unbind retains its independent own-state path. V0 has no operator route for originating bindings; the declaration is not a new route. |
 | DN-07 | **A** | The sole known baseline sequence and unavailable JSON null must agree in both dialects; baseline compatibility acceptance remains required before activation, with no zero/cached-success fallback. |
 | DN-08 | **A** | Section 6 create/enroll/bind/start order, broker control plane before enrollment and gateway last, one owner/custody implementation, installed dependency resolution and **Restart=no**. No bind-before-account exception or automatic reopen. |

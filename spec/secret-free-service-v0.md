@@ -14,6 +14,17 @@ in RFC 2119.
 
 ## 1. Scope and precedence
 
+For enabled v0 only, the following amendment changes the machine-policy source,
+not the secret-free/exposed-lane interlock or its check order. All other
+requirements still apply; absent or disabled activation uses the unchanged
+baseline text below. The enabled-mode
+[equality-or-refusal joins](broker.md#42-principals) apply; neither source wins
+over a mismatched duplicate.
+
+**DN-05 amendment (v0 integration): published by the repository owner 2026-11-19; PROPOSED for acceptor review by Curator Core; in force only for an enabled v0 activation, which stays impossible until that acceptance**
+
+In enabled v0, machine policy is the root authority account selection. Under the broker state lock, both baseline agent-lease interlocks read those rows and fail closed on missing/undetermined policy. No config-only observer or legacy lease path bypasses that source.
+
 The v0 scope is closed:
 
 - one host, local stations only;
@@ -308,6 +319,16 @@ order, under the broker state lock:
    request is a pin to compare, never the source of the policy. A mismatch,
    a policy that does not so select, or an unreadable policy refuses with
    `service_binding_mismatch`. Effect: none.
+
+   For enabled v0 only, the following amendment changes step 5's policy source;
+   its refusal code and effect above remain unchanged. Absent or disabled
+   activation uses the unchanged baseline step above. The enabled-mode
+   [equality-or-refusal joins](broker.md#42-principals) apply.
+
+   **DN-05 amendment (v0 integration): published by the repository owner 2026-11-19; PROPOSED for acceptor review by Curator Core; in force only for an enabled v0 activation, which stays impossible until that acceptance**
+
+   Compare the request pin to the complete current protected authority document digest under the state/configuration locks, and require its account/kind row to select secret-free. A request or service binding is never the source.
+
 6. No other active service binding exists for the same `(service_name, uid,
    service_generation, account, kind)`. Otherwise
    `service_binding_mismatch`. Effect: none. This dialect has no binding

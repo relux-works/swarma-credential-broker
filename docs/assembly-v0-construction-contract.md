@@ -1,5 +1,10 @@
 # Assembly v0 construction contract C0
 
+This stage retains its U00/U01 scope and source pin. The repository owner's
+[construction stage C1](assembly-v0-construction-contract-c1.md) separately
+extends inactive construction to U02 only against the published DN-05 text;
+it does not accept an O-point or authorize activation.
+
 ## Authority, acceptance and scope
 
 This is a **CONTRACT for inactive U00/U01 construction**, not an activation
@@ -20,8 +25,10 @@ are outside its scope.
 Section 9 controls applicability: DN-01–DN-08 select A with conditions;
 DN-09 selects A for production; nothing in C is in force (S:1727–1751).
 The rest of S remains PROPOSED. DN-05 is a declared **conflict**, not a
-precedence rule. Neither this construction document nor its tests publishes
-the outstanding broker/service/Claude/book amendments (O-01).
+precedence rule. C0 did not publish the outstanding broker/service/Claude/book
+amendments (O-01). The DN-05 broker/service subset is now published at
+[section 4.4's clause links](../spec/operator-and-activation-v0.md#44-required-ownership-amendments-dn-05-conflict),
+still PROPOSED pending acceptor review; other O-01 publications remain open.
 
 Book-first sources, read at `swarma-docs` commit
 `b57a9be633c245373b448c3786bcbd49d636fe8a`:
@@ -32,8 +39,9 @@ Book-first sources, read at `swarma-docs` commit
   separate installer/launcher duties, absolute no-argv entry, bounded closed input.
 - Refines/new: S sections 2–6 still require their owners' specification/book
   publications; this contract neither copies nor amends those upstream chapters.
-- Conflicts: S section 4.4 requires DN-05 amendments; C's time-contract exceptions
-  are unaccepted, excluded here, and may not be silently borrowed for A.
+- Conflicts: S section 4.4's DN-05 amendments are now published, not accepted;
+  C's time-contract exceptions are unaccepted, excluded here, and may not be
+  silently borrowed for A.
 
 ## Seam sheet
 
