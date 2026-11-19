@@ -540,6 +540,9 @@ func TestServicePublicationRefusesActiveHold(test *testing.T) {
 				} else if !errors.Is(err, statev0.ErrUnavailable) || deliveries != 0 {
 					test.Fatal("held account released material through the bridge", err, deliveries)
 				}
+				if name == "held" && custody.publications != 0 {
+					test.Fatal("active hold entered custody", custody.publications)
+				}
 				after, readErr := os.ReadFile(fixture.path)
 				if readErr != nil || !bytes.Equal(expected, after) {
 					test.Fatal("publication refusal changed durable state", readErr)

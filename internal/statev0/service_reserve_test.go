@@ -1,7 +1,9 @@
 package statev0
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -90,5 +92,117 @@ func TestServiceNarrowingHoldFirstAtCeiling(test *testing.T) {
 		return nil
 	}); err != nil {
 		test.Fatal(err)
+	}
+}
+
+// Claim: after a durable hold and lift, the reserve ceiling still admits a new hold with a maximal escaped ID and timestamp without eviction; one extra history outcome refuses without a write. The same transitions below the ceiling are the valid control.
+func TestServiceNarrowingHoldAfterLiftAtCeiling(test *testing.T) {
+	for _, name := range []string{"below-ceiling", "reserve-ceiling"} {
+		test.Run(name, func(test *testing.T) {
+			gate, journal, records := serviceTestJournal(test, recordControl(test))
+			if err := gate.With(context.Background(), func(tx *Tx) error {
+				prior := loadService(test, journal, tx)
+				held := cloneService(test, prior)
+				held.Revision++
+				placeHold(test, &held)
+				if err := journal.CommitLocked(tx, journalAccount, prior.Revision, held); err != nil {
+					test.Fatal("valid first hold did not commit", err)
+				}
+				prior = loadService(test, journal, tx)
+				lifted := cloneService(test, prior)
+				lifted.Revision++
+				operation := serviceFixture(test, "utc").Operations[0]
+				identifier := strings.Repeat("d", 32)
+				at := lifted.Watermark
+				hold := &lifted.Holds[0]
+				hold.State, hold.LiftedBy, hold.LiftOperationID, hold.LiftedAt = "lifted", &operation.Principal, &identifier, &at
+				operation.Method, operation.OperationID, operation.At = "account.hold.lift", assemblyv0.OperationID(identifier), &at
+				operation.Receipt.Nonce = assemblyv0.Nonce(strings.Repeat("c", 32))
+				operation.Arguments, _ = wire.Encode(wire.ServiceLift{OperationID: identifier, HoldID: hold.ID, Account: journalAccount})
+				operation.Result, _ = wire.Encode(map[string]any{"hold_id": hold.ID, "account": journalAccount, "state": "lifted"})
+				lifted.Operations = append(lifted.Operations, operation)
+				if err := journal.CommitLocked(tx, journalAccount, prior.Revision, lifted); err != nil {
+					test.Fatal("valid hold lift did not commit", err)
+				}
+				prior = loadService(test, journal, tx)
+				if len(prior.Holds) != 1 || prior.Holds[0].State != "lifted" {
+					test.Fatal("lifted hold was not durable")
+				}
+				if name == "reserve-ceiling" {
+					full := cloneService(test, prior)
+					full.Revision++
+					baseCount := len(full.Operations)
+					sample, err := wire.Encode(historyOperation(test, 0))
+					if err != nil {
+						test.Fatal(err)
+					}
+					for index := range MaxServiceJournalBytes/len(sample) + 1 {
+						full.Operations = append(full.Operations, historyOperation(test, index))
+					}
+					operations := full.Operations
+					lower, upper := baseCount, len(operations)
+					for lower < upper {
+						middle := (lower + upper + 1) / 2
+						full.Operations = operations[:middle]
+						if journal.reserve(full) == nil {
+							lower = middle
+						} else {
+							upper = middle - 1
+						}
+					}
+					full.Operations = operations[:lower]
+					if err := journal.CommitLocked(tx, journalAccount, prior.Revision, full); err != nil {
+						test.Fatal("valid full-record lifted hold did not commit", err)
+					}
+					prior = loadService(test, journal, tx)
+					reserved, err := journal.reservedState(prior)
+					if err != nil || len(records.data) < 1000000 || len(reserved) > MaxServiceJournalBytes {
+						test.Fatal("lifted-hold control did not reach the reserve edge", len(records.data), len(reserved), err)
+					}
+					test.Logf("lifted hold at ceiling: stored=%d reserved=%d limit=%d", len(records.data), len(reserved), MaxServiceJournalBytes)
+					overflow := cloneService(test, prior)
+					overflow.Revision++
+					overflow.Operations = append(overflow.Operations, historyOperation(test, len(prior.Operations)-baseCount))
+					if err := journal.valid(journalAccount, overflow); err != nil {
+						test.Fatal("overflow neighbor was not structurally valid", err)
+					}
+					before, writes := append([]byte(nil), records.data...), records.writes
+					if err := journal.ReserveLocked(tx, journalAccount, overflow); !errors.Is(err, ErrCapacity) {
+						test.Fatal("extra history outcome did not refuse at reserve preflight", err)
+					}
+					if err := journal.CommitLocked(tx, journalAccount, prior.Revision, overflow); !errors.Is(err, ErrCapacity) {
+						test.Fatal("extra history outcome did not refuse at commit", err)
+					}
+					if records.writes != writes || !bytes.Equal(before, records.data) {
+						test.Fatal("capacity refusal changed durable state")
+					}
+				}
+				next := cloneService(test, prior)
+				next.Revision++
+				lease := next.Leases[1]
+				identifier = strings.Repeat("b", 32)
+				at = time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC)
+				next.Watermark = at
+				nextHold := wire.AccountHoldRecord{ID: strings.Repeat("\x01", 128), Account: journalAccount, Reason: "leak_match", Service: lease.Service, UID: lease.UID, Generation: lease.Generation, BindingID: lease.BindingID, LeaseID: lease.ID, OperationID: identifier, PlacedAt: at, State: "active"}
+				arguments, _ := wire.Encode(wire.ServiceHold{OperationID: identifier, LeaseID: lease.ID, Account: journalAccount, Reason: "leak_match"})
+				result, _ := wire.Encode(nextHold.Metadata())
+				next.Holds = append(next.Holds, nextHold)
+				next.Operations = append(next.Operations, ServiceOperationV2{Principal: servicePrincipal(lease.UID, lease.Generation), Method: "account.hold", OperationID: assemblyv0.OperationID(identifier), Arguments: arguments, Result: result, At: &at})
+				if err := journal.valid(journalAccount, next); err != nil {
+					test.Fatal("hold after lift positive control is invalid", err)
+				}
+				writes := records.writes
+				if err := journal.CommitLocked(tx, journalAccount, prior.Revision, next); err != nil {
+					test.Fatal("hold after lift exceeded the reserve", err)
+				}
+				loaded := loadService(test, journal, tx)
+				if records.writes != writes+1 || !same(next, loaded) || !same(prior.Bindings, loaded.Bindings) || !same(prior.Leases, loaded.Leases) || !same(prior.Holds, loaded.Holds[:len(prior.Holds)]) || !same(prior.Operations, loaded.Operations[:len(prior.Operations)]) {
+					test.Fatal("hold after lift lost retained evidence or changed unrelated state")
+				}
+				return nil
+			}); err != nil {
+				test.Fatal(err)
+			}
+		})
 	}
 }
