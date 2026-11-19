@@ -31,10 +31,13 @@ func ancestryError(path string, owner uint32) error {
 func TempDir(test *testing.T, check func(string) error) string {
 	test.Helper()
 	owner := uint32(os.Getuid())
-	if err := ancestryError(os.TempDir(), owner); err != nil {
+	root := test.TempDir()
+	if err := ancestryError(root, owner); err != nil {
 		test.Fatal(err)
 	}
-	root := test.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		test.Fatalf("protected_fixture_temp_ancestry: chmod fixture root: %v", err)
+	}
 	if err := check(root); err != nil {
 		test.Fatalf("protected_fixture_temp_ancestry: reader refused fixture root %q: %v", root, err)
 	}

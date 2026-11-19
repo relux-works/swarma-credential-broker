@@ -1,5 +1,5 @@
 --- a/internal/authorityv0/reader_linux.go
 +++ b/internal/authorityv0/reader_linux.go
-@@ -64 +64 @@
+@@ -72 +72 @@
 -			file: protectedio.FilePolicy{UID: reader.brokerUID, GID: reader.brokerGID, Mode: 0700}, ancestorUID: reader.rootUID,
 +			file: protectedio.FilePolicy{UID: reader.brokerUID, GID: reader.brokerGID, Mode: 0700}, ancestorUID: reader.brokerUID,

@@ -1,0 +1,4 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -136,0 +137 @@
++		if entry.path == reader.paths.directory { entry.ancestorUID = reader.brokerUID }

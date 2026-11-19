@@ -10,24 +10,26 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/protectedio"
 )
 
-// Claim: every production source policy matches spec 4.1/4.3 with distinct root/broker IDs; the real-filesystem paired controls separately witness enforcement, not privileged provisioning.
+// Claim: distinct synthetic paths and IDs bind each policy to its source; group protection extends spec 4.1 by analogy, not by a new normative row.
 func TestSourceOwnershipPolicies(test *testing.T) {
-	fixture := newFixture(test)
-	validWindow(test, fixture)
-	reader := &Reader{rootUID: 100, rootGID: 200, brokerUID: 300, brokerGID: 400}
+	reader := &Reader{rootUID: 100, rootGID: 200, brokerUID: 300, brokerGID: 400, paths: paths{
+		authority: "/synthetic/authority", lock: "/synthetic/lock", passwd: "/synthetic/passwd", group: "/synthetic/group",
+		directory: "/synthetic/configuration", data: "/synthetic/data", store: "/synthetic/data/store",
+	}}
 	actual := reader.sourcePolicies()
 	for _, row := range []struct {
 		name     string
-		actual   protectedio.FilePolicy
+		actual   filePolicy
+		path     string
 		expected protectedio.FilePolicy
 	}{
-		{"authority", actual.authority, protectedio.FilePolicy{UID: 100, GID: 400, Mode: 0640, Links: 1, MaxBytes: 1 << 20}},
-		{"lock", actual.lock, protectedio.FilePolicy{UID: 100, GID: 400, Mode: 0640, Links: 1}},
-		{"passwd", actual.passwd, protectedio.FilePolicy{UID: 100, GID: 200, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
-		{"group", actual.group, protectedio.FilePolicy{UID: 100, GID: 200, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
+		{"authority", actual.authority, "/synthetic/authority", protectedio.FilePolicy{UID: 100, GID: 400, Mode: 0640, Links: 1, MaxBytes: 1 << 20}},
+		{"lock", actual.lock, "/synthetic/lock", protectedio.FilePolicy{UID: 100, GID: 400, Mode: 0640, Links: 1}},
+		{"passwd", actual.passwd, "/synthetic/passwd", protectedio.FilePolicy{UID: 100, GID: 200, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
+		{"group", actual.group, "/synthetic/group", protectedio.FilePolicy{UID: 100, GID: 200, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
 	} {
 		test.Run(row.name, func(test *testing.T) {
-			if row.actual != row.expected {
+			if row.actual.path != row.path || row.actual.file != row.expected {
 				test.Fatalf("source ownership policy differs from spec: got %+v want %+v", row.actual, row.expected)
 			}
 		})
@@ -37,9 +39,9 @@ func TestSourceOwnershipPolicies(test *testing.T) {
 		actual   directoryPolicy
 		expected directoryPolicy
 	}{
-		{"configuration", actual.configuration, directoryPolicy{file: protectedio.FilePolicy{UID: 100, GID: 400, Mode: 0750}, ancestorUID: 100}},
-		{"data", actual.data, directoryPolicy{file: protectedio.FilePolicy{UID: 300, GID: 400, Mode: 0700}, ancestorUID: 100}},
-		{"store", actual.store, directoryPolicy{file: protectedio.FilePolicy{UID: 300, GID: 400, Mode: 0700}, ancestorUID: 300}},
+		{"configuration", actual.configuration, directoryPolicy{path: "/synthetic/configuration", file: protectedio.FilePolicy{UID: 100, GID: 400, Mode: 0750}, ancestorUID: 100}},
+		{"data", actual.data, directoryPolicy{path: "/synthetic/data", file: protectedio.FilePolicy{UID: 300, GID: 400, Mode: 0700}, ancestorUID: 100}},
+		{"store", actual.store, directoryPolicy{path: "/synthetic/data/store", file: protectedio.FilePolicy{UID: 300, GID: 400, Mode: 0700}, ancestorUID: 300}},
 	} {
 		test.Run(row.name, func(test *testing.T) {
 			if row.actual != row.expected {

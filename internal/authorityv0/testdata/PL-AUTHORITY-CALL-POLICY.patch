@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -156 +156 @@
+-	_, result.authority, err = reader.files.Read(ctx, policies.authority.path, policies.authority.file)
++	_, result.authority, err = reader.files.Read(ctx, policies.authority.path, protectedio.FilePolicy{UID: reader.brokerUID, GID: reader.brokerGID, Mode: 0640, Links: 1, MaxBytes: protectedio.MaxBytes})

@@ -220,6 +220,10 @@ Their shared fixture preflight fails with `protected_fixture_temp_ancestry`
 before any valid-control assertion when the temporary root has an unsafe
 ancestor. Linux CI creates a checked mode-0700 root under `RUNNER_TEMP` and
 exports it as both `TMPDIR` and `GOTMPDIR` for all subsequent Go steps.
+The helper validates the actual fixture tree (including when those variables
+differ) and explicitly sets its test-owned leaf to 0700 before the unchanged
+reader check. The umask-022 regression witness retains an adjacent refusal
+for a widened leaf; repository validation covers both umask 022 and 077.
 
 For diagram-source validation, an installed PlantUML can render both labeled
 views in each source with `plantuml -o <absolute-scratch-directory> diagrams/*.puml`.

@@ -34,7 +34,7 @@ jobs:
           while :; do
             test ! -L "$ancestor"
             read -r owner mode < <(stat -c '%u %a' "$ancestor")
-            if (( (8#$mode & 07022) != 0 || (owner != 0 && owner != EUID) )); then
+            if (( (8#$mode & 07022) != 0 || (owner != 0 && owner != EUID) )) || { test "$ancestor" = / && (( owner != 0 )); }; then
               printf 'protected_fixture_temp_ancestry: unsafe ancestor %s\n' "$ancestor" >&2
               exit 1
             fi

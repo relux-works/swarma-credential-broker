@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -121 +121 @@
+-		gate, err := reader.newGate(ctx, lock.path, lock.file)
++		gate, err := reader.newGate(ctx, lock.path, protectedio.FilePolicy{UID: reader.brokerUID, GID: reader.brokerGID, Mode: 0640, Links: 1})

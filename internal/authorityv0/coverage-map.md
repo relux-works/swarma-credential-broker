@@ -14,7 +14,10 @@ expected fixture ownership are private test substitutions, not production
 configuration options. The landed authority vector payload is unchanged.
 The shared fixture preflight names unsafe temporary ancestry before a control
 can run; both CI temp variables use the checked private root. Ownership-table
-tests use distinct synthetic root/broker IDs, not privileged host provisioning.
+tests use distinct synthetic paths and root/broker IDs, not privileged host
+provisioning. The separate composed recorder maps IDs only when delegating
+to the real filesystem reader and real configuration gate; its exact trace
+assertion remains in the synthetic identity domain.
 
 | Acceptance row | Named executable witnesses | Killed narrowing plant | Bound |
 | --- | --- | --- | --- |
@@ -27,9 +30,13 @@ tests use distinct synthetic root/broker IDs, not privileged host provisioning.
 | Configuration-lock continuity | `TestConfigurationLockContinuity`; `TestDirectorySiblingDoesNotReplaceLock`; `TestVIEWProtectedFactsAndLockContinuity` | PL-LOCK-INODE | Existing zero-byte exact-policy inode, real shared nonblocking flock, contention, replacement, exact parent mode, deadline and final recheck. Sibling changes and identical authority replacement remain valid. |
 | Identity-only independence | `TestIdentityOnlyIndependence` | PL-IDENTITY-USE-GATE | Current unmanaged identity survives startup/use-policy drift without activation, history, managed projection or UTC; malformed/unavailable current identity still refuses. |
 | File/ancestor owner boundary | `TestDirectoryAncestorOwnerBoundary` | PL-ANCESTOR-OWNER | Same real directory and leaf policy, distinct ancestor UID; the test does not chown or change privileged host ancestors. |
-| Protected source ownership table | `TestSourceOwnershipPolicies` | PL-AUTHORITY-OWNER, PL-LOCK-OWNER, PL-PASSWD-GROUP, PL-GROUP-GROUP, PL-CONFIGURATION-OWNER, PL-DATA-ANCESTOR, PL-STORE-ANCESTOR | Spec 4.1/4.3 source rows with distinct root/broker UIDs/GIDs; actual descriptor enforcement retains its paired filesystem witnesses. |
+| Protected source ownership table | `TestSourceOwnershipPolicies` | PL-AUTHORITY-OWNER, PL-LOCK-OWNER, PL-PASSWD-GROUP, PL-GROUP-GROUP, PL-CONFIGURATION-OWNER, PL-DATA-ANCESTOR, PL-STORE-ANCESTOR | Exact path/policy pairs with distinct root/broker UIDs/GIDs; group extends the spec 4.1 passwd rule by analogy. |
+| Composed ownership-policy binding | `TestSourcePolicyCallSites/Load`; `/WithPinned`; `/WithIdentity` | PL-DATA-ROW-SWAP, PL-STORE-ROW-SWAP, PL-LOCK-CALL-POLICY, PL-AUTHORITY-CALL-POLICY, PL-CONFIGURATION-CALL-OWNER, PL-CONFIGURATION-CALL-ANCESTOR, PL-PASSWD-CALL-POLICY, PL-GROUP-CALL-POLICY | Exact ordered lock/directory/read calls and final rechecks; each source refusal yields no startup result or callback. Synthetic IDs are mapped only for real filesystem delegation, not asserted as privileged owner provisioning. |
+| Fixture root under canonical umask | `TestTempDirUmask022`; `TestTempDirUsesGoTempRoot` | PL-FIXTURE-UMASK, PL-FIXTURE-TEMP-ROOT | Actual tree preflight, deterministic 0700 leaf and unchanged reader; widened leaf still refuses, without a skip. |
 | Directory uniqueness | `TestDirectoryUniquenessWitnesses` | PL-PASSWD-UID-UNIQUENESS, PL-GROUP-GID-UNIQUENESS | Prepended pinned-UID alias and unrelated repeated GID isolate uniqueness instead of incidental name mismatch. |
 | Root keys and non-root broker | `TestRootKeyUniquenessWitness`; `TestNonRootBrokerWitness` | PL-ROOT-KEY-UNIQUENESS, PL-BROKER-UID-ZERO, PL-BROKER-GID-ZERO | Duplicate roots refuse startup; UID zero and GID zero independently refuse identity. No key custody or enrollment claim. |
+| Process identity binding | `TestBrokerProcessBinding/uid`; `/gid` | PL-BROKER-PROCESS-BINDING | Document/config/passwd/group agreement cannot replace captured process EUID/EGID; neither mismatch invokes the identity callback. |
+| Inactive runtime-import boundary | `TestInactiveImportGraph`; `TestU02ImportBoundaryControls` | PL-RUNTIME-PROTECTEDIO, PL-RUNTIME-AUTHORITYV0 | Real runtime-import plants fail the toolchain guard; paired synthetic import plants refuse inherited and all four checked Linux architecture/cgo configurations. |
 
 ## Plants and intended failures
 
@@ -66,6 +73,19 @@ claimed as a kill.
 | `testdata/PL-ROOT-KEY-UNIQUENESS.patch` | Valid individual roots without root-key uniqueness | `TestRootKeyUniquenessWitness` | `duplicate root key admitted` |
 | `testdata/PL-BROKER-UID-ZERO.patch` | Broker identity without the nonzero UID gate | `TestNonRootBrokerWitness/uid` | `root broker identity admitted` |
 | `testdata/PL-BROKER-GID-ZERO.patch` | Broker identity without the nonzero GID gate | `TestNonRootBrokerWitness/gid` | `root broker identity admitted` |
+| `testdata/PL-DATA-ROW-SWAP.patch` | Store row substituted at the data-directory call site | `TestSourcePolicyCallSites/Load` | `composed source policy binding differs` |
+| `testdata/PL-STORE-ROW-SWAP.patch` | Data row substituted at the store-directory call site | `TestSourcePolicyCallSites/Load` | `composed source policy binding differs` |
+| `testdata/PL-LOCK-CALL-POLICY.patch` | Broker ownership supplied at gate construction | `TestSourcePolicyCallSites/Load` | `composed source policy binding differs` |
+| `testdata/PL-AUTHORITY-CALL-POLICY.patch` | Broker ownership supplied at the authority read (DN-05 locus) | `TestSourcePolicyCallSites/Load` | `composed source policy binding differs` |
+| `testdata/PL-CONFIGURATION-CALL-OWNER.patch` | Broker ownership at the configuration-directory call | `TestSourcePolicyCallSites/Load` | `composed source policy binding differs` |
+| `testdata/PL-CONFIGURATION-CALL-ANCESTOR.patch` | Broker ancestry at the configuration-directory call | `TestSourcePolicyCallSites/Load` | `composed source policy binding differs` |
+| `testdata/PL-PASSWD-CALL-POLICY.patch` | Broker group at the passwd read call | `TestSourcePolicyCallSites/Load` | `composed source policy binding differs` |
+| `testdata/PL-GROUP-CALL-POLICY.patch` | Broker group at the group read call | `TestSourcePolicyCallSites/Load` | `composed source policy binding differs` |
+| `testdata/PL-BROKER-PROCESS-BINDING.patch` | Document broker IDs substituted for process IDs | `TestBrokerProcessBinding/uid`; `/gid` | `differing from the process admitted` |
+| `../testutil/protectedfixture/testdata/PL-FIXTURE-UMASK.patch` | Ambient umask instead of a deterministic fixture leaf | `TestTempDirUmask022` | `reader refused fixture root` |
+| `../testutil/protectedfixture/testdata/PL-FIXTURE-TEMP-ROOT.patch` | TMPDIR instead of the actual fixture tree | `TestTempDirUsesGoTempRoot` | `unsafe ancestor` |
+| `testdata/PL-RUNTIME-PROTECTEDIO.patch` | Runtime importer of the inactive protected reader | `TestInactiveImportGraph` | `inactive import boundary violated` |
+| `testdata/PL-RUNTIME-AUTHORITYV0.patch` | Runtime importer of the inactive authority reader | `TestInactiveImportGraph` | `inactive import boundary violated` |
 
 The identity-use mutant tests intentional asymmetry: imposing the use gate on
 the identity-only leg is forbidden over-rejection. The inode mutant replaces
@@ -75,15 +95,19 @@ plant set is not a completeness proof for every implementation defect.
 
 ## Inactivity and unresolved boundaries
 
-`TestInactiveImportGraph` retains its original name and now walks the production
-source graph, including forwarding helpers and source under `testdata`.
-The exact-package allowlist grants only I02/I03 dependencies. It refuses
-undeclared nested packages, prefix aliases, reverse edges, direct/transitive
-runtime reachability and directory/file symlink aliases. Paired bounded
-instrument plants are in `TestU02ImportBoundaryControls`,
-`TestU02TransitiveImportControls` and `TestU02SourceTreeAndSymlinkControls`;
-the original `TestImportBoundaryControls` also remains. No grant for another
-pending unit is added; its later landing must merge its own exact row.
+`TestInactiveImportGraph` and the toolchain-graph implementation from the
+earlier import-guard delivery are retained unchanged. This unit adds exactly
+the `internal/protectedio/` and `internal/authorityv0/` consumer rows to its
+exact table; no test-helper row is needed because helper production code
+imports neither package. Test-only dependencies remain outside the guard.
+The former U02 source-walk checker and its checker-specific tests are dropped,
+not composed with or preferred over the landed guard. The retained guard's
+forwarding, nested-package, ignored-file, symlink, test-variant, tagged and
+release-configuration controls remain. `TestU02ImportBoundaryControls` now
+uses that same guard to reject a runtime importer of each new package under
+the inherited configuration and Linux amd64/arm64 with cgo disabled/enabled,
+beside valid exact-consumer and test-only controls. The original
+`TestImportBoundaryControls` remains. No other pending-unit grant is added.
 
 Out of contract: activation/enabled startup and lifetime (U03), state and
 revocation sequence/publication (later store/View units), exact operator-act

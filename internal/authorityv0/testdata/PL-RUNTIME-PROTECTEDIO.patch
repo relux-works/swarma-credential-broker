@@ -1,0 +1,6 @@
+--- /dev/null
++++ b/internal/server/u02_protectedio_plant.go
+@@ -0,0 +1,3 @@
++package server
++
++import _ "github.com/relux-works/swarma-credential-broker/internal/protectedio"

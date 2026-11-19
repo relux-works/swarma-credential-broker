@@ -1,0 +1,6 @@
+--- a/internal/testutil/protectedfixture/temp_linux.go
++++ b/internal/testutil/protectedfixture/temp_linux.go
+@@ -38,3 +37,0 @@
+-	if err := os.Chmod(root, 0700); err != nil {
+-		test.Fatalf("protected_fixture_temp_ancestry: chmod fixture root: %v", err)
+-	}

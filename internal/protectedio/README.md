@@ -43,6 +43,10 @@ and the real reader to check their fixture root before exercising a control.
 An unsafe ancestor fails with `protected_fixture_temp_ancestry` and its path;
 it never skips a witness. Linux CI creates and checks a mode-0700 directory
 under `RUNNER_TEMP`, then exports `TMPDIR` and `GOTMPDIR` before Go steps.
+The helper checks the actual returned tree and chmods its fresh leaf to 0700;
+it does not weaken the reader to accommodate umask 022. Its named regression
+and paired widened-leaf refusal are `TestTempDirUmask022`; a separate
+`TestTempDirUsesGoTempRoot` control covers differing temporary variables.
 
 | Tool | Exact entrypoint | Output |
 | --- | --- | --- |

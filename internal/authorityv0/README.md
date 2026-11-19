@@ -11,8 +11,15 @@ the specified authority/lock, `/etc/passwd`, `/etc/group`, D/store and socket
 layout; no exported fixture or alternative-directory backend is provided.
 Synthetic tests privately substitute file locations and expected fixture
 ownership while retaining real descriptor, mode and `flock` checks.
-All seven source policies come from one private table; distinct synthetic
-root/broker IDs witness every owner, group, mode, size and ancestor policy.
+All seven source paths and policies come from one private table. Its pure
+assertion uses distinct synthetic paths and root/broker IDs. A private
+recorder separately witnesses every composed `Load`, `WithPinned` and
+`WithIdentity` call, including gate construction and final rechecks; only
+its delegation maps synthetic IDs to the real unprivileged fixture owner.
+Every delegated read, directory check and lock uses the real protected
+reader. This proves the call-site bindings, not privileged provisioning.
+The `/etc/group` protection extends the spec 4.1 passwd row by analogy;
+it is not presented as an additional normative source row.
 
 `Load` joins current canonical, closed authority bytes to protected local
 UID/name/home and primary-GID facts under the inode-pinned configuration gate.
@@ -51,7 +58,7 @@ After sourcing the assigned private Go environment and setting an absolute
 | --- | --- | --- |
 | Formatter | `gofmt -w internal/authorityv0/*.go` | Updated source; private log. |
 | Acceptance tests | `go test -race ./internal/authorityv0` | ACTIVATE-DRIFT, AUTHORITY-LOCUS and bounded AUTH-ROLE/VIEW/identity-only witnesses with paired controls. |
-| Import guard | `go test -race ./internal/assemblyv0 -run "Test.*Import\|TestU02SourceTree"` | Exact consumer, reverse, transitive, nested and symlink-alias controls. |
+| Import guard | `go test -race ./internal/assemblyv0 -run "Test.*Import"` | Unchanged toolchain-graph guard, exactly two added U02 consumer rows, and runtime-import plants for every checked configuration. |
 | Repository validation | `go vet ./...`; `go test -race ./...` | Standalone commands and actual exit codes in task scratch. |
 | Cache narrowing plant | Apply `testdata/PL-AUTHORITY-CACHE.patch` independently in an isolated checkout using `git apply --unidiff-zero --check` and `git apply --unidiff-zero`; run `go test -race ./internal/authorityv0 -run "^TestACTIVATEDriftCurrentBytes/same-revision-bytes$"`. | Intended exact-byte assertion must fail; unchanged control must pass. |
 

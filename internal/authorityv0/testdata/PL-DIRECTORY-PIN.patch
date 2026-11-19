@@ -1,5 +1,5 @@
 --- a/internal/authorityv0/reader_linux.go
 +++ b/internal/authorityv0/reader_linux.go
-@@ -327 +327 @@
+@@ -365 +365 @@
 -		if len(entry) != 7 || entry[0] != pin.Name || entry[5] != pin.Home {
 +		if len(entry) != 7 || entry[0] != pin.Name {

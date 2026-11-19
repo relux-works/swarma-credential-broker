@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -166 +166 @@
+-	if !validIdentity(result.document, reader.brokerUID, reader.brokerGID) {
++	if !validIdentity(result.document, result.document.Broker.UID, result.document.Broker.GID) {

@@ -1,5 +1,5 @@
 --- a/internal/authorityv0/reader_linux.go
 +++ b/internal/authorityv0/reader_linux.go
-@@ -56 +56 @@
--		authority: protectedio.FilePolicy{UID: reader.rootUID, GID: reader.brokerGID, Mode: 0640, Links: 1, MaxBytes: protectedio.MaxBytes},
-+		authority: protectedio.FilePolicy{UID: reader.brokerUID, GID: reader.brokerGID, Mode: 0640, Links: 1, MaxBytes: protectedio.MaxBytes},
+@@ -62 +62 @@
+-		authority: filePolicy{path: reader.paths.authority, file: protectedio.FilePolicy{UID: reader.rootUID, GID: reader.brokerGID, Mode: 0640, Links: 1, MaxBytes: protectedio.MaxBytes}},
++		authority: filePolicy{path: reader.paths.authority, file: protectedio.FilePolicy{UID: reader.brokerUID, GID: reader.brokerGID, Mode: 0640, Links: 1, MaxBytes: protectedio.MaxBytes}},

@@ -1,0 +1,4 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -174,0 +175 @@
++		if target.policy.path == reader.paths.passwd { target.policy.file.GID = reader.brokerGID }

@@ -1,5 +1,5 @@
 --- a/internal/authorityv0/reader_linux.go
 +++ b/internal/authorityv0/reader_linux.go
-@@ -342 +342 @@
+@@ -354 +354 @@
 -		if !validUID || !validGID || byUID[uid] != nil || gid == document.Broker.GID && uid != document.Broker.UID {
 +		if !validUID || !validGID || gid == document.Broker.GID && uid != document.Broker.UID {

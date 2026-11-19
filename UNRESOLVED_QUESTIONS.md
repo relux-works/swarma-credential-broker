@@ -299,8 +299,9 @@ Implementation integration questions:
   `principal_identity_changed`, never interpret a missing pinned lock as
   authority absence. Callback-error preservation and the public mapping remain
   explicit integration work, not an assertion that these classes are identical.
-- The inactive import guard remains a source walk; the later landing of the
-  toolchain-graph guard must retain both U02 package rows and their controls.
+- The source-walk import-guard integration note is resolved by retaining the
+  landed toolchain-graph guard unchanged and adding exactly the two U02 rows.
+  No fixture-helper production import requires a further consumer grant.
 - Direct read size/post-read timing clauses and the privileged `/` check lack
   isolated narrowing witnesses. Existing final-window checks cover the public
   authority path; no unprivileged fixture claims to replace the root check.

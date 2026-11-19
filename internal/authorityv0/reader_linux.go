@@ -41,32 +41,46 @@ type paths struct {
 	authority, lock, passwd, group, directory, data, store string
 }
 
+type filePolicy struct {
+	path string
+	file protectedio.FilePolicy
+}
+
 type directoryPolicy struct {
+	path        string
 	file        protectedio.FilePolicy
 	ancestorUID uint32
 }
 
 type sourcePolicies struct {
-	authority, lock, passwd, group protectedio.FilePolicy
+	authority, lock, passwd, group filePolicy
 	configuration, data, store     directoryPolicy
 }
 
 func (reader *Reader) sourcePolicies() sourcePolicies {
 	return sourcePolicies{
-		authority: protectedio.FilePolicy{UID: reader.rootUID, GID: reader.brokerGID, Mode: 0640, Links: 1, MaxBytes: protectedio.MaxBytes},
-		lock:      protectedio.FilePolicy{UID: reader.rootUID, GID: reader.brokerGID, Mode: 0640, Links: 1},
-		passwd:    protectedio.FilePolicy{UID: reader.rootUID, GID: reader.rootGID, Mode: 0644, Links: 1, MaxBytes: protectedio.MaxBytes},
-		group:     protectedio.FilePolicy{UID: reader.rootUID, GID: reader.rootGID, Mode: 0644, Links: 1, MaxBytes: protectedio.MaxBytes},
+		authority: filePolicy{path: reader.paths.authority, file: protectedio.FilePolicy{UID: reader.rootUID, GID: reader.brokerGID, Mode: 0640, Links: 1, MaxBytes: protectedio.MaxBytes}},
+		lock:      filePolicy{path: reader.paths.lock, file: protectedio.FilePolicy{UID: reader.rootUID, GID: reader.brokerGID, Mode: 0640, Links: 1}},
+		passwd:    filePolicy{path: reader.paths.passwd, file: protectedio.FilePolicy{UID: reader.rootUID, GID: reader.rootGID, Mode: 0644, Links: 1, MaxBytes: protectedio.MaxBytes}},
+		group:     filePolicy{path: reader.paths.group, file: protectedio.FilePolicy{UID: reader.rootUID, GID: reader.rootGID, Mode: 0644, Links: 1, MaxBytes: protectedio.MaxBytes}},
 		configuration: directoryPolicy{
+			path: reader.paths.directory,
 			file: protectedio.FilePolicy{UID: reader.rootUID, GID: reader.brokerGID, Mode: 0750}, ancestorUID: reader.rootUID,
 		},
 		data: directoryPolicy{
+			path: reader.paths.data,
 			file: protectedio.FilePolicy{UID: reader.brokerUID, GID: reader.brokerGID, Mode: 0700}, ancestorUID: reader.rootUID,
 		},
 		store: directoryPolicy{
+			path: reader.paths.store,
 			file: protectedio.FilePolicy{UID: reader.brokerUID, GID: reader.brokerGID, Mode: 0700}, ancestorUID: reader.brokerUID,
 		},
 	}
+}
+
+type protectedReader interface {
+	assemblyv0.ProtectedRead
+	CheckDirectory(context.Context, string, protectedio.FilePolicy, uint32) error
 }
 
 type Reader struct {
@@ -74,7 +88,8 @@ type Reader struct {
 	brokerUID, brokerGID uint32
 	rootUID, rootGID     uint32
 	paths                paths
-	files                protectedio.Reader
+	files                protectedReader
+	newGate              func(context.Context, string, protectedio.FilePolicy) (protectedio.ConfigGate, error)
 	mu                   sync.Mutex
 	gate                 assemblyv0.ConfigGate
 }
@@ -87,7 +102,7 @@ func New(config policy.Config) *Reader {
 		account.AllowedUIDs = append([]uint32(nil), account.AllowedUIDs...)
 		account.Profiles = append([]string(nil), account.Profiles...)
 	}
-	return &Reader{config: config, brokerUID: uint32(os.Geteuid()), brokerGID: uint32(os.Getegid()), paths: paths{
+	return &Reader{config: config, files: protectedio.Reader{}, newGate: protectedio.NewConfigGate, brokerUID: uint32(os.Geteuid()), brokerGID: uint32(os.Getegid()), paths: paths{
 		authority: AuthorityPath, lock: LockPath, passwd: "/etc/passwd", group: "/etc/group",
 		directory: "/etc/swarma/credential-broker", data: DataRoot, store: StoreRoot,
 	}}
@@ -102,7 +117,8 @@ func (reader *Reader) configGate(ctx context.Context) (assemblyv0.ConfigGate, er
 	reader.mu.Lock()
 	defer reader.mu.Unlock()
 	if reader.gate == nil {
-		gate, err := protectedio.NewConfigGate(ctx, reader.paths.lock, reader.sourcePolicies().lock)
+		lock := reader.sourcePolicies().lock
+		gate, err := reader.newGate(ctx, lock.path, lock.file)
 		if err != nil {
 			return nil, ErrIdentityChanged
 		}
@@ -113,15 +129,12 @@ func (reader *Reader) configGate(ctx context.Context) (assemblyv0.ConfigGate, er
 
 func (reader *Reader) directories(ctx context.Context) error {
 	policies := reader.sourcePolicies()
-	for _, entry := range []struct {
-		path   string
-		policy directoryPolicy
-	}{
-		{reader.paths.directory, policies.configuration},
-		{reader.paths.data, policies.data},
-		{reader.paths.store, policies.store},
+	for _, entry := range []directoryPolicy{
+		policies.configuration,
+		policies.data,
+		policies.store,
 	} {
-		if reader.files.CheckDirectory(ctx, entry.path, entry.policy.file, entry.policy.ancestorUID) != nil {
+		if reader.files.CheckDirectory(ctx, entry.path, entry.file, entry.ancestorUID) != nil {
 			return ErrIdentityChanged
 		}
 	}
@@ -140,7 +153,7 @@ func (reader *Reader) current(ctx context.Context, use bool) (snapshot, error) {
 		return result, ErrIdentityChanged
 	}
 	var err error
-	_, result.authority, err = reader.files.Read(ctx, reader.paths.authority, policies.authority)
+	_, result.authority, err = reader.files.Read(ctx, policies.authority.path, policies.authority.file)
 	if err != nil {
 		return snapshot{}, ErrIdentityChanged
 	}
@@ -154,13 +167,12 @@ func (reader *Reader) current(ctx context.Context, use bool) (snapshot, error) {
 		return snapshot{}, ErrIdentityChanged
 	}
 	for _, target := range []struct {
-		path        string
 		destination *[]byte
-		policy      protectedio.FilePolicy
+		policy      filePolicy
 	}{
-		{reader.paths.passwd, &result.passwd, policies.passwd}, {reader.paths.group, &result.group, policies.group},
+		{&result.passwd, policies.passwd}, {&result.group, policies.group},
 	} {
-		_, *target.destination, err = reader.files.Read(ctx, target.path, target.policy)
+		_, *target.destination, err = reader.files.Read(ctx, target.policy.path, target.policy.file)
 		if err != nil {
 			return snapshot{}, ErrIdentityChanged
 		}
