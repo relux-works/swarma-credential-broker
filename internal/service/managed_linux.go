@@ -70,6 +70,10 @@ func (a *ManagedAuthority) WithCurrent(ctx context.Context, fn func(View) error)
 func managedRefusal() error { return refuse("principal_ledger_mismatch") }
 
 func (a *ManagedAuthority) withManaged(ctx context.Context, current bool, fn func(View) error) error {
+	return a.withManagedAtBoundary(ctx, current, nil, fn)
+}
+
+func (a *ManagedAuthority) withManagedAtBoundary(ctx context.Context, current bool, boundary func(string), fn func(View) error) error {
 	if a == nil || ctx == nil || fn == nil || ctx.Err() != nil {
 		return managedRefusal()
 	}
@@ -85,6 +89,9 @@ func (a *ManagedAuthority) withManaged(ctx context.Context, current bool, fn fun
 	defer directory.Close()
 	if managedPending(directory) {
 		return managedRefusal()
+	}
+	if boundary != nil {
+		boundary("after-first-pending")
 	}
 	gate, err := a.openAt(directory, "gate.lock", false)
 	if err != nil {
@@ -105,11 +112,21 @@ func (a *ManagedAuthority) withManaged(ctx context.Context, current bool, fn fun
 	if unix.Flock(int(gate.Fd()), unix.LOCK_SH|unix.LOCK_NB) != nil {
 		return managedRefusal()
 	}
-	if managedPending(directory) || unix.Flock(int(data.Fd()), unix.LOCK_SH|unix.LOCK_NB) != nil {
+	if managedPending(directory) {
+		_ = unix.Flock(int(gate.Fd()), unix.LOCK_UN)
+		return managedRefusal()
+	}
+	if boundary != nil {
+		boundary("before-data-lock")
+	}
+	if unix.Flock(int(data.Fd()), unix.LOCK_SH|unix.LOCK_NB) != nil {
 		_ = unix.Flock(int(gate.Fd()), unix.LOCK_UN)
 		return managedRefusal()
 	}
 	deadline := time.Now().Add(genjournal.ReaderHold)
+	if boundary != nil {
+		boundary("data-locked")
+	}
 	_ = unix.Flock(int(gate.Fd()), unix.LOCK_UN)
 	defer unix.Flock(int(data.Fd()), unix.LOCK_UN)
 	window, cancel := context.WithDeadline(ctx, deadline)
@@ -117,6 +134,9 @@ func (a *ManagedAuthority) withManaged(ctx context.Context, current bool, fn fun
 	projection, err := a.readAt(parent, "identities.json", managedIdentityLimit)
 	if err != nil {
 		return managedRefusal()
+	}
+	if boundary != nil {
+		boundary("projection-read")
 	}
 	journal, err := a.readAt(directory, "journal", genjournal.MaxFile)
 	if err != nil {
@@ -286,6 +306,10 @@ func (a *ManagedAuthority) openAt(directory *os.File, name string, isDirectory b
 }
 
 func (a *ManagedAuthority) readAt(directory *os.File, name string, limit int) ([]byte, error) {
+	return a.readAtBoundary(directory, name, limit, nil)
+}
+
+func (a *ManagedAuthority) readAtBoundary(directory *os.File, name string, limit int, afterRead func()) ([]byte, error) {
 	file, err := a.openAt(directory, name, false)
 	if err != nil {
 		return nil, managedRefusal()
@@ -296,6 +320,9 @@ func (a *ManagedAuthority) readAt(directory *os.File, name string, limit int) ([
 		return nil, managedRefusal()
 	}
 	raw, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
+	if afterRead != nil {
+		afterRead()
+	}
 	if err != nil || len(raw) > limit || unix.Fstat(int(file.Fd()), &after) != nil || before.Dev != after.Dev || before.Ino != after.Ino || before.Size != after.Size || before.Mtim != after.Mtim || before.Ctim != after.Ctim || a.check(file, false, true) != nil {
 		return nil, managedRefusal()
 	}

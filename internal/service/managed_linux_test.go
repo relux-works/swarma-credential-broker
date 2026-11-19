@@ -32,12 +32,14 @@ type managedFixture struct {
 }
 
 type managedFixtureCase struct {
-	Check     string `json:"check"`
-	Condition string `json:"condition,omitempty"`
-	File      string `json:"file"`
-	Name      string `json:"name"`
-	Previous  string `json:"previous,omitempty"`
-	Verdict   string `json:"verdict"`
+	Check      string  `json:"check"`
+	Condition  string  `json:"condition,omitempty"`
+	File       string  `json:"file"`
+	Name       string  `json:"name"`
+	Previous   string  `json:"previous,omitempty"`
+	Verdict    string  `json:"verdict"`
+	UID        *uint32 `json:"uid,omitempty"`
+	Generation string  `json:"generation,omitempty"`
 }
 
 type managedFixtureManifest struct {
@@ -53,12 +55,18 @@ func managedCases(t *testing.T) managedFixtureManifest {
 	t.Helper()
 	var manifest managedFixtureManifest
 	raw := managedBytes(t, "cases.json")
-	if _, err := wire.Parse(raw); err != nil || wire.Decode(raw, &manifest) != nil || manifest.Format != "swarma-identities-fixtures/1" || manifest.Journal != "journal.jsonl" || len(manifest.Cases) == 0 || manifest.UID != managedFixtureUID || manifest.Generation != managedFixtureGeneration {
+	if _, err := wire.Parse(raw); err != nil || wire.Decode(raw, &manifest) != nil || manifest.Format != "swarma-identities-fixtures/1" || manifest.Journal != "journal.jsonl" || len(manifest.Cases) == 0 || !managedHex(manifest.Generation, 32) {
 		t.Fatal("invalid shared fixture manifest")
 	}
 	journal, err := genjournal.Verify(bytes.NewReader(managedBytes(t, manifest.Journal)), genjournal.Floor{Hash: genjournal.ZeroHash})
 	if err != nil || journal.Tail.Hash != manifest.JournalHead || journal.Active(int64(manifest.UID), manifest.Generation) != nil {
 		t.Fatal("manifest does not identify the active journal vector")
+	}
+	for _, item := range manifest.Cases {
+		want := managedExpectedPrincipal(manifest, item)
+		if item.Verdict == "accept" && journal.Active(int64(want.UID), want.Generation) != nil {
+			t.Fatalf("accept case %s does not identify an active journal pair", item.Name)
+		}
 	}
 	if err := managedFixtureInventory(managedFixtureDirectory, manifest); err != nil {
 		t.Fatal(err)
@@ -96,11 +104,25 @@ func managedFixtureInventory(directory string, manifest managedFixtureManifest) 
 	return nil
 }
 
-func managedApplyCase(t *testing.T, fixture *managedFixture, item managedFixtureCase) {
+func managedExpectedPrincipal(manifest managedFixtureManifest, item managedFixtureCase) Principal {
+	uid, generation := manifest.UID, manifest.Generation
+	if item.UID != nil {
+		uid = *item.UID
+	}
+	if item.Generation != "" {
+		generation = item.Generation
+	}
+	return Principal{UID: uid, Generation: generation, Service: Gateway, Role: "service"}
+}
+
+func managedApplyCase(t *testing.T, fixture *managedFixture, manifest managedFixtureManifest, item managedFixtureCase) {
 	t.Helper()
 	if item.Previous != "" {
 		managedWrite(t, filepath.Join(fixture.parent, "identities.json"), managedBytes(t, item.Previous))
-		managedPositive(t, fixture.authority)
+		want := managedExpectedPrincipal(manifest, item)
+		if principal, err := managedPrincipal(fixture.authority, want.UID); err != nil || principal != want {
+			t.Fatalf("transition control: got %#v, %v; want %#v", principal, err, want)
+		}
 	}
 	path := filepath.Join(fixture.parent, "identities.json")
 	managedWrite(t, path, managedBytes(t, item.File))
@@ -270,11 +292,11 @@ func TestManagedSharedFixtures(t *testing.T) {
 		t.Run(item.Name, func(t *testing.T) {
 			managedPositive(t, newManagedFixture(t).authority)
 			fixture := newManagedFixture(t)
-			managedApplyCase(t, fixture, item)
+			managedApplyCase(t, fixture, manifest, item)
 			before := managedSnapshot(t, fixture.authority.root)
-			principal, err := managedPrincipal(fixture.authority, manifest.UID)
+			want := managedExpectedPrincipal(manifest, item)
+			principal, err := managedPrincipal(fixture.authority, want.UID)
 			if item.Verdict == "accept" {
-				want := Principal{UID: manifest.UID, Generation: manifest.Generation, Service: Gateway, Role: "service"}
 				if err != nil || principal != want {
 					t.Fatalf("valid fixture: got %#v, %v; want %#v", principal, err, want)
 				}
@@ -547,11 +569,19 @@ func TestManagedProtectedDirectories(t *testing.T) {
 // Claim: the published journal gate/data protocol excludes writers for the
 // whole callback, never queues on a writer, and refuses every pending marker.
 func TestManagedWriterFences(t *testing.T) {
-	for _, fault := range []string{"gate.lock", "data.lock", "writer.pending", "nonempty-lock"} {
+	for _, fault := range []string{"gate.lock", "data.lock", "writer.pending", "dangling-pending", "directory-pending", "nonempty-lock"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newManagedFixture(t)
 			managedPositive(t, fixture.authority)
-			if fault == "writer.pending" || fault == "nonempty-lock" {
+			if fault == "dangling-pending" {
+				if err := os.Symlink("absent-target", filepath.Join(fixture.journal, "writer.pending")); err != nil {
+					t.Fatal(err)
+				}
+			} else if fault == "directory-pending" {
+				if err := os.Mkdir(filepath.Join(fixture.journal, "writer.pending"), 0755); err != nil {
+					t.Fatal(err)
+				}
+			} else if fault == "writer.pending" || fault == "nonempty-lock" {
 				leaf := fault
 				if fault == "nonempty-lock" {
 					leaf = "data.lock"
@@ -792,7 +822,7 @@ func TestManagedRefusalsBeforeMaterial(t *testing.T) {
 			fixture.authority.facts = broker.a
 			broker.b.authority = fixture.authority
 			broker.issue(t)
-			managedApplyCase(t, fixture, item)
+			managedApplyCase(t, fixture, manifest, item)
 			before, leases := broker.custody.entries, len(broker.b.leases)
 			state := managedSnapshot(t, broker.root)
 			identities := managedSnapshot(t, fixture.authority.root)

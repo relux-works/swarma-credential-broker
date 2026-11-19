@@ -137,6 +137,15 @@ nonregular-file, duplicate-case and missing-history negative controls. Manifest
 custody cases apply the named condition to temporary copies, not the checked-in
 files; valid bytes alone do not represent a filesystem refusal. Additional
 consumer-only schema and filesystem negatives generate their own temporary data.
+Optional per-case `uid` and `generation` fields override the manifest defaults
+independently, including for additional accepting rows. Consumer-only controls
+exercise a different active journal tuple without changing shared fixture bytes.
+`TestManagedNonselectedRecords` drives closed values, members and uniqueness
+outside the selected record. `TestManagedPendingAtReadBoundary`,
+`TestManagedGateDataOrdering`, `TestManagedReadDeadlineBeforeEffects` and
+`TestManagedReadMetadataChange` drive the private nil-by-default read boundaries,
+including marker publication before gate acquisition and metadata changes on the
+opened descriptor. These are package-private test seams, not runtime overrides.
 `TestManagedRefusalsBeforeMaterial` also consumes every refusing manifest row and
 checks that connection admission and lease requests leave publication, custody,
 lease count, durable state and identity evidence unchanged. Effect none is an
