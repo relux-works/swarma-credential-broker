@@ -206,9 +206,20 @@ func constructionVectors() map[string]constructionVector {
 		Format: TerminalSessionFormat, InstallationID: fixtureInstallation, AuthorityRevision: 1,
 		AuthorityDigest: authorityDigest, Nonce: "00000000000000000000000000000004", Operator: authority.Operator,
 		TerminalCaller: authority.TerminalCallers[0], BrokerUID: authority.Broker.UID,
-		SocketPath: "/run/swarma/credential-broker/broker.sock", Freshness: BoottimeFreshness{"boottime", fixtureBoot, 1000, 301000},
+		SocketPath: "/opt/swarma/run/credential-broker/broker.sock", Freshness: BoottimeFreshness{"boottime", fixtureBoot, 1000, 301000},
 		TTYDevice: TTYDevice{136, 1}, AccountPolicy: nil, Continuity: nil,
-	}, "Unbind terminal session retains required null account_policy/continuity, not omitted members.", sourceLines(349, 364))
+	}, "Unbind terminal session retains required null account_policy/continuity and the spec-pinned installed socket.", sourceLines(349, 364), sourceLines(1589, 1591), sourceReference{"spec/broker.md", 900, 900})
+	session := vectors["session-unbind.json"].value.(TerminalSession)
+	session.Freshness = UTCFreshness{"utc", "2030-01-01T00:00:00Z", "2030-01-01T00:05:00Z"}
+	session.AccountPolicy = &SessionAccountPolicy{fixtureAccount, false}
+	session.Continuity = &Continuity{"production"}
+	add("session-widening.json", session, "Widening session has UTC freshness and protected non-null account policy and production continuity.", sourceLines(349, 364), sourceLines(424, 433), sourceLines(1589, 1591), sourceReference{"spec/broker.md", 900, 900})
+	unicodeBody := vectors["act-lift.body.json"].value.(OperatorBody)
+	unicodeArguments := unicodeBody.Arguments.(LiftArguments)
+	unicodeArguments.Account = "fixture/λ/😀"
+	unicodeBody.Arguments = unicodeArguments
+	add("act-lift-unicode.body.json", unicodeBody, "Non-ASCII act members remain literal CCJ-1 UTF-8; display escaping is not signed or hashed.", sourceLines(485, 503))
+	addBytes("act-lift-unicode.preimage", actPreimage(unicodeBody), "Act hashing uses literal UTF-8 rather than the reversible escaped display.", sourceLines(435, 446), sourceLines(499, 503))
 	for _, kind := range []string{"lease_expiring", "lease_expired", "reauth_required"} {
 		add("event-"+kind+".json", LeaseEvent{kind}, "Closed nonauthorizing tagged event without class or arbitrary metadata.", sourceLines(1055, 1061))
 	}
@@ -231,6 +242,13 @@ func constructionVectors() map[string]constructionVector {
 		preimage := append([]byte("swarma-credential-broker revocation/1\n"), canonicalBytes(body)...)
 		envelope := RevocationEnvelope{body, digestBytes(preimage), Signature(base64.RawURLEncoding.EncodeToString(ed25519.Sign(syntheticKey(), preimage)))}
 		add("revocation-"+target.name+".json", envelope, "Unchanged baseline revocation target sum and omitted optional reason; no publication or revocation authority.", sourceReference{"spec/broker.md", 417, 429}, sourceLines(81, 85))
+		if target.name == "key" {
+			reason := "synthetic revocation reason"
+			body.Reason = &reason
+			preimage = append([]byte("swarma-credential-broker revocation/1\n"), canonicalBytes(body)...)
+			envelope = RevocationEnvelope{body, digestBytes(preimage), Signature(base64.RawURLEncoding.EncodeToString(ed25519.Sign(syntheticKey(), preimage)))}
+			add("revocation-key-reason.json", envelope, "Signed key-target revocation with a non-empty optional string reason beside omitted/null controls.", sourceReference{"spec/broker.md", 417, 429})
+		}
 	}
 	return vectors
 }

@@ -243,6 +243,35 @@
       ]
     },
     {
+      "file": "act-lift-unicode.body.json",
+      "sha256": "sha256:8c22e479a026e5a57b329f2bfeacf7af38362030b0e0bfc0e61dec56e502aacd",
+      "claim": "Non-ASCII act members remain literal CCJ-1 UTF-8; display escaping is not signed or hashed.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 485,
+          "last_line": 503
+        }
+      ]
+    },
+    {
+      "file": "act-lift-unicode.preimage",
+      "sha256": "sha256:916dfb9ba30ff2ea140f55e7422d654b0d33d8f5ecb0e3b8da0fc05afde1462b",
+      "claim": "Act hashing uses literal UTF-8 rather than the reversible escaped display.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 435,
+          "last_line": 446
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 499,
+          "last_line": 503
+        }
+      ]
+    },
+    {
       "file": "act-lift.arguments-preimage",
       "sha256": "sha256:3538a5ca5172a35c05086371194ca0cbd6c6dff2922337cbdc4d23561a910c49",
       "claim": "Separate arguments domain, LF, exact method, LF and canonical complete arguments.",
@@ -656,6 +685,18 @@
       ]
     },
     {
+      "file": "revocation-key-reason.json",
+      "sha256": "sha256:85e54f6c009321003a5740b6790187611a8836020ba90bee1f65ee6f6dad94e7",
+      "claim": "Signed key-target revocation with a non-empty optional string reason beside omitted/null controls.",
+      "sources": [
+        {
+          "path": "spec/broker.md",
+          "first_line": 417,
+          "last_line": 429
+        }
+      ]
+    },
+    {
       "file": "revocation-key.json",
       "sha256": "sha256:a286b44da81bc2db87b7c287defa2279257b1cff4d6f60723ebd8c12da59e440",
       "claim": "Unchanged baseline revocation target sum and omitted optional reason; no publication or revocation authority.",
@@ -674,13 +715,50 @@
     },
     {
       "file": "session-unbind.json",
-      "sha256": "sha256:eb5534a0b334e98075de0ac1f10f74779a6e7dd91392e7af0d2fd485c1e91758",
-      "claim": "Unbind terminal session retains required null account_policy/continuity, not omitted members.",
+      "sha256": "sha256:5bc5b8eb9f9a52ed58e8868e5647baaab039d429f7a58ea6578c684330f7b652",
+      "claim": "Unbind terminal session retains required null account_policy/continuity and the spec-pinned installed socket.",
       "sources": [
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 349,
           "last_line": 364
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1589,
+          "last_line": 1591
+        },
+        {
+          "path": "spec/broker.md",
+          "first_line": 900,
+          "last_line": 900
+        }
+      ]
+    },
+    {
+      "file": "session-widening.json",
+      "sha256": "sha256:2a6d99ff77d974c1abeb815f8eec7bba660fd44a7c5e651fa9c3b1fc10dd30a6",
+      "claim": "Widening session has UTC freshness and protected non-null account policy and production continuity.",
+      "sources": [
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 349,
+          "last_line": 364
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 424,
+          "last_line": 433
+        },
+        {
+          "path": "spec/operator-and-activation-v0.md",
+          "first_line": 1589,
+          "last_line": 1591
+        },
+        {
+          "path": "spec/broker.md",
+          "first_line": 900,
+          "last_line": 900
         }
       ]
     }

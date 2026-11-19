@@ -8,7 +8,7 @@ It does not resolve owner choices. All S references are to the contract's pinned
 
 | Surface | Construction disposition | Remaining authority |
 | --- | --- | --- |
-| U00 / U01 | Inactive declarations, contracts and synthetic vectors only; exact-head review still required. | O-01/O-19 engineering and specification acceptance are distinct. |
+| U00 / U01 | Inactive declarations, closed record sum codecs, contracts and synthetic vectors only; exact-head review still required. | O-01/O-19 engineering and specification acceptance are distinct. |
 | DN-01–DN-08 A | Preserve section 9's choices and conditions, not recommendations from section 8. | Required broker/service/Claude/book amendments and native proof remain open. |
 | DN-02 terminal bytes | Construction-only vectors; no terminal integration, final byte freeze or native acceptance claim. | O-01/O-04/O-05 qualify before final freezing, S:373–375,1739. |
 | DN-05 | Declared ownership CONFLICT; no config/root precedence fallback. | Explicit section 4.4 amendments and acceptor verdict. |
@@ -51,11 +51,14 @@ an explicit decision. This list is intentionally not a new choice register.
 The brief has **no attack-surface table**. This is a declared brief gap, not
 a waiver or a claim that later qualification rows are covered. U01 tests cover
 only source-derived bytes, schema counterexamples and structural import/port
-invariants. Runtime admission, filesystem security, token lifecycle, gate
+invariants and closed record sum decoding. Runtime admission, filesystem
+security, token lifecycle, gate
 concurrency/escape enforcement, native terminal plants, owner acceptance,
 hosted CI and landing are outside this construction result.
 
 No previously committed reviewer test is removed or renamed. There are no
 later-unit changes or changes to existing runtime behavior. Plants and their
-named failing tests, exact exit codes and validation identities are recorded
-in the task handoff; an unapplied or merely crashing plant is not a killed one.
+named failing tests, exact exit codes and validation identities are published in
+[the fix-round evidence and PR-body table](assembly-v0-fix-round-1.md), with
+complete private logs retained in the task handoff. An unapplied or merely
+crashing plant is not a killed one; the documented renamed-schema plant survives.

@@ -74,6 +74,11 @@ func TestConstructionRefusals(test *testing.T) {
 		{"receipt-no-arguments", "act-bind.receipt.json", nil, "arguments", map[string]any{}},
 		{"receipt-confirmation-kind", "act-unbind.receipt.json", nil, "confirmation", "exact-content"},
 		{"unbind-session-no-policy", "session-unbind.json", nil, "account_policy", map[string]any{"account": fixtureAccount, "test_subscription": false}},
+		{"session-installed-socket", "session-unbind.json", nil, "socket_path", "/run/swarma/credential-broker/broker.sock"},
+		{"session-arbitrary-socket", "session-unbind.json", nil, "socket_path", "/tmp/anything.sock"},
+		{"widening-session-needs-policy", "session-widening.json", nil, "account_policy", nil},
+		{"widening-session-needs-continuity", "session-widening.json", nil, "continuity", nil},
+		{"widening-session-cannot-use-boottime", "session-widening.json", nil, "freshness", fixtureTree(constructionVectors()["act-unbind.body.json"].bytes)["freshness"]},
 		{"event-no-extra-class", "event-lease_expiring.json", nil, "class", "auth"},
 		{"event-class-closed", "event-error-auth.json", nil, "class", "temporary"},
 	}
@@ -194,7 +199,7 @@ func TestImportBoundaryControls(test *testing.T) {
 	}
 }
 
-// Claim: unresolved complete schemas have no declaration masquerading as a closed type; this does not publish their missing encodings.
+// Claim: the named unresolved schemas are absent; this name blocklist cannot detect renamed partial schemas or publish missing encodings.
 func TestUnresolvedDeclarationsAbsent(test *testing.T) {
 	for _, directory := range []string{".", "../statev0"} {
 		entries, err := os.ReadDir(directory)

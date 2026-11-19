@@ -29,7 +29,7 @@ func decodeFixture(data []byte, destination any) error {
 	if target.Kind() != reflect.Pointer || target.IsNil() {
 		return errFixture
 	}
-	if target.Elem().Type() == reflect.TypeFor[ActivationDocument]() && len(data) > 16*1024 {
+	if (target.Elem().Type() == reflect.TypeFor[ActivationDocument]() || target.Elem().Type() == reflect.TypeFor[OperatorCandidate]()) && len(data) > 16*1024 {
 		return errFixture
 	}
 	return fillFixture(parsed["vector"], target.Elem(), "")
@@ -296,7 +296,7 @@ func checkFixture(value any) error {
 		valid = typed.Account != ""
 	case TerminalSession:
 		_, narrowing := typed.Freshness.(BoottimeFreshness)
-		valid = typed.Format == TerminalSessionFormat && typed.InstallationID != "" && typed.AuthorityRevision > 0 && absolutePath(typed.SocketPath) && ((narrowing && typed.AccountPolicy == nil && typed.Continuity == nil) || (!narrowing && typed.AccountPolicy != nil && typed.Continuity != nil))
+		valid = typed.Format == TerminalSessionFormat && typed.InstallationID != "" && typed.AuthorityRevision > 0 && typed.SocketPath == "/opt/swarma/run/credential-broker/broker.sock" && ((narrowing && typed.AccountPolicy == nil && typed.Continuity == nil) || (!narrowing && typed.AccountPolicy != nil && typed.Continuity != nil))
 	case LeaseEvent:
 		valid = typed.Kind == "lease_expiring" || typed.Kind == "lease_expired" || typed.Kind == "reauth_required"
 	case CredentialErrorEvent:
@@ -427,7 +427,7 @@ func TestClosedSchemaRefusals(test *testing.T) {
 				objectAt(modified, location)["unpublished_member"] = true
 				check(canonicalBytes(modified), false)
 				for member, original := range objectAt(fixtureTree(vector.bytes), location) {
-					if member != "service_lease_max_lifetime_seconds" {
+					if member != "service_lease_max_lifetime_seconds" && member != "reason" {
 						modified = fixtureTree(vector.bytes)
 						delete(objectAt(modified, location), member)
 						check(canonicalBytes(modified), false)
@@ -471,6 +471,18 @@ func TestCanonicalRefusals(test *testing.T) {
 // Claim: exact domains bind method, argument, installation and operation bytes; a domain-confused or altered digest cannot match the fixed vector.
 func TestDomainSeparation(test *testing.T) {
 	vectors := constructionVectors()
+	for name, vector := range vectors {
+		if strings.HasSuffix(name, ".arguments-preimage") {
+			body := vectors[strings.TrimSuffix(name, ".arguments-preimage")+".body.json"].value.(OperatorBody)
+			if !bytes.HasPrefix(vector.bytes, []byte("swarma-credential-broker operator-arguments/1\n"+body.Method+"\n{")) {
+				test.Fatalf("S:447-450 argument domain/method framing changed: %s", name)
+			}
+		}
+	}
+	expectedEnrollment := []byte("swarma-credential-broker enrollment-token/1\n{\"installation_id\":\"fixture-installation-v0\",\"operation_id\":\"00112233445566778899aabbccddeeff\"}\nSYNTHETIC-ONLY-NOT-A-VENDOR-TOKEN")
+	if !bytes.Equal(vectors["enrollment-token.preimage"].bytes, expectedEnrollment) {
+		test.Fatal("S:469-474 enrollment domain/scoped identity/LF framing changed")
+	}
 	body := vectors["act-enrol-null.body.json"].value.(OperatorBody)
 	preimage := vectors["act-enrol-null.preimage"].bytes
 	if !bytes.HasPrefix(preimage, []byte("swarma-credential-broker operator-act/1\n{")) || bytes.HasSuffix(preimage, []byte{'\n'}) {

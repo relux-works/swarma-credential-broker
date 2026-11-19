@@ -3,8 +3,8 @@
 ## Inactive assembly construction
 
 [Construction contract C0](docs/assembly-v0-construction-contract.md) supplies
-U00/U01 declarations and source-derived synthetic vectors only. All O-01
-through O-21 remain explicitly recorded in the
+U00/U01 inactive declarations, closed record sum codecs and source-derived
+synthetic vectors only. All O-01 through O-21 remain explicitly recorded in the
 [applicability register](docs/assembly-v0-applicability.md#open-o-points).
 O-07 enrollment result/reply types and O-09 producer/principal/effect/replacement
 schemas are absent, without placeholder members or accepting stubs. O-01/O-19
