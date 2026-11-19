@@ -188,6 +188,8 @@ with explicit fresh `/2` storage, complete narrowing reservations and synthetic
 fault controls. It does not wire the daemon, replace the existing `/1` reader,
 authenticate operators or select a production custody role. The linked note
 documents APIs, test commands and task-owned `.temp/` evidence locations.
+Its fix-round controls cover bounded re-entry refusal, maximal narrowing and
+hold-first reserves, held-account delivery refusal and transitive import isolation.
 U01 review-round controls remain in [the fix-round evidence](docs/assembly-v0-fix-round-1.md).
 
 For diagram-source validation, an installed PlantUML can render both labeled

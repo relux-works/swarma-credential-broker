@@ -50,7 +50,7 @@ func TestSharedGateTokenLifetime(test *testing.T) {
 	}
 }
 
-// Claim: concurrent publishers share one serialization boundary; cancelled waiters and forbidden recursive acquisition never enter it, and panic releases the gate.
+// Claim: concurrent publishers share one serialization boundary; cancelled waiters and recursive With acquisition never enter it, and panic releases the gate.
 func TestSharedGateSerialization(test *testing.T) {
 	gate := NewGate()
 	var workers sync.WaitGroup
@@ -93,5 +93,64 @@ func TestSharedGateSerialization(test *testing.T) {
 	}()
 	if err := gate.With(context.Background(), func(tx *Tx) error { return Check(tx, gate) }); err != nil {
 		test.Fatal("panic stranded the gate", err)
+	}
+}
+
+// Claim: sequential token uses succeed; nested Use/Check refuse without an effect or deadlock, and cancellation leaves the gate available to a successor. Arbitrary blocking caller work is outside this synchronous contract.
+func TestSharedGateNestedUseRefuses(test *testing.T) {
+	for _, name := range []string{"sequential", "nested-use", "nested-check", "cancelled-nested-check"} {
+		test.Run(name, func(test *testing.T) {
+			gate := NewGate()
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			type result struct {
+				err     error
+				nested  error
+				effects int
+			}
+			done := make(chan result, 1)
+			go func() {
+				observed := result{}
+				observed.err = gate.With(ctx, func(tx *Tx) error {
+					if err := Check(tx, gate); err != nil {
+						return err
+					}
+					return Use(tx, gate, func() error {
+						observed.effects++
+						switch name {
+						case "nested-use":
+							observed.nested = Use(tx, gate, func() error { observed.effects++; return nil })
+						case "nested-check", "cancelled-nested-check":
+							if name == "cancelled-nested-check" {
+								cancel()
+							}
+							observed.nested = Check(tx, gate)
+						}
+						return nil
+					})
+				})
+				done <- observed
+			}()
+			select {
+			case observed := <-done:
+				if observed.effects != 1 || name != "sequential" && !errors.Is(observed.nested, ErrTransaction) {
+					test.Fatal("nested token use did not refuse without effects", observed)
+				}
+				if name == "cancelled-nested-check" {
+					if !errors.Is(observed.err, context.Canceled) {
+						test.Fatal("nested cancellation did not fail closed", observed.err)
+					}
+				} else if observed.err != nil {
+					test.Fatal("valid outer use failed", observed.err)
+				}
+			case <-time.After(2 * time.Second):
+				test.Fatal("nested token use deadlocked past its transaction deadline")
+			}
+			successor, stop := context.WithTimeout(context.Background(), time.Second)
+			defer stop()
+			if err := gate.With(successor, func(tx *Tx) error { return Check(tx, gate) }); err != nil {
+				test.Fatal("nested use or cancellation stranded the shared gate", err)
+			}
+		})
 	}
 }

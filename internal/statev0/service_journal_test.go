@@ -147,6 +147,8 @@ func TestServiceJournalVersion(test *testing.T) {
 			valid := append([]byte(nil), records.data...)
 			for _, entry := range []struct{ name, old, new string }{
 				{"legacy", ServiceJournalKind, "claude-service-journal/1"},
+				{"future", ServiceJournalKind, "claude-service-journal/3"},
+				{"unknown-member", `"bindings":`, `"unknown":true,"bindings":`},
 				{"missing-receipt", `,"receipt":{`, `,"omitted_receipt":{`},
 				{"null-receipt", `"receipt":{`, `"receipt":null,"extra":{`},
 				{"unknown-intent", `"method":"service.`, `"method":"intent.service.`},
@@ -167,6 +169,10 @@ func TestServiceJournalVersion(test *testing.T) {
 					})
 					if !errors.Is(err, ErrUnavailable) || records.writes != 0 || !bytes.Equal(before, records.data) {
 						test.Fatal("invalid journal was adopted or mutated", err)
+					}
+					err = gate.With(context.Background(), func(tx *Tx) error { return journal.ReconcileLocked(tx, journalAccount) })
+					if !errors.Is(err, ErrUnavailable) || records.writes != 0 || !bytes.Equal(before, records.data) {
+						test.Fatal("invalid journal reconciled or mutated", err)
 					}
 				})
 			}

@@ -285,6 +285,7 @@ func TestJournalAccountVersionProjection(test *testing.T) {
 		if err := bound.StoreServiceState(state); err != nil {
 			return err
 		}
+		state.Revision++
 		state.Kind = "claude-service-journal/1"
 		if err := bound.StoreServiceState(state); !errors.Is(err, statev0.ErrConflict) {
 			test.Fatal("bridge accepted legacy journal adoption", err)
@@ -430,5 +431,129 @@ func TestServicePublicationCancellation(test *testing.T) {
 		if !cancelled && (err != nil || deliveries != 1) || cancelled && (!errors.Is(err, context.Canceled) || deliveries != 0) {
 			test.Fatal("final delivery cancellation boundary failed", cancelled, err, deliveries)
 		}
+	}
+}
+
+// Claim: inert delivery succeeds, but a delivery that re-enters the live account refuses with ErrTransaction instead of deadlocking; both refusal and cancellation release the shared gate for a successor.
+func TestServicePublicationReentryRefuses(test *testing.T) {
+	for _, name := range []string{"inert", "reentrant", "cancelled-reentrant"} {
+		test.Run(name, func(test *testing.T) {
+			fixture := newDiskFixture(test, diskState(test), nil)
+			account, err := NewJournalAccount(fixture.gate, fixture.journal, fixtureAccount, &inertCustody{})
+			if err != nil {
+				test.Fatal(err)
+			}
+			clock := func() time.Time { return time.Date(2030, 1, 1, 0, 0, 1, 0, time.UTC) }
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			done := make(chan error, 1)
+			deliveries := 0
+			go func() {
+				done <- fixture.gate.With(ctx, func(tx *statev0.Tx) error {
+					bound, err := account.ForLeaseLocked(tx, strings.Repeat("4", 32))
+					if err != nil {
+						return err
+					}
+					return bound.Publish(ctx, clock().Add(time.Minute), clock, func([]byte) error {
+						deliveries++
+						if name == "inert" {
+							return nil
+						}
+						if name == "cancelled-reentrant" {
+							cancel()
+						}
+						_, err := bound.ServiceAccount()
+						return err
+					})
+				})
+			}()
+			select {
+			case err := <-done:
+				if deliveries != 1 || name == "inert" && err != nil || name != "inert" && !errors.Is(err, statev0.ErrTransaction) {
+					test.Fatal("live-account delivery reentry did not refuse", err)
+				}
+			case <-time.After(2 * time.Second):
+				test.Fatal("live-account delivery reentry deadlocked past its deadline")
+			}
+			successor, stop := context.WithTimeout(context.Background(), time.Second)
+			defer stop()
+			if err := fixture.gate.With(successor, func(tx *statev0.Tx) error { return statev0.Check(tx, fixture.gate) }); err != nil {
+				test.Fatal("delivery reentry or cancellation stranded the gate", err)
+			}
+		})
+	}
+}
+
+// Claim: a valid active hold blocks final inert material release without a write, both before custody and when placed at the final recheck; the same unheld account delivers once.
+func TestServicePublicationRefusesActiveHold(test *testing.T) {
+	for _, name := range []string{"unheld", "held", "held-before-delivery"} {
+		test.Run(name, func(test *testing.T) {
+			fixture := newDiskFixture(test, diskState(test), nil)
+			custody := &inertCustody{}
+			account, err := NewJournalAccount(fixture.gate, fixture.journal, fixtureAccount, custody)
+			if err != nil {
+				test.Fatal(err)
+			}
+			clock := func() time.Time { return time.Date(2030, 1, 1, 0, 0, 1, 0, time.UTC) }
+			deliveries := 0
+			if err := fixture.gate.With(context.Background(), func(tx *statev0.Tx) error {
+				var expected []byte
+				place := func() {
+					state, err := fixture.journal.LoadLocked(tx, fixtureAccount)
+					if err != nil {
+						test.Fatal(err)
+					}
+					lease := state.Leases[0]
+					identifier := strings.Repeat("e", 32)
+					hold := wire.AccountHoldRecord{ID: strings.Repeat("f", 32), Account: fixtureAccount, Reason: "leak_match", Service: lease.Service, UID: lease.UID, Generation: lease.Generation, BindingID: lease.BindingID, LeaseID: lease.ID, OperationID: identifier, PlacedAt: state.Watermark, State: "active"}
+					arguments, _ := wire.Encode(wire.ServiceHold{OperationID: identifier, LeaseID: lease.ID, Account: fixtureAccount, Reason: "leak_match"})
+					result, _ := wire.Encode(hold.Metadata())
+					state.Holds = append(state.Holds, hold)
+					state.Operations = append(state.Operations, statev0.ServiceOperationV2{Principal: "4005:" + lease.Generation + ":service:credential-gateway", Method: "account.hold", OperationID: assemblyv0.OperationID(identifier), Arguments: arguments, Result: result, At: &state.Watermark})
+					state.Revision++
+					if err := fixture.journal.CommitLocked(tx, fixtureAccount, state.Revision-1, state); err != nil {
+						test.Fatal("valid hold control failed", err)
+					}
+					expected, err = os.ReadFile(fixture.path)
+					if err != nil {
+						test.Fatal(err)
+					}
+				}
+				if name == "held" {
+					place()
+				} else if name == "held-before-delivery" {
+					custody.before = place
+				}
+				bound, err := account.ForLeaseLocked(tx, strings.Repeat("4", 32))
+				if err != nil {
+					return err
+				}
+				expected, err = os.ReadFile(fixture.path)
+				if err != nil {
+					return err
+				}
+				err = bound.Publish(context.Background(), clock().Add(time.Minute), clock, func([]byte) error { deliveries++; return nil })
+				if name == "unheld" {
+					if err != nil || deliveries != 1 || custody.publications != 1 {
+						test.Fatal("unheld delivery control failed", err, deliveries)
+					}
+				} else if !errors.Is(err, statev0.ErrUnavailable) || deliveries != 0 {
+					test.Fatal("held account released material through the bridge", err, deliveries)
+				}
+				after, readErr := os.ReadFile(fixture.path)
+				if readErr != nil || !bytes.Equal(expected, after) {
+					test.Fatal("publication refusal changed durable state", readErr)
+				}
+				if name == "held-before-delivery" {
+					state, err := fixture.journal.LoadLocked(tx, fixtureAccount)
+					if err != nil || len(state.Holds) != 1 || state.Holds[0].State != "active" || len(state.Operations) != 3 {
+						test.Fatal("final refusal lost held-state evidence", err)
+					}
+				}
+				return nil
+			}); err != nil {
+				test.Fatal(err)
+			}
+		})
 	}
 }

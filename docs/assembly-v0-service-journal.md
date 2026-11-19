@@ -25,10 +25,13 @@ an exact-pointer token with nonzero-sized runtime state. Zero, copied, foreign,
 cancelled and returned-callback tokens refuse. The gate releases even on panic;
 cancelled waiters do not enter. `statev0.Check` and `Use` let later storage and
 release consumers use that same token without reacquiring the state gate.
-Operations are synchronous; recursive gate/Use acquisition is forbidden. An
-attempt to acquire an already held gate waits only until its context deadline
-and never enters a second callback. Callers must supply bounded contexts and
-must not start escaped work with a token.
+Operations are synchronous; recursive `With` waits only until its context
+deadline and never enters a second callback. Nested or concurrent `Use`/`Check`
+on a busy token refuses immediately with `ErrTransaction`; cancellation fails
+closed and releases the gate when the synchronous callback returns. Callers
+must supply bounded contexts, honor cancellation in their callbacks and never
+start escaped work with a token. Cancellation cannot preempt arbitrary caller
+code that blocks without returning.
 
 `servicev0.JournalAccount.Locked` creates a call-scoped `service.Account` bridge;
 `ForLeaseLocked` additionally pins the exact recorded lease for material release.
@@ -99,6 +102,9 @@ subtracting an estimated constant from 1 MiB. It includes:
   durable. Lifting a hold must reserve the next hold again.
 
 Both reserve preflight and commit enforce the bound before physical mutation.
+Every commit enforces the reserve, including narrowing: an unreserved lease
+release or event report must not spend removal or hold headroom. The retained
+widening classification does not select or bypass that capacity check.
 Narrowing replaces the corresponding reservation with retained real evidence;
 the remaining bindings and eligible hold keep their headroom. The pins bound
 future storage only; they are not a protected configuration reader or proof of
@@ -111,16 +117,32 @@ receipt identities and claim the old reservation covered them.
 | --- | --- | --- |
 | JOURNAL-VERSION | `TestServiceJournalVersion`, `TestJournalVersionedStoreBoundary`, `TestJournalAccountVersionProjection` | Exact landed nonempty UTC/BOOTTIME vectors, closed negative neighbors, explicit fresh `/2`, no `/1` adoption. |
 | ENROL-JOURNAL | `TestEnrollmentServiceJournalInitialization`, `TestJournalVersionedStoreBoundary`, `TestServiceJournalDurabilityAndReconciliation` | Missing committed state is unavailable; only explicit fresh initialization. Complete enrollment-intent authority/reconciliation is U19/O-07, not claimed here. |
-| NARROW-RESERVE | `TestServiceNarrowingReserveFullRecord`, `TestServiceNarrowingPreservesHold` | Near-ceiling nonempty history, bindings, leases, every reserved removal and a full hold; no eviction. Authority newest-64 summaries are U04, not service-journal history. |
+| NARROW-RESERVE | `TestServiceNarrowingReserveFullRecord`, `TestServiceNarrowingReserveMaximality`, `TestServiceNarrowingHoldFirstAtCeiling`, `TestServiceNarrowingPreservesHold` | Near-ceiling nonempty history, maximal closed-format removal/hold bytes, hold before any unbind, every reserved removal; no eviction. Authority newest-64 summaries are U04, not service-journal history. |
 | NARROW-OWN-STATE | `TestServiceNarrowingOwnState`, `TestServiceNarrowingPreservesHold`, `TestServiceJournalDurabilityAndReconciliation` | Honest missing/unreadable/unwritable/uncertain state, CAS and watermark refusals; adjacent healthy same removal. |
 | RETRY-COMMITTED | `TestCommittedServiceRetry`, `TestServiceJournalDurabilityAndReconciliation` | Original complete result, no equal-retry write; unequal/duplicate/extension/rewrite/unknown cannot become success. |
-| I05 shared boundary | `TestSharedGateTokenLifetime`, `TestSharedGateSerialization`, `TestSharedServicePublicationBoundary`, `TestServicePublicationCancellation` | Gate scope and real inactive store/release serialization; no daemon or native qualification claim. |
+| I05 shared boundary | `TestSharedGateTokenLifetime`, `TestSharedGateSerialization`, `TestSharedGateNestedUseRefuses`, `TestSharedServicePublicationBoundary`, `TestServicePublicationCancellation`, `TestServicePublicationReentryRefuses`, `TestServicePublicationRefusesActiveHold` | Gate scope, bounded nested-use refusal/cancellation, active-hold final refusal and real inactive store/release serialization; no daemon or native qualification claim. |
 
 The brief has no attack-surface table; this is a declared brief gap, not a waiver.
 All previous reviewer tests retain their original names. The import-boundary
-instrument now permits only the inactive bridge to consume construction values
-and still rejects daemon/runtime wiring and reverse storage imports, with
-adjacent positive controls and explicit forbidden-import plants.
+instrument admits exact inactive package paths, not their subpackages. It also
+refuses every other package whose local dependency graph transitively reaches
+inactive declarations, including helpers under `testdata`. Adjacent inert
+controls and subpackage-bypass plants exercise both the graph checker and its
+source-tree reader. The rule has the same exact-path plus transitive-refusal
+shape required for the separate activation-unit integration.
+
+## Fix-round limits left open
+
+- The bridge now submits its `/1` refusal control at a fresh revision. The
+  journal's own version validation is another refusal layer, so this is not
+  evidence that only the bridge's kind check caused the refusal.
+- One bound receipt is attached to every new operator operation in a bridge
+  commit. Enforcing one act per receipt remains an integration obligation.
+- Existing custody reads `/1` only and fails closed on `/2`. Later integration
+  needs a version-aware hold read; this inactive fix does not wire custody.
+- Store census and creation still use separate store-lock acquisitions.
+  A concurrent legacy write is refused by revision-zero CAS and fences the
+  account; non-gate writer ownership remains an integration obligation.
 
 ## Tools and remaining gates
 

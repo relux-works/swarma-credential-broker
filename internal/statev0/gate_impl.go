@@ -62,7 +62,9 @@ func Use(tx *Tx, gate Gate, callback func() error) error {
 		return ErrTransaction
 	}
 	scope := tx.scope
-	scope.mu.Lock()
+	if !scope.mu.TryLock() {
+		return ErrTransaction
+	}
 	defer scope.mu.Unlock()
 	if !scope.active || scope.token != tx || gate != scope.gate {
 		return ErrTransaction
