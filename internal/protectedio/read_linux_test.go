@@ -155,17 +155,29 @@ func TestConfigurationLockContinuity(test *testing.T) {
 			if err != nil {
 				test.Fatal(err)
 			}
+			writer, err := os.Open(path)
+			if err != nil {
+				test.Fatal(err)
+			}
+			defer writer.Close()
 			called := false
-			if err := gate.WithRead(context.Background(), func(ctx context.Context) error { called = true; return nil }); err != nil || !called {
+			if err := gate.WithRead(context.Background(), func(ctx context.Context) error {
+				called = true
+				if err := unix.Flock(int(writer.Fd()), unix.LOCK_EX|unix.LOCK_NB); !errors.Is(err, unix.EWOULDBLOCK) {
+					test.Fatalf("shared read gate failed to exclude writer: %v", err)
+				}
+				return nil
+			}); err != nil || !called {
 				test.Fatalf("valid lock control failed: %v", err)
+			}
+			if err := unix.Flock(int(writer.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+				test.Fatalf("read gate did not release lock: %v", err)
+			}
+			if err := unix.Flock(int(writer.Fd()), unix.LOCK_UN); err != nil {
+				test.Fatal(err)
 			}
 			called = false
 			if name == "contention" {
-				writer, err := os.Open(path)
-				if err != nil {
-					test.Fatal(err)
-				}
-				defer writer.Close()
 				if err := unix.Flock(int(writer.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 					test.Fatal(err)
 				}
