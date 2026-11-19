@@ -124,7 +124,8 @@ jobs:
           export TMPDIR="$work/tmp" TMP="$work/tmp" TEMP="$work/tmp" GOTMPDIR="$work/tmp"
           export GOCACHE="$work/go-build" GOMODCACHE="$work/go-mod" GOPATH="$work/go-path"
           unset GOTELEMETRYDIR
-          git -c safe.directory="$policy_root" clone --quiet --no-local --no-checkout "$policy_root" "$work/source"
+          git -c safe.directory="$policy_root" bundle create "$work/source.bundle" --all
+          git clone --quiet --no-checkout "$work/source.bundle" "$work/source"
           git -C "$work/source" checkout --quiet --detach "$RELEASE_COMMIT"
           python3 "$policy_root/.scripts/release-profile.py" build \
             "$RUNNER_TEMP/cgo-$RELEASE_ARCH" "$policy_root" "$work/source" "$RELEASE_ARCH"

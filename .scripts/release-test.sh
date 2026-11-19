@@ -110,25 +110,70 @@ admit="$scratch/work/.scripts/release-admit.sh"
 verify="$scratch/work/.scripts/release-verify.sh"
 sign="$scratch/work/.scripts/release-sign.sh"
 
-# Git's ownership hook checks HEAD/admission trust, not a real second UID or clone mismatch.
+# The hook exercises policy reads and the workflow's bundle transfer, not a real second UID.
 expect_ok policy_head_scoped_trust env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
   git -c safe.directory="$scratch/work" rev-parse HEAD
 expect_ok policy_admission_scoped_trust env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "$admit" v1.0.0
-expect_ownership_refusal() {
-  local name=$1
-  shift
+expect_git_refusal() {
+  local name=$1 reason=$2
+  shift 2
   if env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "$@" > "$scratch/$name.log" 2>&1; then
     fail "$name: unexpected acceptance"
   else
     local status=$?
     [[ $status == 128 ]] || fail "$name: unexpected exit $status"
-    grep -F 'detected dubious ownership' "$scratch/$name.log" > /dev/null || fail "$name: wrong refusal"
-    printf 'PASS %s (expected ownership refusal exit %s)\n' "$name" "$status"
+    grep -F -- "$reason" "$scratch/$name.log" > /dev/null || fail "$name: wrong refusal"
+    printf 'PASS %s (expected Git refusal exit %s: %s)\n' "$name" "$status" "$reason"
   fi
 }
-expect_ownership_refusal policy_head_trust_not_persisted git rev-parse HEAD
+expect_ownership_refusal() {
+  local name=$1
+  shift
+  expect_git_refusal "$name" 'detected dubious ownership' "$@"
+}
+expect_ownership_refusal policy_head_trust_not_persisted \
+  env GIT_CONFIG_GLOBAL="$HOME/.gitconfig" git rev-parse HEAD
+# A planted scratch-home exception must be visible to that same ownership probe.
+git config --file "$HOME/.gitconfig" --add safe.directory "$scratch/work"
+expect_ok policy_head_persisted_trust_visible env GIT_CONFIG_GLOBAL="$HOME/.gitconfig" \
+  GIT_TEST_ASSUME_DIFFERENT_OWNER=1 git rev-parse HEAD
+rm "$HOME/.gitconfig"
+expect_ownership_refusal policy_head_persisted_control_removed \
+  env GIT_CONFIG_GLOBAL="$HOME/.gitconfig" git rev-parse HEAD
 expect_ownership_refusal policy_head_wrong_trust \
   git -c safe.directory="$scratch/other-source" rev-parse HEAD
+
+# Execute the actual workflow transfer commands so a direct-clone regression is observable.
+mkdir "$scratch/bundle-transfer"
+python3 - "$source_root/.github/workflows/release.yml" > "$scratch/container-source-transfer.sh" <<'TRANSFER'
+import pathlib
+import sys
+workflow = pathlib.Path(sys.argv[1]).read_text()
+cgo = workflow.split("\n  cgo:\n", 1)[1].split("\n  draft:\n", 1)[0]
+print("set -euo pipefail")
+for line in cgo.splitlines():
+    if " bundle create " in line or (" clone " in line and '"$work/source"' in line):
+        print(line.strip())
+TRANSFER
+expect_ok policy_bundle_clone_scoped_trust env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+  policy_root="$scratch/work" work="$scratch/bundle-transfer" bash "$scratch/container-source-transfer.sh"
+expect_ok policy_bundle_clone_head env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+  git -c safe.directory="$scratch/bundle-transfer/source" -C "$scratch/bundle-transfer/source" rev-parse HEAD
+expect_ok policy_bundle_clone_matches_policy cmp \
+  "$scratch/policy_head_scoped_trust.log" "$scratch/policy_bundle_clone_head.log"
+expect_ok policy_bundle_clone_release_commit env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+  git -c safe.directory="$scratch/bundle-transfer/source" -C "$scratch/bundle-transfer/source" rev-parse 'refs/tags/v1.0.0^{commit}'
+printf '%s\n' "$base" > "$scratch/expected-release-commit"
+expect_ok policy_bundle_clone_preserves_release cmp \
+  "$scratch/expected-release-commit" "$scratch/policy_bundle_clone_release_commit.log"
+# Bundle's gentle setup reports unsafe repositories as unavailable, on both tested Git versions.
+expect_git_refusal policy_bundle_without_trust 'Need a repository to create a bundle.' \
+  git bundle create "$scratch/untrusted.bundle" --all
+expect_git_refusal policy_bundle_wrong_trust 'Need a repository to create a bundle.' \
+  git -c safe.directory="$scratch/other-source" bundle create "$scratch/wrong-trust.bundle" --all
+[[ ! -e $scratch/untrusted.bundle && ! -e $scratch/wrong-trust.bundle ]] || fail refused-bundle-partial-output
+expect_refusal policy_admission_rejects_changed_tree tagged-release-policy-differs \
+  env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "$admit" v1.3.0
 
 # Real signed objects prove each distinct admission refusal beside a valid ancestor.
 expect_ok ancestor_tag_on_main "$admit" v1.0.0
@@ -264,7 +309,8 @@ expect_refusal cgo_controls_direct_invocation run-release-test-required bash "$s
 source "$source_root/.scripts/release-cgo-test.sh"
 # Finite template assertions cover the reviewed workflow contract, not hosted execution.
 workflow_policy() {
-  python3 - "$source_root" "${1:-$source_root/.github/workflows/release.yml}" <<'POLICY'
+  python3 - "$source_root" "${1:-$source_root/.github/workflows/release.yml}" \
+    "${2:-$source_root/.scripts/release-admit.sh}" <<'POLICY'
 import pathlib
 import re
 import sys
@@ -278,13 +324,21 @@ assert "image: ${{ needs.build.outputs.cgo_image }}" in workflow
 assert "needs.build.outputs.cgo == 'false' && needs.cgo.result == 'skipped'" in workflow
 assert "needs.cgo.result == 'success'" in workflow
 cgo = workflow.split("\n  cgo:\n", 1)[1].split("\n  draft:\n", 1)[0]
+assert not re.search(r"\bgit\b[^\n;]*\bconfig\b", workflow), "workflow-persistent-git-config-forbidden"
+assert "GIT_CONFIG_" not in workflow, "workflow-config-env-forbidden"
 assert not re.search(r"safe\.directory[^\n]*\*", cgo), "cgo-wildcard-trust-forbidden"
-assert 'git -c safe.directory="$policy_root" clone --quiet --no-local --no-checkout "$policy_root" "$work/source"' in cgo, "cgo-clone-scoped-trust-required"
+assert not re.search(r"safe\.directory[^\n]*\*", workflow), "workflow-wildcard-trust-forbidden"
+assert 'git -c safe.directory="$policy_root" bundle create "$work/source.bundle" --all' in cgo, "cgo-bundle-scoped-trust-required"
+assert 'git clone --quiet --no-checkout "$work/source.bundle" "$work/source"' in cgo, "cgo-bundle-clone-required"
 assert 'git -c safe.directory="$policy_root" rev-parse HEAD' in cgo, "cgo-head-scoped-trust-required"
 assert cgo.index("policy_root=$(pwd -P)") < cgo.index('safe.directory="$policy_root"'), "cgo-policy-root-required-before-git"
-admission = (root / ".scripts/release-admit.sh").read_text()
-assert 'command git -c safe.directory="$root" -c core.commitGraph=false "$@"' in admission, "admission-scoped-trust-required"
+assert workflow.count("safe.directory") == cgo.count('safe.directory="$policy_root"') == 2, "workflow-unexpected-trust-forbidden"
+admission = pathlib.Path(sys.argv[3]).read_text()
+assert not re.search(r"\bgit\b[^\n;]*\bconfig\b", admission), "admission-persistent-git-config-forbidden"
+assert "GIT_CONFIG_" not in admission, "admission-config-env-forbidden"
 assert not re.search(r"safe\.directory[^\n]*\*", admission), "admission-wildcard-trust-forbidden"
+assert 'command git -c safe.directory="$root" -c core.commitGraph=false "$@"' in admission, "admission-scoped-trust-required"
+assert admission.count("safe.directory") == 1, "admission-unexpected-trust-forbidden"
 draft = workflow.split("\n  draft:\n", 1)[1]
 assert "      !cancelled() && github.ref" in draft and "always()" not in draft, "draft-must-respect-cancellation"
 assert "python3 .scripts/release-profile.py collect" in workflow
@@ -308,10 +362,27 @@ print("Default-branch dispatch, pre-release label, action pins, permissions, doc
 POLICY
 }
 expect_ok workflow_default_branch_and_prerelease_policy workflow_policy
-# Adjacent mutations prove the checker rejects missing, widened and wrong-path trust.
-sed 's/git -c safe.directory="$policy_root" clone/git clone/' \
+# Each persistent-write spelling must be rejected in both production surfaces.
+for config_write in '--global --add' '--system --add' '--file "$HOME/.gitconfig" --add' '--add'; do
+  case $config_write in
+    --global*) write_scope=global ;;
+    --system*) write_scope=system ;;
+    --file*) write_scope=file ;;
+    *) write_scope=add ;;
+  esac
+  sed "/safe.directory=\"\$policy_root\" rev-parse HEAD/a\\          git config $config_write safe.directory \"\$policy_root\"" \
+    "$source_root/.github/workflows/release.yml" > "$scratch/persisted-$write_scope-cgo.yml"
+  expect_refusal "workflow_persisted_${write_scope}_trust_rejected" workflow-persistent-git-config-forbidden \
+    workflow_policy "$scratch/persisted-$write_scope-cgo.yml"
+  sed "/^git() /a\\command git config $config_write safe.directory \"\$root\"" \
+    "$source_root/.scripts/release-admit.sh" > "$scratch/persisted-$write_scope-admit.sh"
+  expect_refusal "admission_persisted_${write_scope}_trust_rejected" admission-persistent-git-config-forbidden \
+    workflow_policy "$source_root/.github/workflows/release.yml" "$scratch/persisted-$write_scope-admit.sh"
+done
+# Adjacent mutations reject missing, widened and wrong-path bundle/HEAD trust.
+sed 's/git -c safe.directory="$policy_root" bundle/git bundle/' \
   "$source_root/.github/workflows/release.yml" > "$scratch/untrusted-cgo.yml"
-expect_refusal workflow_untrusted_cgo_clone_rejected cgo-clone-scoped-trust-required \
+expect_refusal workflow_untrusted_cgo_clone_rejected cgo-bundle-scoped-trust-required \
   workflow_policy "$scratch/untrusted-cgo.yml"
 sed 's/safe.directory="$policy_root"/safe.directory="*"/g' \
   "$source_root/.github/workflows/release.yml" > "$scratch/wildcard-cgo.yml"
@@ -319,12 +390,33 @@ expect_refusal workflow_wildcard_cgo_trust_rejected cgo-wildcard-trust-forbidden
   workflow_policy "$scratch/wildcard-cgo.yml"
 sed 's/safe.directory="$policy_root"/safe.directory="$work"/g' \
   "$source_root/.github/workflows/release.yml" > "$scratch/wrong-path-cgo.yml"
-expect_refusal workflow_wrong_path_cgo_trust_rejected cgo-clone-scoped-trust-required \
+expect_refusal workflow_wrong_path_cgo_trust_rejected cgo-bundle-scoped-trust-required \
   workflow_policy "$scratch/wrong-path-cgo.yml"
 sed 's/git -c safe.directory="$policy_root" rev-parse/git rev-parse/' \
   "$source_root/.github/workflows/release.yml" > "$scratch/untrusted-head-cgo.yml"
 expect_refusal workflow_untrusted_cgo_head_rejected cgo-head-scoped-trust-required \
   workflow_policy "$scratch/untrusted-head-cgo.yml"
+sed 's#git clone --quiet --no-checkout "$work/source.bundle"#git clone --quiet --no-checkout "$policy_root"#' \
+  "$source_root/.github/workflows/release.yml" > "$scratch/direct-cgo-clone.yml"
+expect_refusal workflow_direct_cgo_clone_rejected cgo-bundle-clone-required \
+  workflow_policy "$scratch/direct-cgo-clone.yml"
+# Environment config and other workflow jobs cannot widen the two scoped exceptions.
+sed '/POLICY_COMMIT: /a\          GIT_CONFIG_COUNT: "1"\n          GIT_CONFIG_KEY_0: safe.directory\n          GIT_CONFIG_VALUE_0: "*"' \
+  "$source_root/.github/workflows/release.yml" > "$scratch/env-wildcard-cgo.yml"
+expect_refusal workflow_env_wildcard_trust_rejected workflow-config-env-forbidden \
+  workflow_policy "$scratch/env-wildcard-cgo.yml"
+sed 's/git clone --quiet --no-local/git -c safe.directory="*" clone --quiet --no-local/' \
+  "$source_root/.github/workflows/release.yml" > "$scratch/wildcard-build.yml"
+expect_refusal workflow_other_job_wildcard_rejected workflow-wildcard-trust-forbidden \
+  workflow_policy "$scratch/wildcard-build.yml"
+sed 's/safe.directory="$root"/safe.directory="*"/' \
+  "$source_root/.scripts/release-admit.sh" > "$scratch/wildcard-admit.sh"
+expect_refusal admission_wildcard_trust_rejected admission-wildcard-trust-forbidden \
+  workflow_policy "$source_root/.github/workflows/release.yml" "$scratch/wildcard-admit.sh"
+sed 's/ -c safe.directory="$root"//' \
+  "$source_root/.scripts/release-admit.sh" > "$scratch/untrusted-admit.sh"
+expect_refusal admission_unscoped_trust_rejected admission-scoped-trust-required \
+  workflow_policy "$source_root/.github/workflows/release.yml" "$scratch/untrusted-admit.sh"
 # The finite workflow checker must reject the formerly non-cancellable draft.
 sed 's/!cancelled()/always()/' "$source_root/.github/workflows/release.yml" > "$scratch/uncancellable-draft.yml"
 expect_refusal workflow_uncancellable_draft_rejected draft-must-respect-cancellation \

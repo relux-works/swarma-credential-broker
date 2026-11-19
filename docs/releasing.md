@@ -244,12 +244,15 @@ while building an explicitly selected main.
 
 The workflow uses `ubuntu-24.04` for amd64 and `ubuntu-24.04-arm` for arm64.
 The native container may run as a different user from the checkout owner.
-Its policy HEAD check and source clone use command-scoped
+Its policy HEAD check and bundle creation use command-scoped
 `git -c safe.directory="$policy_root"`; the admission helper likewise trusts
-only its resolved policy root on each Git invocation. This survives the build's
-scratch `HOME` switch without a persistent or wildcard trust exception.
-The source clone and both subsequent build checkouts are owned by the build
-user and do not need that exception.
+only its resolved policy root on each Git invocation. The source is cloned from
+that bundle, not from the policy repository. This avoids a local clone's
+`upload-pack` ownership check on the policy repository's `.git`, to which Git
+2.39.5 does not forward the clone command's `-c safe.directory` setting.
+The bundle stays in scratch and is not a release artifact. The source clone
+and both subsequent build checkouts are owned by the build user. No persistent
+or wildcard trust exception is configured.
 
 Each native job runs in the multi-architecture GCC image pinned by digest in
 [cgo-toolchain.json](../.github/release/cgo-toolchain.json). It pins GCC 14.2.0
@@ -310,11 +313,18 @@ uploading anything. It must not sign an incomplete subset. Independent native
 reconstruction and owner approval of the aggregate digest remain necessary;
 this profile neither installs nor qualifies the later adopting consumer.
 
-`release-test.sh` checks scoped container Git trust and rejects missing,
-wildcard and wrong-path exceptions. Git's ownership-test hook additionally
-checks a scoped HEAD read and admission beside unscoped/wrong-path refusals and
-proves trust is not persisted. This hook simulates an ownership mismatch; it
-is not evidence of a real second-UID or hosted container execution.
+`release-test.sh` statically checks the two exact scoped workflow exceptions
+and admission's wrapper. Adjacent plants check refusals for missing, wildcard
+and wrong-path trust, direct repository cloning, Git config commands in the
+workflow or admission, and workflow environment-config injection. Git's
+ownership-test hook exercises the workflow's actual bundle/clone commands,
+matching source HEAD, policy admission, and refusal of a changed-policy tag;
+unscoped and wrong-path policy reads and bundle creation are refused. The
+post-admission persistence negative reads the scratch home's global config,
+with system config disabled. A deliberate scratch-home trust entry makes the
+same unscoped HEAD read succeed; removing it restores the ownership refusal.
+These controls do not prove absence of arbitrary writes or execute a real
+second-UID or hosted container job.
 
 `release-test.sh` sources `release-cgo-test.sh`. Its real local fixture uses a
 main package tagged `linux && cgo` with a `!cgo` fallback, two fresh builds and
