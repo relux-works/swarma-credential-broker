@@ -90,12 +90,15 @@ contracts that prevent safe assembly. The accompanying broker specification
 §3.2 is **PROPOSED**, inactive, and defines no activation switch or new command.
 The [operator and activation v0 proposal](spec/operator-and-activation-v0.md)
 supplies candidate contracts and explicit owner decisions, not installed behavior.
-Its revision-2 fix-round text hardens the fresh-login trusted path and TTY
-queue cleanup, keeps both unbind paths independent of widening history, and
+Its revision-3 fix-round text defines the pinned candidate composer/sealed FD0,
+admits only direct SSH ceremonies with no server-side successor TTY reader,
+keeps both unbind paths independent of widening history, and
 preserves issuer revocation's grant-evidence requirement. Root-authority
-ownership and DN-09 C's time-witness exception are explicit **conflicts** with
-proposed amendments. C requires protected test-account selection and independent
-qualified-VM identity evidence; production remains DN-09 A. No review,
+ownership and DN-09 C's time-witness/replacement-history exceptions are explicit
+**conflicts** with exact proposed amendments. C1 burns the old installation/time
+scope; only an accepted new-scope exception permits a fresh history, never old
+W/hold reuse or comparison. C requires protected test-account selection and
+independent qualified-VM identity evidence; production remains DN-09 A. No review,
 test-profile decision or documentation change activates the stopped daemon.
 
 The binding managed-identity projection decision of 2026-11-19 resolves the

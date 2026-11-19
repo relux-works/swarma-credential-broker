@@ -108,7 +108,7 @@ checks, landing, installation or native qualification is claimed.
 ## Proposed contract section for owner review
 
 The six gaps above are now addressed by one candidate:
-[Operator and activation v0](../spec/operator-and-activation-v0.md), revision 2,
+[Operator and activation v0](../spec/operator-and-activation-v0.md), revision 3,
 **PROPOSED**, test profile v0, single Linux host, Claude service only.
 The evidence and gap table above describe the inspected baseline; the new
 section proposes bytes and integration, not an accepted revision of section 14.
@@ -126,10 +126,12 @@ gates. No code, command, activation file or unit is installed by this packet.
 | `service-lifetime-selector` | Section 5: activation member, default 900 s, startup refusal above 900 without clamping; DN-05. |
 
 The full [DECISION-NEEDED register](../spec/operator-and-activation-v0.md#8-decision-needed-register)
-keeps every bundle open. Revision 2 addresses the review counterexamples at
+keeps every bundle open. Revision 3 addresses the review counterexamples at
 proposal level: fresh never-agent caller logins with root-owned launcher/path
 and witness-checked ancestry; post-exec root-witness rendezvous; noncanonical
-TTY capture, queue discard and supervised full restoration on every exit;
+SSH-only TTY capture, queue discard, supervised full restoration and channel/pty
+destruction with no successor reader on every exit; a pinned root composer
+supplies the nonsecret candidate through sealed FD0, never caller-writable storage;
 independent operator and dispatcher unbind storage/routes; and grant-history
 checks for issuer revocation while root/operator-key revocation stays independent.
 The exact custody limits/effects, nonce-only refusal handling and explicit
@@ -138,11 +140,16 @@ journal handling, initial enrollment reconciliation, protected readers and the
 new local journal formats are implementation deltas, not current capabilities.
 
 DN-09 retains A for production and proposes C as a **TEST-PROFILE v0 CONFLICT**
-with the published time contract's prohibition on co-restorable history/witness.
+with the published time contract's prohibitions on co-restorable history/witness
+and replacement time history during recovery.
 Its exact time-contract/API amendment and full clause disposition audit require
 explicit time-contract, repository and user-manager owner acceptance:
-restore is unsupported and recovery is a fresh installation; a root-owned
-start/restore fence outside the service home is checked every start; consumer
+restore burns the installation and its time scope permanently. Only the exact
+C1 exception permits a never-reused installation/consumer scope with a fresh
+qualified NTS checkpoint and watermark after old-token revocation and replacement
+of roots/grants/bindings. Old W/holds/history are retained as evidence only,
+never imported, compared or revived; ordinary restart retains current W/holds.
+A root-owned start/restore fence outside the service home is checked every start; consumer
 high-water persists in the broker store and regression refuses; authenticated
 NTS feeds existing time confidence/watermark; only a dedicated TEST subscription
 is eligible under protected account and qualified-VM selectors. Fresh independent

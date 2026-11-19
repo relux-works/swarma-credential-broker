@@ -1,6 +1,6 @@
 # Operator and activation v0
 
-**Status: PROPOSED. Revision: 2. Test profile: v0. Inactive.**
+**Status: PROPOSED. Revision: 3. Test profile: v0. Inactive.**
 Scope: one Linux host, local placement, `credential-gateway`, `claude_code`,
 `claude-oauth-token` only. This is one proposed production-assembly section,
 not an implementation, accepted owner decision, deployment instruction or
@@ -47,8 +47,11 @@ revision `b57a9be633c245373b448c3786bcbd49d636fe8a`:
   source layout and unit template require the corresponding book/install
   update if accepted (DN-02, DN-05, DN-08). They are not attributed to the book.
 - **Conflicts, TEST-PROFILE v0 only (DN-09 C):** allowing a time witness and
-  its history to share the whole-VM rollback domain contradicts
-  `docs/time-contract.md:272-279` and `docs/time-contract.md:297-306`.
+  its history to share the whole-VM rollback domain, and retiring a burned
+  installation's time scope in favor of a new history, contradict
+  `docs/time-contract.md:42`, `docs/time-contract.md:273-280`,
+  `docs/time-contract.md:297-307`, `docs/time-contract.md:314-323`,
+  `docs/time-contract.md:329-331` and `docs/time-contract.md:491`.
   Section 4.3 gives the exact proposed exception and a clause-by-clause
   disposition audit. Acceptance requires the time-contract owner's approval
   of that amendment, not of a refinement. It is machine-bound, dedicated-test
@@ -91,14 +94,46 @@ followed by that absolute entry; no interactive shell resolves `sudo`.
 Its sole stdin document is a nonsecret CCJ-1 candidate
 `{method, arguments}`; limit 16 KiB, one document, read within five seconds.
 Stdin MUST NOT be a TTY; candidate input and secret/confirmation input cannot
-interleave. It is a completely prepared regular file, not a pipe whose writer
-could be frozen during authentication. The executable rejects every argv member.
+interleave. The candidate is completely prepared before sudo, not a pipe whose
+writer could be frozen during authentication. The executable rejects every
+argv member.
 The command adds the authoritative fields below; no caller-supplied operator,
 authentication, confirmation or receipt field is accepted. An enrollment
 candidate contains only account metadata, never token bytes or a token digest.
 Concrete entry and input limits: **DECISION-NEEDED DN-01**.
 Basis: `spec/broker.md:850`, `spec/broker.md:856`, `spec/broker.md:860`;
 book narrow-input precedent: `book/ru/04-polzovatel-i-set.md:31`.
+
+**Pinned candidate composer (DN-01).** After the root login gate verifies the
+fresh SSH session and trusted path, its root-owned, digest-pinned compiled
+composer collects one nonsecret `{method, arguments}` document on the outer
+TTY, before sudo. It accepts only the four section 2.2 methods and their
+closed argument grammars; enrollment omits `token_sha256_prefix`, which only
+the entry derives after secret capture. It applies the 16 KiB/CCJ-1 bounds
+and accepts no shell command, script, filename, upload or token input. The
+person supplies the operation ID, including an existing ID for an equal retry;
+the composer never silently changes it. This is metadata preparation, not
+operator authentication or authority; all admission and display checks remain.
+
+The root supervisor creates a root-owned memfd, writes those complete bytes,
+rewinds it and applies `F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL`
+before handing it to the waiting launcher as FD0. It is an anonymous regular
+file containing no secret, never a caller-writable pathname or caller-created
+descriptor. The launcher executes absolute sudo with this same FD0 and a
+cleared environment containing only fixed installer-pinned nonsecret values;
+`closefrom=3` leaves FD0 intact. Before parsing, the entry verifies regular-file
+type, root ownership, all four seals, size and zero offset. Before sending the
+trusted session, the witness duplicates the live entry's FD0 through its
+authenticated pidfd and checks identity, seals and a bounded `pread` digest
+against the supervisor's same-login record, without changing the file offset.
+It also compares final act arguments to that candidate, allowing only the
+entry-derived enrollment prefix to be added. Substituted/unsealed/caller-owned
+input or changed arguments refuse before receipt/mutation, including for
+authentication-only unbind; FD provenance failure refuses before token input.
+The composer and this FD handoff are covered by `launcher_digest` and
+`trusted_path_digest`. No caller home, SCP/SFTP or alternate executable supplies
+the candidate. Destroy the descriptor on every exit; no candidate staging
+path or new administrative method is introduced.
 
 The following DN-02 sub-decisions are normative prerequisites of this proposed
 profile; a missing proof refuses as `role_not_permitted` before password or
@@ -117,6 +152,7 @@ operator-key possession alone is never a substitute.
    double fork, `setsid` and a user-manager launch do not erase membership or
    authorize an extra process. Disable lingering and the per-UID systemd user
    manager, including `user@<uid>.service`; do not exempt it from this check.
+   Deny cron/at and other scheduled jobs for terminal callers explicitly.
    Each act uses a fresh authenticated login/session and outer TTY, ending
    that login after the invocation. Its login shell is a pinned root-owned
    ceremony launcher, not a general shell; it executes only the absolute sudo
@@ -130,6 +166,10 @@ operator-key possession alone is never a substitute.
    every ceremony and binds the login -> launcher -> sudo -> entry ancestry
    by pidfds, start ticks and executable/configuration digests. A current
    process scan alone cannot establish this trusted path or account history.
+   Known history requires a protected installer record showing creation with
+   this launcher, root-owned startup/authorized-keys files, noexec writable
+   mounts and these login/launch restrictions continuously since creation.
+   An evidence gap is unknown history, not a clean account.
    Unknown history, any earlier agent execution or a caller-writable path
    voids the login: refuse, retire the caller account, vendor-revoke exposed
    tokens and provision a fresh dedicated caller before another ceremony.
@@ -141,9 +181,10 @@ operator-key possession alone is never a substitute.
    `sufficient`, optional, key/device-only, passwordless or included alternative
    auth path, and pinned account/session modules. Require a new successful
    password conversation for every act, including unbind. Set
-   `timestamp_timeout=0` for every rule of each terminal caller; callers have
-   no other sudo rule, including root or a shell/editor escape. No
-   `NOPASSWD`, `SETENV`, cached ticket or alternative entry supplies a receipt.
+   `timestamp_timeout=0` and `passwd_tries=1` for every rule of each terminal
+   caller; callers have no other sudo rule, including root or a shell/editor
+   escape. No `NOPASSWD`, `SETENV`, cached ticket or alternative entry supplies
+   a receipt.
    Other pinned no-shell operator entries, including the user-manager entry,
    remain possible under broker §15.1, with their own per-act password and the
    same trusted-login, requiretty, no `-S`/`-A`/askpass password-source rules;
@@ -157,12 +198,14 @@ operator-key possession alone is never a substitute.
    there is no sudo inner pty to confuse with the outer login TTY. A deployment
    with a different setting is not this profile. Pin the sudo/plugin/PAM
    configuration and executable digests; defaults are not evidence.
-4. **DN-02d, outer-login provenance.** Support only a directly authenticated
-   Linux VT/console through a pinned getty/login path, or direct SSH through
+4. **DN-02d, outer-login provenance.** Support only direct SSH through
    the actual installed, explicitly selected server/session path (including
    OpenSSH or Tailscale SSH only if that implementation satisfies every
    predicate). An OpenSSH assumption cannot qualify a different host login
-   service. SSH into the human caller
+   service. Linux VT/console/getty login is not an admitted path for any v0
+   act, including enrollment: refuse before password or token prompt. A final
+   flush or quiet interval cannot admit a VT with a later getty/login reader.
+   SSH into the human caller
    is not an SSH operator entry and does not grant operator authority. The
    privileged session record binds audit loginuid, session identifier, caller
    pin, boot ID, login-process PID/start ticks/executable digest and original
@@ -176,27 +219,34 @@ operator-key possession alone is never a substitute.
    holder must have the pinned executable, protected process identity,
    nondumpability and live start binding. A singular assumed sshd PID is not
    sufficient. Any extra holder, passed master, nested pty,
-   multiplexer, `script`, expect, IDE or harness refuses. A VT has no pty
-   master; its console/login access must satisfy the same exclusive-input
-   condition. Unknown process/FD visibility or login path refuses, including
-   an SSH-only deployment whose actual server path is not qualified.
-5. **DN-02e, exclusive input and execution integrity.** From authentication
-   through display/capture/submission, the root login/witness gate serializes
-   logins and process launch for the caller UID. It places all nontrusted
-   caller tasks, including the waiting shell, in a root-owned nondelegated
-   cgroup and verifies `cgroup.freeze=1`/`frozen=1`; pinned root witness/login
-   relays and the operator entry run outside that frozen group. Enumerating
-   credentials must prove no other caller task outside that set. While that
-   gate is held, the witness limits the slave to operator-only 0600 access,
-   verifies all existing terminal FDs (only pinned relays/entry and frozen
-   tasks), and forbids FD transfer, extra master holders and input injection.
+   multiplexer, `script`, expect, IDE or harness refuses.
+   Pin all per-user and client-input restrictions in `login_paths.config_digest`:
+   for OpenSSH, `PermitUserRC no`, `PermitUserEnvironment no`, no `AcceptEnv`
+   entries, root-owned `AuthorizedKeysFile` with no `environment=`/`command=`
+   options, no subsystem/SFTP/SCP and no forwarding, including stream-local,
+   agent, X11 or tunnels. No per-user rc/environment file is read. Other SSH
+   implementations require their own qualified equivalent, not assumed
+   OpenSSH settings. Unknown process/FD visibility or login path refuses,
+   including an SSH-only deployment whose actual server path is not qualified.
+5. **DN-02e, exclusive input and execution integrity.** Before composer input
+   and through authentication/display/capture/submission, the root login/witness
+   gate serializes logins and process launch for the caller UID. It places all nontrusted
+   caller tasks, including the waiting launcher, in a root-owned nondelegated
+   cgroup and verifies `cgroup.freeze=1`/`frozen=1`; pinned root composer,
+   witness/login relays and the operator entry run outside that frozen group.
+   Enumerating credentials must prove no other caller task outside that set. While that
+   gate is held, the witness makes the slave root-owned 0600; the entry uses
+   its inherited terminal FDs and `/dev/tty`, not a generally openable slave.
+   The witness verifies all existing terminal FDs (only pinned relays/entry
+   and frozen tasks), and forbids FD transfer, extra master holders and input injection.
    Unprivileged accounts have no terminal group/device or proc-memory access;
    the kernel input-injection path is disabled. Thus a same-UID slave reader
    is rejected or remains frozen, not merely missed by a one-time scan. A
    task/FD visibility gap or inability to hold this gate refuses before input.
    The supervisor holds the input/launch gate through the queue discard and
    full terminal restoration in section 3, before thawing on any exit. It
-   never returns token residue to a caller shell. These are witness-owned
+   never resumes the waiting launcher into a shell or transfers the retired
+   terminal to a successor reader. These are witness-owned
    resources, not permission to freeze arbitrary user sessions.
    The root-owned operator ELF is unreadable to all but root (0711), with
    no file capabilities/set-ID bits; pin `fs.suid_dumpable=0`. Qualify that
@@ -221,7 +271,8 @@ Basis: `spec/broker.md:210`, `spec/broker.md:214`, `spec/broker.md:854`,
 confinement/recording integration: **DECISION-NEEDED DN-02/DN-04**.
 
 **Proposed authentication witness (DN-02):** a qualified root-installed sudo
-plugin, with the pinned password-only PAM stack, enforces DN-02a through e
+audit plugin, paired with a privileged root supervisor and the pinned
+password-only PAM stack, enforces DN-02a through e
 and creates one root-owned receipt for the pinned operator invocation. It
 remains privileged while the command runs unprivileged. A dedicated private
 control channel binds that invocation to the final act digest after display
@@ -237,6 +288,9 @@ alone are explicitly insufficient. Basis: `spec/broker.md:166`,
 The private channel uses a **post-exec rendezvous**, not an inherited FD3.
 Sudoers remains the policy plugin and enforces `closefrom=3`; neither caller
 override nor an approval/I/O plugin is claimed to inject a descriptor. The
+installed `sudo.conf` loads no I/O plugin at all: disabling logging flags
+alone does not exclude its input hook or forced pty. The witness audit plugin
+is neither an I/O plugin nor a replacement for sudoers policy. The
 qualified privileged integration records its password-authentication session
 with the root witness. The entry connects close-on-exec to the installed
 `/run/swarma/credential-broker-operator/witness.sock`: root:root 0666 socket,
@@ -470,9 +524,14 @@ fresh vendor `setup-token` using the **controlling TTY only**. The command
 opens `/dev/tty`, verifies it is the authenticated outer foreground terminal
 under DN-02a through e (echo-off alone proves no secrecy), saves
 the complete original termios state, also retained by the root supervisor.
-Before the first token byte set `ICANON`, `ECHO`, `ECHONL`, `ECHOE`, `ECHOK`,
-`IEXTEN`, `IXON` and `ISTRIP` off, `ICRNL` on, `INLCR`/`IGNCR` off, and
-`VMIN=1`, `VTIME=0`. Read byte by byte: **1 through 4,096 bytes, each
+Before the token prompt, flush type-ahead under the input gate. Use an
+explicit raw eight-bit capture template: `c_iflag=ICRNL`, `c_lflag=0`,
+`c_oflag=0`, `CS8` with parity disabled, `VMIN=1`, `VTIME=0`. No other
+input/local/output processing flag is inherited from the saved state; this
+also disables `IUCLC`, `ISIG`, `IGNBRK`, `BRKINT`, `PARMRK` and `INPCK`, not
+just echo/canonical processing. Saved signal-character remapping cannot turn
+token bytes into signals; 0x03, 0x1a and 0x1c refuse as control bytes.
+Read byte by byte: **1 through 4,096 bytes, each
 0x21-0x7e**, then one LF. The terminal's Enter CR-to-LF translation is the
 only permitted translation; CR is not token content. No canonical-line
 truncation or token normalization is permitted. A 4,097th pre-terminator byte,
@@ -492,9 +551,16 @@ release the gate. A root supervisor, not a child signal handler alone, owns
 cleanup after uncatchable child death and receipt retirement. Input stays
 quiesced/discarded through cleanup: `tcflush` alone followed by a race with a
 continuing paste is insufficient. If input quiescence, discard or restoration
-cannot be proved, retire the TTY and end the login; do not thaw/resume into
-a caller shell. A fresh ceremony login is required after any such failure.
-The pinned launcher ends its login after each act, never executes pending
+cannot be proved, retire the SSH TTY and end the login; never resume the
+waiting launcher into a shell. **Retirement** closes the authenticated SSH
+session channel and all its server-side master/slave references under the
+root supervisor; that pty is destroyed, never reused by getty, login, a shell
+or another ceremony. Continuing input on the closed channel is discarded,
+not transferred to a successor. A fresh connection and pty are required
+after retirement. Client-side queued input/recording remains the declared
+owner-controlled endpoint boundary; channel closure is not remote erasure.
+There is no VT retirement/release route in v0 because VT admission is forbidden.
+The pinned launcher ends its login after each act and never executes pending
 input. Restore the saved mode before the token-verifier display only after
 the capture queue is discarded, and flush again before opening confirmation
 input. Synthetic canary qualification must exercise all these boundaries.
@@ -684,7 +750,7 @@ service-journal format.
 | `operator_entry` | Closed `{path, digest}`; exact libexec entry and approved executable digest |
 | `operator_key` | Existing operator software-root public `ed25519:` key, present in the configured roots; no private key in this document |
 | `terminal_callers` | Explicit distinct closed `{uid, name, home}` local login pins eligible for terminal authentication; no agent/workplace identities, and no owner authority from this list alone |
-| `terminal_auth` | Closed `{sudo_digest, sudoers_digest, pam_service, pam_digest, witness_digest, confinement_digest, launcher_digest, trusted_path_digest, login_paths}`; all digests pin installed root-protected enforcement, including launcher/startup/PATH/mount checks; PAM service is the dedicated local name, login paths are distinct closed `{kind, implementation, executable_digest, config_digest}` with kind `vt` or `ssh` and an exact installed login/server implementation identifier; DN-02a through e must all hold |
+| `terminal_auth` | Closed `{sudo_digest, sudoers_digest, pam_service, pam_digest, witness_digest, confinement_digest, launcher_digest, trusted_path_digest, login_paths}`; all digests pin installed root-protected enforcement, including composer/sealed-FD handoff, cleared environment and launcher/startup/PATH/mount checks; PAM service is the dedicated local name, login paths are distinct closed `{kind, implementation, executable_digest, config_digest}` with kind `ssh` only and an exact installed server implementation identifier/configuration; VT/console kinds refuse; DN-02a through e must all hold |
 | `continuity` | The exact protected production/C selector defined in section 5, equal to activation; a C fence cannot select itself |
 | `event_schema` | Exactly `broker-events/1`, the typed schema below |
 | `root_keys` | Distinct baseline `ed25519:` public keys; no private material |
@@ -721,7 +787,7 @@ A receipt has exactly
 `terminal_caller` is the authenticating directory pin; `login_session` is closed
 `{kind, id, loginuid, login_pid, login_start_ticks, login_executable_digest}`,
 using the verified root login record, not caller-provided strings.
-`kind` is `vt|ssh`, `id` the nonnegative safe audit session identifier,
+`kind` is `ssh` only, `id` the nonnegative safe audit session identifier,
 `loginuid` the terminal-caller UID, and login PID/start ticks/digest bind the
 same pinned implementation/process as the outer-terminal predicate.
 IDs/digests/times follow section 1; PID is
@@ -919,6 +985,11 @@ The reserved removal transaction and its reconciliation are wholly within
 the independent caller-binding journal. Lease release checks under the same
 state lock observe the removed binding before any further material release;
 already delivered vendor material is not recalled.
+Broker §13.2 also admits operators for originating-binding unbind, but this
+v0 wrapper publishes only operator `service.unbind`, not that caller-binding
+entry. Until a separate operator entry is published and qualified, containment
+uses gateway service unbind or installer removal of the dispatcher pin, with
+stop/vendor revocation as needed; it does not fabricate caller-binding removal.
 
 After a crash, reconcile the target under its sole writer; never infer success
 from an intent or rerun immutable custody merely because the final outcome is
@@ -1023,8 +1094,9 @@ do not close the independently authenticated identity-only unbind/hold paths.
 **DN-09 C: CONFLICT, TEST-PROFILE v0 only, not production.** The repository
 owner, time-contract owner and user-manager owner must explicitly accept the
 exact exception below and its dedicated, machine-bound, time-boxed qualification
-revision. Co-restorable history/witness contradicts the published time contract,
-which has no existing test-profile exception. Calling this a refinement, or
+revision. Co-restorable history/witness and C1's replacement time history
+contradict the published time contract, which has no existing test-profile
+exception. Calling either change a refinement, or
 accepting a residual without approving the amendment, cannot open C.
 
 1. **Restore is unsupported. Recovery is a fresh installation.** VM snapshots,
@@ -1033,7 +1105,25 @@ accepting a residual without approving the amendment, cannot open C.
    Vendor-revoke the old token, choose a new never-reused `installation_id`,
    replace root keys, create a fresh store/grants, reenroll a fresh token and
    bind afresh. Never reopen the old store, replay old grants or clear a hold
-   by importing old state. Preserve evidence separately where required.
+   by importing old state. **C1 time-history CONFLICT:** burn the old time
+   scope with the installation, never consume its reverted history again.
+   Under only the exact C-only amendment below, the installer enrolls a new
+   never-reused consumer/continuity scope bound to the new `installation_id`
+   and the same independently verified qualified VM. This is fresh enrollment,
+   not migration or repair of the old history. First record the old scope's
+   permanent retirement and the old/new installation/scope identities in the
+   protected off-VM decision evidence. Archive the recovered old time history
+   and surviving records there as evidence only; lost high-water/holds are
+   not claimed recovered. No old lease, grant, binding, watermark or hold is
+   imported, compared with the new history, revived or treated as released.
+   The old scope stays closed, including any old hold. The new authoritative
+   checkpoint and new broker watermark must be initialized from fresh
+   qualified NTS evidence under their respective settlement rules before
+   enabling consumption; an empty history alone never admits use. Missing
+   accepted exception, reused installation/scope, imported old checkpoint or
+   incomplete vendor revocation/root replacement refuses recovery. C scope,
+   test-subscription restriction, qualification revision and expiry remain
+   mandatory; reinstall never extends that expiry or production authority.
 2. **Root-owned start/restore fence outside the service home, every start.**
    Proposed path `/etc/swarma/credential-broker/start-fence-v0.json`, root:broker
    0640 (broker-readable, root-writable only), with root-protected ancestors
@@ -1089,7 +1179,12 @@ accepting a residual without approving the amendment, cannot open C.
    outside-home fence/off-VM record. This record is not the revocation seq.
 4. **Authenticated NTS time, existing policy and watermark.** Select the
    protected NTS source through the existing time-confidence policy; retain
-   qualified checkpoint/settlement ordering and the broker watermark. Never
+   qualified checkpoint/settlement ordering and the current installation's
+   broker watermark across ordinary restart/reboot. C1 alone retires that
+   installation/time scope under the explicit replacement-history exception:
+   the new watermark/time floor starts from fresh qualified NTS evidence,
+   never from the old watermark/hold or a comparison with retired history.
+   The old values remain evidence only, not a reset within the old scope. Never
    use unauthenticated wall time, a process-local clock or a fixture witness
    as trusted consumption. A profile-local monotonic witness sharing the VM
    rollback domain may qualify **only under the exact accepted exception**
@@ -1116,7 +1211,10 @@ accepting a residual without approving the amendment, cannot open C.
 
 **Exact proposed time-contract amendment, DN-09 C.** Append this exception to
 `docs/time-contract.md`'s **Storage and crash ordering plan**, following its
-co-rollback refusal (`:272-279`, `:297-306` at the source pin):
+co-rollback refusal (`:273-280`, `:297-307` at the source pin). This also
+explicitly amends the no-new-scope escape rule (`:42`), replacement-history
+prohibition (`:297-300`), restart/hold/lost-trust rules (`:314-323`,
+`:329-331`) and identity/scope qualification row (`:491`) for C1 only:
 
 > For TEST-PROFILE v0 under explicitly accepted DN-09 C only, a witness sharing
 > the whole-VM rollback domain with its history may qualify consumption solely
@@ -1125,8 +1223,30 @@ co-rollback refusal (`:272-279`, `:297-306` at the source pin):
 > remains fenced; any restore requires fresh-install recovery. Undetected live
 > whole-VM snapshot revert is an explicitly owner-accepted residual, not detected
 > rollback protection. This exception never qualifies production consumption,
-> another VM/account, or an unaccepted/expired revision. All other settlement,
-> authenticated-time, watermark and hold rules remain mandatory. The ordinary
+> another VM/account, or an unaccepted/expired revision.
+>
+> C1 fresh-install recovery, including after a detected restore, permanently
+> retires the burned installation and its enrolled time scope. The old history
+> must never be consumed again. Only after vendor revocation of the old token
+> and replacement of every old root, grant and binding may an installer enroll
+> a fresh, initially empty history for a new never-reused installation_id and
+> consumer/continuity scope bound to that installation on the same qualified
+> VM. Record old-scope retirement and old/new identities off-VM before enabling
+> the new scope; retain the recovered old time history and surviving records
+> off-VM as evidence only, without claiming lost high-water or holds recovered.
+> No old lease, grant, binding, watermark or hold is carried, compared with the
+> new history, revived or released. The new authoritative checkpoint and broker
+> watermark are established from fresh qualified NTS evidence under their
+> respective settlement rules before consumption, never from retired history.
+> This is not migration, a hold release or a repair of the old scope by a good
+> report; that scope remains permanently closed. Without this exact accepted
+> C1 exception, replacement or empty-history rebinding still refuses.
+>
+> Within each admitted history, and everywhere outside these explicit C-only
+> exceptions, all settlement, authenticated-time, watermark and sticky-hold
+> rules remain mandatory. Restart/reboot within a scope retains its high-water
+> and holds; neither reinstall nor a new operation extends the accepted
+> qualification expiry or admits production. The ordinary
 > production consumer remains closed; fixtures alone qualify no backend.
 
 The same accepted decision must add the following clarification to
@@ -1146,11 +1266,11 @@ machine-identity verifier or qualified collector is supplied by this document.
 
 | C clause | Disposition and exact published rule | Required amendment/bound |
 | --- | --- | --- |
-| C1 unsupported restore/fresh install | **Refines** broker §6.4 history recovery: missing complete surviving evidence leaves authority unavailable or requires invalidating old roots and reissuing rights. | C chooses the fresh-install branch; it never reopens old rights or claims restored bytes current. |
-| C2 outside-home start fence | **Same** as broker §6.4/§15.2's restore mark outside the restored home; **refines** its unpublished local fence bytes. **Conflicts** with time-contract `:272-279` for the whole-VM domain. | Apply the exact C-only exception above; every-start off-VM head comparison is not an independent live-VM time witness. |
+| C1 unsupported restore/fresh install | **Refines** broker §6.4 root invalidation/reissuance, but **Conflicts** with `docs/time-contract.md:42`, `:297-300`, `:314-323`, `:329-331` and `:491`: recovery cannot replace a time history or escape old high-water/holds through rebinding. | Exact C1 amendment above retires the old installation/time scope permanently, records retirement off-VM and permits a never-reused installation/consumer scope with a fresh qualified checkpoint only after vendor revocation and replacement of old roots/grants/bindings. No old W/hold import or comparison; old history is evidence only, not migrated or repaired. |
+| C2 outside-home start fence | **Same** as broker §6.4/§15.2's restore mark outside the restored home; **refines** its unpublished local fence bytes. **Conflicts** with time-contract `:273-280` for the whole-VM domain. | Apply the exact C-only exception above; every-start off-VM head comparison is not an independent live-VM time witness. |
 | C3 consumer high-water | **Refines** managed-identity provider restart/high-water gates (`docs/managed-identity-provider.md:110`); **same** no-reset/no-regression rule. | Publish local record/lock ordering only; it supplies no off-VM rollback detection. |
-| C4 NTS/local witness | **Same** existing authenticated time, settlement and watermark policy. **Conflicts** with time-contract `:297-306`: a witness restored with its checkpoint cannot qualify and co-rollback must refuse. | Only the exact accepted C exception changes that refusal for this VM/test subscription; ordinary `ClosedWitness` and fixture limits remain. |
-| C5 test-only/residual/expiry | **Same** test-subscription restriction (`spec/secret-free-mode.md:415`); **refines** its protected marker and time-box. **Conflicts** with time-contract `:303-306`'s unconditional co-rollback qualification refusal. | Owner acceptance of the exact exception, not a refinement label; live-revert residual recorded off-VM, no production promotion. |
+| C4 NTS/local witness | **Same** existing authenticated time, settlement and within-installation watermark retention. **Conflicts** with time-contract `:297-307`: a witness restored with its checkpoint cannot qualify and co-rollback must refuse. C1 separately conflicts with replacement-history rules. | Only the exact accepted C exception changes those refusals for this VM/test subscription. C1 initializes the new watermark from fresh qualified NTS evidence, not retired W/holds; ordinary restart retains the current scope's watermark. `ClosedWitness` and fixture limits remain. |
+| C5 test-only/residual/expiry | **Same** test-subscription restriction (`spec/secret-free-mode.md:415`); **refines** its protected marker and time-box. **Conflicts** with time-contract `:302-307`'s unconditional co-rollback qualification refusal. | Owner acceptance of the exact exception, not a refinement label; live-revert residual recorded off-VM, no production promotion or reinstall-based expiry extension. |
 | C machine binding | **Refines** enrolled time `scope.machine` (`docs/time-contract.md:42`) by requiring the same independently verified VM identity in all root selectors/fence records. | Section 5 rejects transferable guest-image identifiers and unknown/unqualified evidence; another VM cannot enable C by copying files. |
 
 ### 4.4 Required ownership amendments: DN-05 CONFLICT
@@ -1399,21 +1519,24 @@ forbidden result; all synthetic inputs are inert and no real token is used.
 | ACTIVATE protection/selector | Malformed/unknown members, wrong owner/mode/link/ancestor/pin, or >900 refuses startup; any fallback/clamp fails the witness. | Absent/false stays stopped; valid protected true constructs only the gated assembly at 900 or a smaller ceiling. |
 | ACTIVATE-DRIFT current bytes | Missing/changed activation or same-revision changed authority bytes closes use and affected connections; no exposed fallback. | Identical protected bytes/joins permit a current window; independent unbind still works while use is closed. |
 | AUTH-ROLE exact operator/owner | Bare same UID/key, observer/gateway, forged/expired/replayed receipt, changed arguments or wrong owner refuses without method mutation. | Dedicated human per-act password and exact widening confirmation admits only the configured operator/owner. |
-| AUTH-SCRIPT outer master | `script --log-in` master is unpinned; refuse before password/token input and no canary in its recording. | Direct pinned console/actual SSH login with exclusive input receives a receipt. |
+| AUTH-SCRIPT outer master | `script --log-in` master is unpinned; refuse before password/token input and no canary in its recording. | Direct pinned actual SSH login with exclusive input receives a receipt; console is never an admitted control. |
 | AUTH-TMUX outer master | tmux/screen or passed master refuses even after reparenting; sudo inner pty never substitutes for the outer device. | Direct pinned login, no multiplexer, `!use_pty` and matching outer device succeeds. |
 | AUTH-EXPECT outer master | expect/harness-created pty refuses despite matching UID/loginuid or a detached parent. | Direct pinned login-service master, process start and devpts join succeeds. |
-| AUTH-READER terminal exclusion | Existing same-UID slave reader, late open/fork/FD transfer or unqualified freeze/launch gate refuses before secret input; no canary release. | Pinned relays/entry, proven frozen caller tasks, exclusive slave and restored state permit the direct-login ceremony. |
+| AUTH-READER terminal exclusion | Existing same-UID slave reader, concurrent operator-UID slave open, late open/fork/FD transfer or unqualified freeze/launch gate refuses before secret input; no canary release. | Root-owned 0600 slave, pinned relays/entry with inherited FDs and `/dev/tty`, proven frozen caller tasks and restored state permit the direct-SSH ceremony. |
 | AUTH-PASSWORD source | `sudo -S`, `-A`/askpass or noninteractive input refuses, even with the correct password. | Fresh operator-password conversation on the admitted outer TTY succeeds. |
-| AUTH-PAM password-only | Alternative sufficient/key/device/PAM auth path cannot issue a receipt; wrong password also refuses. | Exact dedicated required `pam_unix` stack and a correct fresh operator password succeeds. |
+| AUTH-PAM password-only | Alternative sufficient/key/device/PAM auth path cannot issue a receipt; wrong password refuses without a second password try in the invocation. | Exact dedicated required `pam_unix` stack, `passwd_tries=1` and a correct first fresh operator password succeeds. |
 | AUTH-CACHE caller sudo policy | Another root/shell rule, cached ticket, permissive caller timeout or sudoers/caller-list difference refuses. | Exact caller-only narrow rules with zero timeout and a new password succeeds. |
-| AUTH-SESSION dedicated login | Same-UID harness service/process, user manager/linger, second login, managed caller, `setsid`/double-fork/user-service escape refuses regardless of current ancestry. | One fresh installer-verified dedicated human login, pinned launcher ancestry and no external caller tasks succeeds. |
-| AUTH-SPOOF trusted path regression | Plant a caller-writable PATH `sudo`, startup function or launcher/config path; creation must be impossible or the root login gate refuses before password/token input. Earlier agent/vendor-CLI execution or unknown account history requires retirement/revocation, even after the process exits. No canary may reach the substitute. | Fresh never-agent caller, root-owned launcher/startup/PATH, qualified noexec confinement, absolute sudo and witness-checked live ancestry admit the direct-login ceremony. |
-| AUTH-SSH actual host path | Unknown/unqualified SSH-only login path, changed server digest or remote recording fails the ceremony prerequisite; generic SSH login is not proof. | Direct human login through the pinned actual SSH implementation plus fresh terminal sudo succeeds; no direct SSH operator authority. |
+| AUTH-SESSION dedicated login | Same-UID harness service/process, scheduled cron/at job, user manager/linger, second login, managed caller, `setsid`/double-fork/user-service escape refuses regardless of current ancestry. | One fresh installer-verified dedicated human login, pinned launcher ancestry, explicit scheduler denial and no external caller tasks succeeds. |
+| AUTH-SPOOF trusted path regression | Plant a caller-writable PATH `sudo`, startup function, launcher/config or candidate-source path; creation must be impossible or the root login gate refuses before password/token input. Earlier agent/vendor-CLI execution or unknown/gapped installer history requires retirement/revocation, even after the process exits. No canary may reach the substitute. | Fresh never-agent caller, continuously protected installer record, root-owned composer/launcher/startup/PATH, sealed candidate, qualified noexec confinement, cleared environment, absolute sudo and witness-checked live ancestry admit direct SSH. |
+| AUTH-SSH actual host path | VT/console, unknown/unqualified SSH path, changed server digest, per-user rc/environment, accepted client environment, caller-writable/command-bearing authorized keys, subsystem/forwarding or remote recording fails the ceremony prerequisite; generic SSH login is not proof. | Direct human login through the pinned actual SSH implementation with the DN-02d restrictions and a cleared launcher environment plus fresh terminal sudo succeeds; no direct SSH operator authority. |
 | AUTH-DUMP exec boundary | Readable operator image, changed dump policy, initial dumpability or ptrace access before first instruction refuses qualification; late buffer-only protection is insufficient. | Qualified 0711 image/kernel boundary remains nondumpable from launch through display/capture. |
-| AUTH-CHANNEL rendezvous | Inherited-FD3 assumption, wrong effective UID/nonroot socket peer, unmatched sudo auth session/parent/start ticks, extra frame, substituted entry or second connection refuses before input. | With unchanged closefrom=3, the qualified root witness admits one post-exec SO_PEERCRED/pidfd/session-bound connection and attributes the human caller. |
+| AUTH-CHANNEL rendezvous | Loaded sudo I/O plugin, inherited-FD3 assumption, wrong effective UID/nonroot socket peer, unmatched sudo auth session/parent/start ticks, extra frame, substituted entry or second connection refuses before input. Logging flags alone do not exclude an input hook. | With unchanged closefrom=3, sole sudoers policy, qualified audit-plugin/root supervisor and no I/O plugin, the witness admits one post-exec SO_PEERCRED/pidfd/session-bound connection and attributes the human caller. |
+| CANDIDATE-SOURCE pinned composer | Caller-path/upload/FD substitution, unsealed/nonroot memfd or extra/secret/authority input fields refuse before token input. Changed final arguments or operation ID refuse before receipt/mutation, including unbind without typed confirmation. | Pinned root composer prepares each of the four closed nonsecret candidates, omitting only enrollment's derived prefix, and hands the same sealed root memfd at offset zero through sudo FD0; the witness joins its identity/digest and compares the final arguments, and the entry displays/adopts exactly those bytes. |
 | DISPLAY exact content | Non-ASCII/control/bidi display injection, omitted protected test marker/C scope, wrong confirmation, candidate TTY/pipe or caller-selected policy assertion refuses; no content reinterpretation. | Complete reversible escaped display of the exact signed body and digest-bound protected metadata, matching confirmation and prepared regular-file candidate succeeds. |
 | ENROL-BOUND custody framing | Empty, 4,097-byte, NUL/whitespace/non-ASCII or unterminated token refuses before act/receipt/custody write; canonical truncation is a failure. | 1-byte and 4,096-byte 0x21-0x7e synthetic tokens pass in noncanonical mode; Enter CR-to-LF and direct LF terminate capture exactly as specified. |
+| ENROL-TERMIOS exact input | Saved `IUCLC`, `ISIG` with remapped signal characters, parity/break flags or pre-prompt type-ahead must not rewrite, signal, become token input or evade the control-byte refusal. Synthetic 0x03/0x1a/0x1c refuse before act/receipt/custody write. | Pre-prompt flush and the explicit capture flags preserve mixed-case 0x21-0x7e bytes exactly despite hostile saved flags; both 1-byte/4,096-byte controls pass and every exit restores the saved state. |
 | ENROL-RESIDUE queue cleanup | Multi-line/overlong paste and continuing type-ahead after refusal must leave no canary in a resumed fixture shell, screen/history or confirmation. Exercise EOF, timeout, signal and uncatchable child death; a failed flush/restoration may never resume that shell. | 1-byte and 4,096-byte controls flush after capture, before confirmation and at exit, restore the complete saved mode before thaw, and end the login with no queued input. |
+| ENROL-RESIDUE-SUCCESSOR regression | VT/console enrollment must refuse before password/token prompt or capture. Continuing synthetic paste after SSH refusal/cleanup/death must never reach a successor getty/login, shell, argv, auth log or failed-login record; handing the pty to any successor fails. No real token is supplied to an unsupported VT. | Direct admitted SSH enrollment with a 1-byte/4,096-byte canary flushes/restores and destroys the channel/pty on exit; later input has no server-side successor. A clean VT attempt refuses before any secret prompt, with no enrollment/receipt/custody effect. |
 | ENROL-EXPIRY effect | Legacy `issued_at`, invalid expiry or guessed TTL refuses; dropping/changing confirmed expiry or extending a known cap fails. | Null maps to nil, or exact vendor expiry is stored unchanged and caps authorized use. |
 | ENROL-VERIFY verifier classification | Prefix mismatch refuses; enrollment act/commitment/prefix appearing in audit/status/errors/alerts/effect.observe/service state fails the witness. | Matching scoped prefix and equal-retry commitment remain only in protected receipt/custody reconciliation and transient display. |
 | ENROL-CAPTURE secret boundary | Echo/recording plant, canary in argv/env/log/staging, earlier agent-session token or unproven terminal restoration refuses. | Synthetic canary on the admitted exclusive TTY, echo-off, owned-buffer clearing and restoration on success/refusal/signals succeeds without an erasure claim. |
@@ -1433,11 +1556,12 @@ forbidden result; all synthetic inputs are inert and no real token is used.
 | AUTHORITY-LOCUS equality | Extra config observer, installation/broker/account selection difference, static allowlist or config-only dialect interlock refuses. | All duplicate facts equal; enabled baseline interlock and bind policy read the authority account rows under lock. |
 | VIEW/SINGLE-SEQ current facts | Remove/stale each required fact, wrong kind/class/placement/head or sequence reset/cache/missing-as-empty refuses affected use. | Coherent protected facts and the sole revocation state admit use; unavailable caller facts still allow independently admitted hold. |
 | DISABLE/ROTATE lifecycle | One remaining binding, vendor revocation unknown, in-place overwrite, old token/ID reuse or orphan adoption cannot count as disable/rotation. | Unbind every binding plus vendor revocation; new authority account ID, fresh token and fresh confirmed binds establish rotation. |
-| CONTINUITY-C-RESTORE fresh install | VM/home/user-manager/etc restore, cloned disk or unexplained regression must not reopen the old installation. | Fresh ID, replacement roots/grants/store and fresh token/enrollment/binds after old-token revocation establish recovery. |
+| CONTINUITY-C-RESTORE fresh install | VM/home/user-manager/etc restore, cloned disk or unexplained regression must not reopen the old installation. An empty history with a reused installation/consumer scope, or import/comparison of old W/holds, refuses; no old authority or hold is revived/released. | Under the exact accepted C1 exception, permanently retire the old scope off-VM; new never-reused installation/consumer scope, replacement roots/grants/store, fresh qualified NTS checkpoint/watermark and fresh token/enrollment/binds after old-token revocation establish only scoped test recovery. |
+| CONTINUITY-C-RECOVERY time history | After a detected whole-VM revert with advanced W or a sticky hold, consuming the reverted checkpoint, using an unnamed replacement-history exception or treating a good NTS report as repair refuses. Missing retirement evidence, reused scope or consumption before the new checkpoint also refuses. | Exact accepted C1 amendment and off-VM old/new retirement record permit a fresh installation-bound scope on the same qualified VM/test subscription within the unchanged expiry; old history is evidence only and never compared/consumed, while the new checkpoint settles before use. |
 | CONTINUITY-C-FENCE every start/window | Absent/mismatched/fenced start record, omitted config/caller-journal head, missing off-VM evidence or expiry while running closes use; copying suspect heads into a new fence fails. | Exact approved heads admit a manual test start; each use window/publication rechecks live scope, admitted fence and expiry. Privileged orderly stop fences before recording off-VM final heads; diagnostics/narrowing remain independent. |
 | CONTINUITY-C-HIGH-WATER regression | Shorter journal, same-count different head, missing/corrupt consumer floor or reset to producer/genesis refuses. | Persisted verified prefix/head, durable extension before release and matching start evidence permits consumption. |
-| CONTINUITY-C-TIME authenticated time | Plain NTP/off/unknown source, untrusted step, checkpoint mismatch, ClosedWitness or fixture path cannot open use. | Qualified NTS evidence under existing policy, settled checkpoint and preserved watermark passes the time gate. |
-| CONTINUITY-C-CONFLICT disposition | Missing C1-C5 disposition, time-owner approval of a mere refinement, unaccepted exception bytes or fixture-only qualification refuses C. | Exact time-contract/API exception and all owner approvals admit only the explicitly scoped C evaluation; production A retains independent-witness requirements. |
+| CONTINUITY-C-TIME authenticated time | Plain NTP/off/unknown source, untrusted step, checkpoint mismatch, ClosedWitness or fixture path cannot open use; ordinary restart cannot reset the current scope's W/holds. | Qualified NTS evidence under existing policy, settled checkpoint and preserved current-installation watermark passes; only C1's explicitly accepted new-scope recovery initializes a new checkpoint/watermark. |
+| CONTINUITY-C-CONFLICT disposition | Missing C1-C5 disposition, omitted C1 time-history conflict/amendment, time-owner approval of a mere refinement, unaccepted exception bytes or fixture-only qualification refuses C. | Exact time-contract/API exception including C1 retirement/new history and all owner approvals admit only the explicitly scoped C evaluation; production A retains independent-witness/history requirements. |
 | CONTINUITY-C-SCOPE machine/account | Copy a valid guest image, selector/fence or old evidence to another VM; a wrong/unknown machine, production selector/account, absent test marker, expired revision or production promotion refuses. | Fresh nontransferable VM identity equals both root selectors, fence and enrolled time scope; protected test marker displayed/confirmed and accepted time-box permit only that VM's test subscription. |
 | BOOTSTRAP/LIFETIME ordered gates | Bind before enrolled account, missing grant/revocation ceremony or VM-verifier qualification, unavailable gate input, widened ceiling or expired/revoked authority refuses use; no revival. | Complete create/enroll/bind/start control with published ceremonies and all independent gates caps issue/renewal at 900 or smaller, caller and token expiry. |
 
@@ -1447,9 +1571,12 @@ future implementation suite; none is applied or reported killed here:
 | Required plant | What it narrows the gate to | Witness required to fail |
 | --- | --- | --- |
 | AUTH-SPOOF-PATH | Remove the launcher/startup/PATH ownership check while retaining current-process enumeration. | AUTH-SPOOF must expose the planted substitute or reject the missing prerequisite; direct-login control must still pass without the plant. |
+| AUTH-SPOOF-CANDIDATE | Replace the root composer's sealed FD0 with a candidate read from a caller-writable path, including an unbind candidate. | CANDIDATE-SOURCE and AUTH-SPOOF must reject the substituted source before token input/mutation; the sealed-composer control remains valid. |
 | NARROW-CALLER-AUTHORITY | Reintroduce an authority-journal read/intent or WithCurrent as an unbind prerequisite. | NARROW-CALLER-UNBIND must fail its full/unreadable-history or untrusted-UTC control. |
-| CONTINUITY-C-REFINEMENT | Treat C as an accepted refinement without the exact time-contract exception. | CONTINUITY-C-CONFLICT must reject the decision record, while the fully accepted C control passes. |
+| CONTINUITY-C-REFINEMENT | Treat C as an accepted refinement, or drop only the C1 time-history conflict row/recovery exception while keeping the co-rollback amendment. | CONTINUITY-C-CONFLICT must reject each incomplete decision record, while the fully accepted C1-C5 control passes. |
+| CONTINUITY-C-RECOVERY-REUSE | Reuse the reverted time checkpoint, W or hold after C1 fresh install, or retain the old scope with an empty history. | CONTINUITY-C-RECOVERY and CONTINUITY-C-RESTORE must reject that recovery; the retired-old/new-scope control still passes without the plant. |
 | ENROL-RESIDUE-NOFLUSH | Omit capture/refusal/death queue discard before restoration/thaw. | ENROL-RESIDUE must detect the synthetic queued canary; clean 1-byte/4,096-byte controls remain required. |
+| ENROL-RESIDUE-SUCCESSOR-GETTY | Bypass SSH-only admission, re-admit VT enrollment and respawn a synthetic getty/login reader immediately after the last flush while the canary paste continues. | ENROL-RESIDUE-SUCCESSOR must reject the unsupported path or detect canary reachability in successor argv/auth/failed-login records; unplanted SSH teardown and pre-prompt VT-refusal controls remain required. |
 
 Use narrowing control plants for the actual activation, operator/owner,
 no-echo/no-record and lifetime gates once implemented; report named failing
@@ -1469,10 +1596,10 @@ must not choose an option on the owner's behalf.
 
 | ID | Unfixed choice and source gap | Option A | Option B | Recommendation |
 | --- | --- | --- | --- | --- |
-| DN-01 | Operator binary/verb, input framing and receiving wrapper (`spec/broker.md:860`) | Fixed no-argv libexec entry and closed `operator.act.v0` wrapper on existing socket, as section 2 | Add an operator verb to the existing broker binary with a separately confined argv grammar | A: narrow sudo matching, no token in argv, no second service socket. |
+| DN-01 | Operator binary/verb, input framing and receiving wrapper (`spec/broker.md:860`) | Pinned root candidate composer/sealed FD0, fixed no-argv libexec entry and closed `operator.act.v0` wrapper on existing socket, as section 2 | Add an operator verb to the existing broker binary with a separately confined argv grammar | A: defined non-caller-writable candidate source, narrow sudo matching, no token in argv, no second service socket. |
 | DN-02 | Trustworthy terminal authentication/agent-exclusion evidence and signed terminal-act admission (`spec/broker.md:245`, `spec/broker.md:856`, `docs/claude-custody.md:59`) | Signed act plus qualified root-witness rendezvous/receipt, fresh never-agent caller, root-owned launcher/trusted path and every DN-02a-e predicate | Same signed act plus a separately published live-provenance integration without this receipt format; ancestry/UID alone is never an option | A conditional on each sub-decision and paired witness. closefrom=3 stays; no FD3 injection. Root/kernel/login and owner-controlled endpoint recording/capture remain explicit owner-accepted trust/ceremony boundaries. |
 | DN-03 | Act type/domain, 300 s freshness, identifiers, full display, typed confirmation and 128-bit token digest prefix (`spec/broker.md:860`) | Exact section 2 CCJ-1/domain and `CONFIRM <act_id>` grammar | A distinct versioned canonical envelope with a full typed canonical-content confirmation and a longer 192-bit digest prefix | A: bounded exact-content review; no phone signature or grant-domain reuse. |
-| DN-04 | TTY-only transport versus pipe example, token framing/memory/recording safeguards and enrollment receiver/replay (`spec/broker.md:335`, `spec/broker.md:339`) | Sections 2-3 noncanonical bounded TTY capture, queue discard/full restoration on every exit, vendor CLI outside the caller, existing custody plus durable reconciliation | Preserve pipe/stdin capture with an independently authenticated receiving protocol and explicitly revise the v0 request | A: no act/staging token file or return to a caller shell with pending token bytes; ENROL-RESIDUE and supervisor cleanup require native qualification. |
+| DN-04 | TTY-only transport versus pipe example, token framing/memory/recording safeguards and enrollment receiver/replay (`spec/broker.md:335`, `spec/broker.md:339`) | Sections 2-3 SSH-only bounded raw TTY capture, queue discard/full restoration and channel/pty destruction with no successor reader; vendor CLI outside the caller, existing custody plus durable reconciliation | Preserve pipe/stdin capture with an independently authenticated receiving protocol and explicitly revise the v0 request | A: VT/console refuses before secret prompts; no token staging file or successor reader. ENROL-RESIDUE, ENROL-RESIDUE-SUCCESSOR and supervisor cleanup require native qualification. |
 | DN-05 | **CONFLICT:** authority/policy ownership moves out of broker configuration; paths, schemas, pins and startup reload | Root authority/activation with the explicit broker §§4.2/12.4/15.1/15.2 and dialect §1/§5.1 amendments in section 4.4, plus equality-or-refuse | Decline this ownership move and publish a revised design retaining broker-owned principal/policy authority; do not call the current move a refinement | A on the merits only after the explicit owner conflict decision and amendments; operational config remains broker-owned, never a parallel authority. |
 | DN-06 | Authority/nonce/revocation/caller-binding journals, service receipt metadata, retention and admitted-intent recovery | Authority snapshot plus separate nonce, revocation and originating-binding state, versioned service-journal integration and unchanged token custody | Separate every protected grant/binding/revocation/event/outcome journal with a published transaction head | A with independent revocation/caller-binding storage and reserved removals. Root/operator revocations do not need grants; issuer revocations do. Neither unbind path needs authority history. Own-state capacity/failures remain honest; no current-reader support is claimed. |
 | DN-07 | Unavailable sequence encoding and its relation to the sole baseline state (`spec/secret-free-service-v0.md:615`, `spec/secret-free-service-v0.md:1074`) | Same nonnegative baseline `seq` for known state; JSON null when unavailable in both dialects | Versioned tagged known/unavailable representation published jointly for both dialects | A: no invented zero/last-success authority; do not activate before baseline compatibility is accepted. |
@@ -1480,8 +1607,9 @@ must not choose an option on the owner's behalf.
 | DN-09 | Time/restore/high-water custody not supplied by identity projection (broker §§6.4/15.2; managed-identity provider activation gates) | Production stays closed until the existing owners publish/qualify independent continuity/recovery inputs | Non-authorizing diagnostics only while the missing gates are resolved | **A for production; C for explicitly accepted TEST-PROFILE v0 only**, as below; B remains the current nonauthorizing state. |
 
 **DN-09 Option C** is the five-part TEST-PROFILE v0 **CONFLICT** in section 4.3:
-unsupported restore/fresh installation; every-start root fence outside the
-service home; broker-store persisted consumer high-water with regression
+unsupported restore/fresh installation with permanent retirement of the old
+time scope and an explicitly excepted new history; every-start root fence
+outside the service home; broker-store persisted consumer high-water with regression
 refusal; authenticated NTS through existing time confidence/watermark; dedicated
 test subscription with a protected marker, independently verified qualified-VM
 scope, named owner-accepted live-VM rollback risk and **no production promotion**.

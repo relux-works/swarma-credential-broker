@@ -14,9 +14,10 @@ bound the missing work; broker §3.2 is **PROPOSED**, not an activation decision
 The [operator and activation v0 candidate](spec/operator-and-activation-v0.md)
 now proposes all six missing contracts. Its DN-01 through DN-09 decisions remain
 open; the stop is pending acceptance, not a claim that no candidate text exists.
-Revision 2 names the password-only PAM/sudo, fresh never-agent caller,
-root-owned launcher/trusted path, witness-checked ancestry, root-witness
-rendezvous and every-exit TTY queue/mode cleanup decisions; their implementation
+Revision 3 names the password-only PAM/sudo, fresh never-agent caller,
+root-owned composer/sealed candidate and launcher/trusted path, SSH-only login,
+witness-checked ancestry, root-witness rendezvous and every-exit TTY queue/mode
+cleanup with no successor reader decisions; their implementation
 and native qualification are still absent. DN-05 is explicitly a **CONFLICT**
 with broker-owned principal
 and machine-policy rules, requiring the listed broker/dialect amendments and
@@ -28,7 +29,12 @@ their own identity/storage requirements without widening gates.
 DN-09 keeps A for production and proposes C only for an explicitly accepted,
 time-boxed, qualified-VM-bound TEST-PROFILE v0 **CONFLICT** with the time
 contract, requiring its exact exception text and clause disposition audit.
-C requires restore unsupported/fresh install, an every-start
+C1 explicitly **conflicts** with the time contract's no-replacement-history,
+scope and hold-continuity rules: only the exact accepted amendment retires the
+old installation/time scope permanently and permits a fresh never-reused
+installation/consumer scope and qualified checkpoint. Old W/holds/history are
+evidence only, never imported, compared or revived; ordinary restart retains
+the current history. C also requires an every-start
 outside-home root fence, persisted consumer high-water, authenticated NTS under
 existing policy, a protected test-subscription marker and fresh independent VM
 identity evidence, with owner-accepted live whole-VM rollback risk. No C result
