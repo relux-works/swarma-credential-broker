@@ -1,1 +1,1 @@
-{"accounts":[{"class":"trusted","generation":"bad","kind":"service","name":"credential-gateway","placement":"local","state":"active","uid":30001}],"format":"swarma-managed-identities/1","journal_head":"7aebd84fe916bddb4d93fbf1a83bb38f2788fe0d1cbf8b608e6cfe3408d1f120"}
+{"accounts":[{"class":"trusted","generation":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","kind":"service","name":"credential-gateway","placement":"local","state":"active","uid":30001}],"format":"swarma-managed-identities/1","journal_head":"0b3ab6de530d4c16318971861d15a3c022895c448600c48ee2469a17197dbf50"}

@@ -31,6 +31,142 @@ type managedFixture struct {
 	journal   string
 }
 
+type managedFixtureCase struct {
+	Check     string `json:"check"`
+	Condition string `json:"condition,omitempty"`
+	File      string `json:"file"`
+	Name      string `json:"name"`
+	Previous  string `json:"previous,omitempty"`
+	Verdict   string `json:"verdict"`
+}
+
+type managedFixtureManifest struct {
+	Cases       []managedFixtureCase `json:"cases"`
+	Format      string               `json:"format"`
+	Generation  string               `json:"generation"`
+	Journal     string               `json:"journal"`
+	JournalHead string               `json:"journal_head"`
+	UID         uint32               `json:"uid"`
+}
+
+func managedCases(t *testing.T) managedFixtureManifest {
+	t.Helper()
+	var manifest managedFixtureManifest
+	raw := managedBytes(t, "cases.json")
+	if _, err := wire.Parse(raw); err != nil || wire.Decode(raw, &manifest) != nil || manifest.Format != "swarma-identities-fixtures/1" || manifest.Journal != "journal.jsonl" || len(manifest.Cases) == 0 || manifest.UID != managedFixtureUID || manifest.Generation != managedFixtureGeneration {
+		t.Fatal("invalid shared fixture manifest")
+	}
+	journal, err := genjournal.Verify(bytes.NewReader(managedBytes(t, manifest.Journal)), genjournal.Floor{Hash: genjournal.ZeroHash})
+	if err != nil || journal.Tail.Hash != manifest.JournalHead || journal.Active(int64(manifest.UID), manifest.Generation) != nil {
+		t.Fatal("manifest does not identify the active journal vector")
+	}
+	if err := managedFixtureInventory(managedFixtureDirectory, manifest); err != nil {
+		t.Fatal(err)
+	}
+	return manifest
+}
+
+func managedFixtureInventory(directory string, manifest managedFixtureManifest) error {
+	listed := map[string]bool{"README.md": true, "SHA256SUMS": true, "cases.json": true, manifest.Journal: true}
+	names := make(map[string]bool)
+	for _, item := range manifest.Cases {
+		if item.Name == "" || names[item.Name] || item.File == "" || filepath.Base(item.File) != item.File || listed[item.File] {
+			return fmt.Errorf("duplicate or invalid fixture case: %s", item.Name)
+		}
+		names[item.Name], listed[item.File] = true, true
+	}
+	for _, item := range manifest.Cases {
+		if item.Previous != "" && !listed[item.Previous] {
+			return fmt.Errorf("unlisted previous fixture: %s", item.Previous)
+		}
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !listed[entry.Name()] || !entry.Type().IsRegular() {
+			return fmt.Errorf("unlisted or nonregular fixture: %s", entry.Name())
+		}
+		delete(listed, entry.Name())
+	}
+	for name := range listed {
+		return fmt.Errorf("missing listed fixture: %s", name)
+	}
+	return nil
+}
+
+func managedApplyCase(t *testing.T, fixture *managedFixture, item managedFixtureCase) {
+	t.Helper()
+	if item.Previous != "" {
+		managedWrite(t, filepath.Join(fixture.parent, "identities.json"), managedBytes(t, item.Previous))
+		managedPositive(t, fixture.authority)
+	}
+	path := filepath.Join(fixture.parent, "identities.json")
+	managedWrite(t, path, managedBytes(t, item.File))
+	switch item.Check {
+	case "decode", "service":
+		if item.Condition != "" || item.Previous != "" {
+			t.Fatal("unexpected case precondition")
+		}
+	case "transition":
+		if item.Previous == "" || item.Condition != "" {
+			t.Fatal("missing transition precondition")
+		}
+	case "custody":
+		var err error
+		switch item.Condition {
+		case "missing-file":
+			err = os.Remove(path)
+		case "unreadable-file":
+			if os.Geteuid() == 0 {
+				t.Fatal("unreadable-file requires the unprivileged private environment")
+			}
+			err = os.Chmod(path, 0000)
+		case "wrong-owner":
+			fixture.authority.policy.uid++
+		case "wrong-group":
+			fixture.authority.policy.gid++
+		case "wrong-mode":
+			err = os.Chmod(path, 0600)
+		case "symlink":
+			if err = os.Rename(path, path+".real"); err == nil {
+				err = os.Symlink(path+".real", path)
+			}
+		case "hardlink":
+			err = os.Link(path, path+".extra")
+		case "not-regular":
+			if err = os.Remove(path); err == nil {
+				err = os.Mkdir(path, 0755)
+			}
+		default:
+			t.Fatalf("unknown custody condition: %s", item.Condition)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	default:
+		t.Fatalf("unknown fixture check: %s", item.Check)
+	}
+}
+
+func managedCaseUnchanged(t *testing.T, fixture *managedFixture, item managedFixtureCase, before string) {
+	t.Helper()
+	if managedSnapshot(t, fixture.authority.root) != before {
+		t.Fatal("identity refusal changed protected filesystem state")
+	}
+	if item.Condition == "unreadable-file" {
+		path := filepath.Join(fixture.parent, "identities.json")
+		if err := os.Chmod(path, 0644); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(raw, managedBytes(t, item.File)) {
+			t.Fatal("unreadable projection bytes changed")
+		}
+	}
+}
+
 func managedBytes(t *testing.T, name string) []byte {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(managedFixtureDirectory, name))
@@ -100,12 +236,23 @@ func managedSnapshot(t *testing.T, root string) string {
 		if err != nil {
 			return err
 		}
-		if !entry.IsDir() {
+		var stat unix.Stat_t
+		if err := unix.Lstat(path, &stat); err != nil {
+			return err
+		}
+		fmt.Fprintf(&snapshot, "%s:%o:%d:%d:%d\n", path, stat.Mode, stat.Uid, stat.Gid, stat.Nlink)
+		if entry.Type().IsRegular() && stat.Mode&0444 != 0 {
 			raw, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
 			fmt.Fprintf(&snapshot, "%s:%x\n", path, sha256.Sum256(raw))
+		} else if entry.Type()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(&snapshot, "%s:%s\n", path, target)
 		}
 		return nil
 	})
@@ -118,49 +265,80 @@ func managedSnapshot(t *testing.T, root string) string {
 // Claim: every shared consumer verdict has its sealed exact bytes; successful
 // cases map the exact service triple, and refusals leave protected bytes intact.
 func TestManagedSharedFixtures(t *testing.T) {
-	var manifest struct {
-		Cases []struct {
-			Expect string `json:"expect"`
-			File   string `json:"file"`
-			UID    uint32 `json:"uid"`
-		} `json:"cases"`
-		Journal string `json:"journal"`
-	}
-	raw := managedBytes(t, "manifest.json")
-	if _, err := wire.Parse(raw); err != nil || wire.Decode(raw, &manifest) != nil || manifest.Journal != "journal.jsonl" || len(manifest.Cases) < 20 {
-		t.Fatal("invalid shared fixture manifest")
-	}
+	manifest := managedCases(t)
 	for _, item := range manifest.Cases {
-		t.Run(strings.TrimSuffix(item.File, ".json"), func(t *testing.T) {
+		t.Run(item.Name, func(t *testing.T) {
+			managedPositive(t, newManagedFixture(t).authority)
 			fixture := newManagedFixture(t)
-			managedPositive(t, fixture.authority)
-			managedWrite(t, filepath.Join(fixture.parent, "identities.json"), managedBytes(t, item.File))
-			fixture.authority.kinds = make(map[uint32]string)
+			managedApplyCase(t, fixture, item)
 			before := managedSnapshot(t, fixture.authority.root)
-			principal, err := managedPrincipal(fixture.authority, item.UID)
-			if item.Expect == "ok" {
-				managedPositive(t, fixture.authority)
-				if err != nil || principal.UID != item.UID {
-					t.Fatalf("valid fixture refused: %v", err)
+			principal, err := managedPrincipal(fixture.authority, manifest.UID)
+			if item.Verdict == "accept" {
+				want := Principal{UID: manifest.UID, Generation: manifest.Generation, Service: Gateway, Role: "service"}
+				if err != nil || principal != want {
+					t.Fatalf("valid fixture: got %#v, %v; want %#v", principal, err, want)
 				}
 			} else {
-				if item.Expect != "principal_ledger_mismatch" {
+				if item.Verdict != "principal_ledger_mismatch" {
 					t.Fatal("unknown fixture verdict")
 				}
-				refused(t, err, item.Expect)
+				refused(t, err, item.Verdict)
 				if principal != (Principal{}) {
 					t.Fatal("refusal returned a principal")
 				}
 			}
-			if after := managedSnapshot(t, fixture.authority.root); after != before {
-				t.Fatal("identity read changed protected state")
+			managedCaseUnchanged(t, fixture, item, before)
+			t.Logf("verdict=%s effect=none principal=%#v", item.Verdict, principal)
+		})
+	}
+}
+
+// Claim: cases.json lists every case file exactly once and names present files;
+// only the manifest, checksum seal, journal and producer README are metadata.
+func TestManagedFixtureInventory(t *testing.T) {
+	manifest := managedCases(t)
+	for _, fault := range []string{"extra", "missing", "directory", "duplicate", "unlisted-previous"} {
+		t.Run(fault, func(t *testing.T) {
+			directory := t.TempDir()
+			entries, err := os.ReadDir(managedFixtureDirectory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				managedWrite(t, filepath.Join(directory, entry.Name()), nil)
+			}
+			candidate := manifest
+			candidate.Cases = append([]managedFixtureCase(nil), manifest.Cases...)
+			switch fault {
+			case "extra":
+				managedWrite(t, filepath.Join(directory, "unlisted.json"), nil)
+			case "missing", "directory":
+				path := filepath.Join(directory, candidate.Cases[0].File)
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if fault == "directory" {
+					if err := os.Mkdir(path, 0755); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "duplicate":
+				candidate.Cases = append(candidate.Cases, candidate.Cases[0])
+			case "unlisted-previous":
+				candidate.Cases[0].Previous = "unlisted.json"
+			}
+			if err := managedFixtureInventory(directory, candidate); err == nil || !strings.Contains(err.Error(), map[string]string{"extra": "unlisted or nonregular", "missing": "missing listed", "directory": "unlisted or nonregular", "duplicate": "duplicate or invalid", "unlisted-previous": "unlisted previous"}[fault]) {
+				t.Fatalf("inventory control did not detect %s: %v", fault, err)
+			}
+			if err := managedFixtureInventory(managedFixtureDirectory, manifest); err != nil {
+				t.Fatalf("valid inventory refused: %v", err)
 			}
 		})
 	}
 }
 
-// Claim: SHA256SUMS covers every fixture and no checksum can silently name a
-// missing, extra, duplicate or path-escaping file.
+// Claim: the producer seal covers every case, cases.json and journal.jsonl;
+// only SHA256SUMS itself and the explanatory producer README are unsealed.
 func TestManagedFixtureChecksums(t *testing.T) {
 	entries, err := os.ReadDir(managedFixtureDirectory)
 	if err != nil {
@@ -179,11 +357,11 @@ func TestManagedFixtureChecksums(t *testing.T) {
 		sealed[parts[1]] = true
 	}
 	for _, entry := range entries {
-		if entry.Name() != "SHA256SUMS" && (entry.IsDir() || !sealed[entry.Name()]) {
+		if entry.Name() != "SHA256SUMS" && entry.Name() != "README.md" && (entry.IsDir() || !sealed[entry.Name()]) {
 			t.Fatalf("unsealed fixture: %s", entry.Name())
 		}
 	}
-	if len(sealed) != len(entries)-1 {
+	if len(sealed) != len(entries)-2 {
 		t.Fatal("checksum inventory differs from fixture inventory")
 	}
 }
@@ -191,6 +369,7 @@ func TestManagedFixtureChecksums(t *testing.T) {
 // Claim: schema rejection is independent of selecting a principal; closed
 // sets and members cannot hide behind an unrelated valid service record.
 func TestManagedClosedDocument(t *testing.T) {
+	manifest := managedCases(t)
 	var valid managedDocument
 	if json.Unmarshal(managedBytes(t, "valid.json"), &valid) != nil {
 		t.Fatal("fixture decode")
@@ -198,10 +377,47 @@ func TestManagedClosedDocument(t *testing.T) {
 	if _, err := decodeManaged(managedBytes(t, "valid.json"), valid.JournalHead); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"unknown-placement", "unknown-kind", "unknown-class", "unknown-state", "unknown-service", "unknown-member", "unknown-document-member", "missing-member", "missing-head", "duplicate-key", "duplicate-document-key", "duplicate-uid", "duplicate-service", "noncanonical", "malformed", "null-accounts", "uid-overflow", "stale-head"} {
-		t.Run(name, func(t *testing.T) {
-			_, err := decodeManaged(managedBytes(t, name+".json"), valid.JournalHead)
+	for _, item := range manifest.Cases {
+		if item.Check != "decode" {
+			continue
+		}
+		t.Run(item.Name, func(t *testing.T) {
+			_, err := decodeManaged(managedBytes(t, item.File), valid.JournalHead)
+			refused(t, err, item.Verdict)
+		})
+	}
+}
+
+// Claim: consumer-only malformed and missing-field variants refuse independently
+// of principal selection; these generated bytes do not extend the shared set.
+func TestManagedConsumerOnlyDocuments(t *testing.T) {
+	valid := string(managedBytes(t, "valid.json"))
+	var document managedDocument
+	if err := json.Unmarshal([]byte(valid), &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct {
+		name string
+		old  string
+		new  string
+	}{
+		{"missing-head", `,"journal_head":"` + document.JournalHead + `"`, ""},
+		{"missing-uid", `,"uid":30001`, ""},
+		{"empty-name", `"name":"credential-gateway"`, `"name":""`},
+		{"null-kind", `"kind":"service"`, `"kind":null`},
+		{"uid-negative", `"uid":30001`, `"uid":-1`},
+		{"uppercase-generation", `"generation":"` + managedFixtureGeneration + `"`, `"generation":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"`},
+		{"malformed", valid, "{"},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			if strings.Count(valid, item.old) != 1 {
+				t.Fatal("consumer-only fixture mutation did not apply exactly once")
+			}
+			_, err := decodeManaged([]byte(strings.Replace(valid, item.old, item.new, 1)), document.JournalHead)
 			refused(t, err, "principal_ledger_mismatch")
+			if _, err := decodeManaged([]byte(valid), document.JournalHead); err != nil {
+				t.Fatalf("adjacent valid document refused: %v", err)
+			}
 		})
 	}
 }
@@ -392,7 +608,7 @@ func TestManagedReadWindow(t *testing.T) {
 	if err := unix.Flock(int(writer.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		t.Fatal("reader did not release data lock")
 	}
-	managedWrite(t, filepath.Join(fixture.parent, "identities.json"), managedBytes(t, "stale-head.json"))
+	managedWrite(t, filepath.Join(fixture.parent, "identities.json"), managedBytes(t, "stale-journal-head.json"))
 	_ = unix.Flock(int(writer.Fd()), unix.LOCK_UN)
 	_, err = managedPrincipal(fixture.authority, managedFixtureUID)
 	refused(t, err, "principal_ledger_mismatch")
@@ -429,7 +645,11 @@ func TestManagedJournalAuthority(t *testing.T) {
 			case "broken-chain":
 				raw = bytes.Replace(raw, []byte(`"prev":"0000`), []byte(`"prev":"ffff`), 1)
 			case "retired":
-				line, err := genjournal.Encode(genjournal.Record{Seq: 7, Prev: projection.JournalHead, UID: managedFixtureUID, Generation: managedFixtureGeneration, State: "retiring", Writer: "user-manager", Time: "2026-11-19T00:00:00Z"})
+				verified, err := genjournal.Verify(bytes.NewReader(raw), genjournal.Floor{Hash: genjournal.ZeroHash})
+				if err != nil {
+					t.Fatal(err)
+				}
+				line, err := genjournal.Encode(genjournal.Record{Seq: verified.Tail.Seq + 1, Prev: projection.JournalHead, UID: managedFixtureUID, Generation: managedFixtureGeneration, State: "retiring", Writer: "user-manager", Time: "2026-11-19T00:00:00Z"})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -551,23 +771,15 @@ func TestManagedConcurrentAndCanceled(t *testing.T) {
 // path with supplied synthetic use facts; every shared identity refusal blocks
 // open and already-connected calls with no publication, custody or lease effect.
 func TestManagedRefusalsBeforeMaterial(t *testing.T) {
-	var manifest struct {
-		Cases []struct {
-			Expect string `json:"expect"`
-			File   string `json:"file"`
-		} `json:"cases"`
-	}
-	if err := json.Unmarshal(managedBytes(t, "manifest.json"), &manifest); err != nil {
-		t.Fatal(err)
-	}
-	names := []string{"missing"}
+	manifest := managedCases(t)
+	cases := []managedFixtureCase{{Name: "missing", Check: "custody", Condition: "missing-file", File: "valid.json", Verdict: "principal_ledger_mismatch"}}
 	for _, item := range manifest.Cases {
-		if item.Expect == "principal_ledger_mismatch" {
-			names = append(names, strings.TrimSuffix(item.File, ".json"))
+		if item.Verdict == "principal_ledger_mismatch" {
+			cases = append(cases, item)
 		}
 	}
-	for _, name := range names {
-		t.Run(name, func(t *testing.T) {
+	for _, item := range cases {
+		t.Run(item.Name, func(t *testing.T) {
 			fixture := newManagedFixture(t)
 			broker := newBrokerFixture(t, nil)
 			delete(broker.a.principals, broker.uid)
@@ -580,16 +792,10 @@ func TestManagedRefusalsBeforeMaterial(t *testing.T) {
 			fixture.authority.facts = broker.a
 			broker.b.authority = fixture.authority
 			broker.issue(t)
-			path := filepath.Join(fixture.parent, "identities.json")
-			if name == "missing" {
-				if err := os.Remove(path); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				managedWrite(t, path, managedBytes(t, name+".json"))
-			}
+			managedApplyCase(t, fixture, item)
 			before, leases := broker.custody.entries, len(broker.b.leases)
 			state := managedSnapshot(t, broker.root)
+			identities := managedSnapshot(t, fixture.authority.root)
 			_, err := broker.b.Open(context.Background(), broker.uid)
 			refused(t, err, "principal_ledger_mismatch")
 			replies := 0
@@ -598,6 +804,7 @@ func TestManagedRefusalsBeforeMaterial(t *testing.T) {
 			if broker.custody.entries != before || replies != 0 || len(broker.b.leases) != leases || managedSnapshot(t, broker.root) != state {
 				t.Fatal("refused managed identity changed material or durable state")
 			}
+			managedCaseUnchanged(t, fixture, item, identities)
 		})
 	}
 }

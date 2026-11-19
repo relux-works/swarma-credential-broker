@@ -112,17 +112,29 @@ release is activated. This unit never starts a daemon or opens live credentials.
 projection documents have canonical sorted-key JSON with no trailing LF;
 `journal.jsonl` has canonical LF-terminated records. Deliberately malformed,
 duplicate-key and noncanonical cases are negative byte fixtures, not claimed
-canonical documents. `manifest.json` identifies each lookup and its exact
-verdict. `SHA256SUMS` seals every fixture including that manifest and journal.
+canonical documents. The producer-owned `cases.json` identifies each lookup,
+its exact verdict, transition history and filesystem condition. `SHA256SUMS`
+seals every case including that manifest and journal; the producer README and
+checksum list itself are the only unsealed metadata. All files, including those
+two metadata files, are copied unchanged from the canonical producer set.
 
 The broker consumes the fixtures in `TestManagedSharedFixtures`, verifies the
-seal in `TestManagedFixtureChecksums`, and rejects closed-schema violations
-independently in `TestManagedClosedDocument`. Filesystem metadata/link failures
-are separate native fixture tests because their property is not JSON content.
+seal in `TestManagedFixtureChecksums`, checks complete case-file coverage in
+`TestManagedFixtureInventory`, and rejects closed-schema violations independently
+in `TestManagedClosedDocument`. The inventory checker has added-file, missing-file,
+nonregular-file, duplicate-case and missing-history negative controls. Manifest
+custody cases apply the named condition to temporary copies, not the checked-in
+files; valid bytes alone do not represent a filesystem refusal. Additional
+consumer-only schema and filesystem negatives generate their own temporary data.
+`TestManagedRefusalsBeforeMaterial` also consumes every refusing manifest row and
+checks that connection admission and lease requests leave publication, custody,
+lease count, durable state and identity evidence unchanged. Effect none is an
+observed invariant, not an invented wire-error member.
 Root installation and ACL/durability qualification are not claimed by tests
 using the private unprivileged ownership seam. The producer copy belongs at
-user-manager `testdata/identities-v1/`; the owner reconciles both byte lists
-after both units, so local green consumer tests alone are not reconciliation.
+user-manager `testdata/identities-v1/`; this consumer copy is reconciled byte for
+byte with its published canonical set. Consumer tests alone do not attest a
+different producer checkout or installed deployment.
 
 Run from an isolated private checkout with absolute HOME/caches, the selected
 `GO`, and TMPDIR/GOTMPDIR set to the task-owned scratch. Useful narrow entry:
