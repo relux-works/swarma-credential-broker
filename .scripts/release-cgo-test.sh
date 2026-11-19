@@ -35,6 +35,7 @@ func main() {
 }
 CGO
 cp cmd/cgoexample/main.go cmd/unlisted/main.go
+printf '//go:build !cgo\n\npackage main\nfunc main() { panic("policy main must be excluded from pure builds") }\n' > cmd/cgoexample/pure.go
 printf '//go:build !cgo\n\npackage main\nfunc main() { println("pure control") }\n' > cmd/nonpolicy/main.go
 printf '//go:build cgo\n\npackage main\nfunc main() { panic("cgo must not select this package") }\n' > cmd/nonpolicy/cgo.go
 printf './cmd/cgoexample\n' > .github/release/cgo-packages
@@ -99,6 +100,24 @@ expect_ok cgo_policy_source_path_equivalence cmp "$scratch/cgo-pure/SHA256SUMS" 
 expect_ok nonpolicy_pure_control "$scratch/cgo-pure/nonpolicy_linux_$native_arch"
 expect_ok cgo_native_two_independent_builds python3 "$profile" build \
   "$scratch/cgo-$native_arch" "$profile_root" "$profile_root" "$native_arch"
+# A native host must still reject a compiler targeting the other architecture,
+# before creating the output directory; all other compiler queries stay real.
+mkdir "$scratch/wrong-target"
+cat > "$scratch/wrong-target/gcc" <<'COMPILER'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $1 == -dumpmachine ]]; then
+  printf '%s\n' "$CGO_OTHER_TARGET"
+else
+  exec "$GCC_REAL" "$@"
+fi
+COMPILER
+chmod +x "$scratch/wrong-target/gcc"
+case $other_arch in amd64) other_target=x86_64-linux-gnu ;; arm64) other_target=aarch64-linux-gnu ;; esac
+expect_refusal cgo_cross_compiler_target native-cgo-compiler-required \
+  env PATH="$scratch/wrong-target:$PATH" GCC_REAL="$(command -v gcc)" CGO_OTHER_TARGET="$other_target" \
+  python3 "$profile" build "$scratch/compiler-target-refused" "$profile_root" "$profile_root" "$native_arch"
+[[ ! -e $scratch/compiler-target-refused ]] || fail compiler-target-partial-output
 expect_ok cgo_fixture_executes "$scratch/cgo-$native_arch/cgoexample_linux_$native_arch"
 build_id_control() {
   python3 - "$go_bin" "$scratch/cgo-$native_arch/cgoexample_linux_$native_arch" <<'BUILD_ID'
@@ -147,6 +166,42 @@ expect_refusal cgo_missing_architecture native-cgo-artifacts-required python3 "$
   "$scratch/partial-refused" "$profile_root" "$cgo_commit" "$scratch/cgo-pure" "$scratch/cgo-$native_arch"
 expect_ok cgo_collector_synthetic_peer_control python3 "$profile" collect "$scratch/cgo-collected" \
   "$profile_root" "$cgo_commit" "$scratch/cgo-pure" "$scratch/cgo-amd64" "$scratch/cgo-arm64"
+
+# Canonical peer receipts with one mismatched input must each be refused before
+# creating output; the real local build and synthetic peer bytes stay unchanged.
+peer_receipt="$scratch/cgo-$other_arch/cgo_linux_$other_arch.json"
+cp "$peer_receipt" "$scratch/valid-peer-receipt.json"
+rewrite_peer_receipt() {
+  python3 - "$scratch/valid-peer-receipt.json" "$peer_receipt" "$1" "$base" <<'RECEIPT'
+import json, pathlib, sys
+receipt = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
+if sys.argv[3] == "commit":
+    receipt["commit"] = sys.argv[4]
+elif sys.argv[3] == "toolchain":
+    receipt["toolchain"]["compiler_version"] = "0.0.0"
+elif sys.argv[3] == "environment":
+    receipt["environment"]["CGO_CFLAGS"] = "-O0"
+pathlib.Path(sys.argv[2]).write_text(json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n")
+RECEIPT
+}
+rewrite_peer_receipt commit
+expect_refusal cgo_receipt_input_mismatch cgo-receipt-input-mismatch python3 "$profile" collect \
+  "$scratch/receipt-input-refused" "$profile_root" "$cgo_commit" "$scratch/cgo-pure" "$scratch/cgo-amd64" "$scratch/cgo-arm64"
+[[ ! -e $scratch/receipt-input-refused ]] || fail receipt-input-partial-output
+rewrite_peer_receipt toolchain
+expect_refusal cgo_toolchain_receipt_mismatch cgo-toolchain-receipt-mismatch python3 "$profile" collect \
+  "$scratch/receipt-toolchain-refused" "$profile_root" "$cgo_commit" "$scratch/cgo-pure" "$scratch/cgo-amd64" "$scratch/cgo-arm64"
+[[ ! -e $scratch/receipt-toolchain-refused ]] || fail receipt-toolchain-partial-output
+rewrite_peer_receipt environment
+expect_refusal cgo_environment_receipt_mismatch cgo-environment-receipt-mismatch python3 "$profile" collect \
+  "$scratch/receipt-environment-refused" "$profile_root" "$cgo_commit" "$scratch/cgo-pure" "$scratch/cgo-amd64" "$scratch/cgo-arm64"
+[[ ! -e $scratch/receipt-environment-refused ]] || fail receipt-environment-partial-output
+cp "$scratch/valid-peer-receipt.json" "$peer_receipt"
+# An actual ancestor is a valid Git object but not the pure set build input.
+git merge-base --is-ancestor "$base" "$cgo_commit"
+expect_refusal cgo_pure_provenance_input_mismatch pure-provenance-input-mismatch python3 "$profile" collect \
+  "$scratch/pure-input-refused" "$profile_root" "$base" "$scratch/cgo-pure" "$scratch/cgo-amd64" "$scratch/cgo-arm64"
+[[ ! -e $scratch/pure-input-refused ]] || fail pure-input-partial-output
 provenance_control() {
   python3 - "$scratch/cgo-collected" "$scratch/cgo-pin" <<'PROVENANCE'
 import json, pathlib, sys
@@ -176,9 +231,11 @@ printf 'changed\n' >> "$scratch/cgo-$native_arch/cgoexample_linux_$native_arch"
 expect_refusal cgo_changed_receipted_binary cgo-receipt-digest-mismatch python3 "$profile" collect \
   "$scratch/digest-refused" "$profile_root" "$cgo_commit" "$scratch/cgo-pure" "$scratch/cgo-amd64" "$scratch/cgo-arm64"
 
-# Omitting opt-in cannot silently enable cgo or release an incomplete set.
+# Return the policy main to cgo-only for the omitted-opt-in refusal: it must
+# never be compiled, and the incomplete pure set cannot pass the exact-set gate.
+rm cmd/cgoexample/pure.go
 : > .github/release/cgo-packages
-git add .github/release/cgo-packages
+git add .github/release/cgo-packages cmd/cgoexample/pure.go
 git commit -q -S -m 'Omit cgo opt-in negative control'
 expect_refusal cgo_omitted_policy_not_built unexpected-artifact-set .scripts/release-build.sh \
   "$scratch/omitted-cgo" "$profile_root"

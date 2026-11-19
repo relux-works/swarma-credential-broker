@@ -13,7 +13,7 @@ cgo_packages=$(python3 "$policy_root/.scripts/release-profile.py" packages "$pol
 [[ -z $cgo_packages || ${3:-} == pure ]] || fail cgo-native-builds-required
 root=${2:-$(git rev-parse --show-toplevel)}
 [[ $root == /* ]] || fail absolute-source-directory-required
-cd "$root"
+cd -P -- "$root"
 root=$(pwd -P)
 [[ -z $(git status --porcelain --untracked-files=all) ]] || fail dirty-build-source
 commit=$(git rev-parse HEAD)

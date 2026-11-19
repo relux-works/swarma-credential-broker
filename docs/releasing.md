@@ -271,6 +271,12 @@ both native receipts and their artifact digests, embeds them in the `cgo` array
 of `provenance.json`, and regenerates `SHA256SUMS` and canonical `release-set.json`
 over the complete exact set. Receipts are build-input records, not signatures.
 
+The receipt field `toolchain.image` is the **policy-declared** image reference,
+not an observed container identity. The hosted job selects that same reference
+as its container image. A local build outside that image does not attest to
+having used it: the compiler version/banner, target, libc version and linker
+banner are the observed toolchain facts.
+
 For local independent reconstruction, keep tooling/policy in a reviewed main
 checkout and build source in a separate clean checkout. Use the pinned image
 on **each native architecture**, Go 1.26.10 and the isolated environment described
@@ -297,11 +303,17 @@ reconstruction and owner approval of the aggregate digest remain necessary;
 this profile neither installs nor qualifies the later adopting consumer.
 
 `release-test.sh` sources `release-cgo-test.sh`. Its real local fixture uses a
-main package tagged `linux && cgo`, two fresh builds and an executable C result.
+main package tagged `linux && cgo` with a `!cgo` fallback, two fresh builds and
+an executable C result. Physical and symlinked source paths must both exclude
+that dual-mode policy main from the pure subset. The fallback is removed only
+for the later omitted-policy control, which exercises a cgo-only main.
 The synthetic fixture policy explicitly pins the available local compiler/libc;
 it does not claim to execute the production image. Controls check an omitted
 policy, a dual-mode non-policy package, wrong architecture, toolchain drift,
-an incomplete/extra artifact set and changed receipted bytes. A bounded plant
+compiler-target mismatch, an incomplete/extra artifact set, changed receipted
+bytes and canonical receipts with mismatched commit, compiler version or C
+flags. An ancestor commit cannot substitute for the pure set build input.
+Each new input/target refusal must leave no output directory. A bounded plant
 changes the second build and must fail specifically on reproducibility, leaving
 no publishable output. The collector positive control uses real local output
 and an explicitly synthetic peer receipt; it is not a native peer build claim.

@@ -244,12 +244,12 @@ expect_refusal cgo_controls_direct_invocation run-release-test-required bash "$s
 source "$source_root/.scripts/release-cgo-test.sh"
 # Finite template assertions cover the reviewed workflow contract, not hosted execution.
 workflow_policy() {
-  python3 - "$source_root" <<'POLICY'
+  python3 - "$source_root" "${1:-$source_root/.github/workflows/release.yml}" <<'POLICY'
 import pathlib
 import re
 import sys
 root = pathlib.Path(sys.argv[1])
-workflow = (root / ".github/workflows/release.yml").read_text()
+workflow = pathlib.Path(sys.argv[2]).read_text()
 assert "  workflow_dispatch:" in workflow and not re.search(r"^  push:", workflow, re.M)
 assert workflow.count("github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'") == 3
 assert workflow.count("          ref: main\n") == 3
@@ -257,6 +257,8 @@ assert "runner: ubuntu-24.04\n" in workflow and "runner: ubuntu-24.04-arm\n" in 
 assert "image: ${{ needs.build.outputs.cgo_image }}" in workflow
 assert "needs.build.outputs.cgo == 'false' && needs.cgo.result == 'skipped'" in workflow
 assert "needs.cgo.result == 'success'" in workflow
+draft = workflow.split("\n  draft:\n", 1)[1]
+assert "      !cancelled() && github.ref" in draft and "always()" not in draft, "draft-must-respect-cancellation"
 assert "python3 .scripts/release-profile.py collect" in workflow
 assert "--draft --prerelease" in workflow
 assert "agent-held key, proves nothing about origin" in workflow
@@ -278,4 +280,8 @@ print("Default-branch dispatch, pre-release label, action pins, permissions, doc
 POLICY
 }
 expect_ok workflow_default_branch_and_prerelease_policy workflow_policy
+# The finite workflow checker must reject the formerly non-cancellable draft.
+sed 's/!cancelled()/always()/' "$source_root/.github/workflows/release.yml" > "$scratch/uncancellable-draft.yml"
+expect_refusal workflow_uncancellable_draft_rejected draft-must-respect-cancellation \
+  workflow_policy "$scratch/uncancellable-draft.yml"
 printf 'Release controls passed; scratch evidence retained at %s\n' "$scratch"
