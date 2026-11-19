@@ -110,6 +110,26 @@ admit="$scratch/work/.scripts/release-admit.sh"
 verify="$scratch/work/.scripts/release-verify.sh"
 sign="$scratch/work/.scripts/release-sign.sh"
 
+# Git's ownership hook checks HEAD/admission trust, not a real second UID or clone mismatch.
+expect_ok policy_head_scoped_trust env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
+  git -c safe.directory="$scratch/work" rev-parse HEAD
+expect_ok policy_admission_scoped_trust env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "$admit" v1.0.0
+expect_ownership_refusal() {
+  local name=$1
+  shift
+  if env GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "$@" > "$scratch/$name.log" 2>&1; then
+    fail "$name: unexpected acceptance"
+  else
+    local status=$?
+    [[ $status == 128 ]] || fail "$name: unexpected exit $status"
+    grep -F 'detected dubious ownership' "$scratch/$name.log" > /dev/null || fail "$name: wrong refusal"
+    printf 'PASS %s (expected ownership refusal exit %s)\n' "$name" "$status"
+  fi
+}
+expect_ownership_refusal policy_head_trust_not_persisted git rev-parse HEAD
+expect_ownership_refusal policy_head_wrong_trust \
+  git -c safe.directory="$scratch/other-source" rev-parse HEAD
+
 # Real signed objects prove each distinct admission refusal beside a valid ancestor.
 expect_ok ancestor_tag_on_main "$admit" v1.0.0
 expect_refusal tag_owned_cgo_policy tagged-release-policy-differs "$admit" v1.3.0
@@ -257,6 +277,14 @@ assert "runner: ubuntu-24.04\n" in workflow and "runner: ubuntu-24.04-arm\n" in 
 assert "image: ${{ needs.build.outputs.cgo_image }}" in workflow
 assert "needs.build.outputs.cgo == 'false' && needs.cgo.result == 'skipped'" in workflow
 assert "needs.cgo.result == 'success'" in workflow
+cgo = workflow.split("\n  cgo:\n", 1)[1].split("\n  draft:\n", 1)[0]
+assert not re.search(r"safe\.directory[^\n]*\*", cgo), "cgo-wildcard-trust-forbidden"
+assert 'git -c safe.directory="$policy_root" clone --quiet --no-local --no-checkout "$policy_root" "$work/source"' in cgo, "cgo-clone-scoped-trust-required"
+assert 'git -c safe.directory="$policy_root" rev-parse HEAD' in cgo, "cgo-head-scoped-trust-required"
+assert cgo.index("policy_root=$(pwd -P)") < cgo.index('safe.directory="$policy_root"'), "cgo-policy-root-required-before-git"
+admission = (root / ".scripts/release-admit.sh").read_text()
+assert 'command git -c safe.directory="$root" -c core.commitGraph=false "$@"' in admission, "admission-scoped-trust-required"
+assert not re.search(r"safe\.directory[^\n]*\*", admission), "admission-wildcard-trust-forbidden"
 draft = workflow.split("\n  draft:\n", 1)[1]
 assert "      !cancelled() && github.ref" in draft and "always()" not in draft, "draft-must-respect-cancellation"
 assert "python3 .scripts/release-profile.py collect" in workflow
@@ -280,6 +308,23 @@ print("Default-branch dispatch, pre-release label, action pins, permissions, doc
 POLICY
 }
 expect_ok workflow_default_branch_and_prerelease_policy workflow_policy
+# Adjacent mutations prove the checker rejects missing, widened and wrong-path trust.
+sed 's/git -c safe.directory="$policy_root" clone/git clone/' \
+  "$source_root/.github/workflows/release.yml" > "$scratch/untrusted-cgo.yml"
+expect_refusal workflow_untrusted_cgo_clone_rejected cgo-clone-scoped-trust-required \
+  workflow_policy "$scratch/untrusted-cgo.yml"
+sed 's/safe.directory="$policy_root"/safe.directory="*"/g' \
+  "$source_root/.github/workflows/release.yml" > "$scratch/wildcard-cgo.yml"
+expect_refusal workflow_wildcard_cgo_trust_rejected cgo-wildcard-trust-forbidden \
+  workflow_policy "$scratch/wildcard-cgo.yml"
+sed 's/safe.directory="$policy_root"/safe.directory="$work"/g' \
+  "$source_root/.github/workflows/release.yml" > "$scratch/wrong-path-cgo.yml"
+expect_refusal workflow_wrong_path_cgo_trust_rejected cgo-clone-scoped-trust-required \
+  workflow_policy "$scratch/wrong-path-cgo.yml"
+sed 's/git -c safe.directory="$policy_root" rev-parse/git rev-parse/' \
+  "$source_root/.github/workflows/release.yml" > "$scratch/untrusted-head-cgo.yml"
+expect_refusal workflow_untrusted_cgo_head_rejected cgo-head-scoped-trust-required \
+  workflow_policy "$scratch/untrusted-head-cgo.yml"
 # The finite workflow checker must reject the formerly non-cancellable draft.
 sed 's/!cancelled()/always()/' "$source_root/.github/workflows/release.yml" > "$scratch/uncancellable-draft.yml"
 expect_refusal workflow_uncancellable_draft_rejected draft-must-respect-cancellation \

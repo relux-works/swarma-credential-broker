@@ -113,9 +113,9 @@ jobs:
           RELEASE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$POLICY_COMMIT"
-          .scripts/release-admit.sh "$RELEASE_TAG"
           policy_root=$(pwd -P)
+          test "$(git -c safe.directory="$policy_root" rev-parse HEAD)" = "$POLICY_COMMIT"
+          .scripts/release-admit.sh "$RELEASE_TAG"
           work=$(mktemp -d "$RUNNER_TEMP/native-cgo.XXXXXX")
           work=$(cd "$work" && pwd -P)
           mkdir -p "$work"/{home,config,cache,tmp,go-build,go-mod,go-path}
@@ -124,7 +124,7 @@ jobs:
           export TMPDIR="$work/tmp" TMP="$work/tmp" TEMP="$work/tmp" GOTMPDIR="$work/tmp"
           export GOCACHE="$work/go-build" GOMODCACHE="$work/go-mod" GOPATH="$work/go-path"
           unset GOTELEMETRYDIR
-          git clone --quiet --no-local --no-checkout "$policy_root" "$work/source"
+          git -c safe.directory="$policy_root" clone --quiet --no-local --no-checkout "$policy_root" "$work/source"
           git -C "$work/source" checkout --quiet --detach "$RELEASE_COMMIT"
           python3 "$policy_root/.scripts/release-profile.py" build \
             "$RUNNER_TEMP/cgo-$RELEASE_ARCH" "$policy_root" "$work/source" "$RELEASE_ARCH"
