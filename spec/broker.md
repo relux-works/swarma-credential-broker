@@ -153,6 +153,39 @@ Only the dispatcher invokes the privileged launcher for agent execution starts; 
 
 The **board runner and session host do not embed broker clients**. They request execution from `swarma-dispatcher`, which launches through `curator-run`. The board is an optional caller, not a broker or session-host dependency. Later session-runner integration owns the agent-side PTY or per-session app-server transport and lease renewal; the session-host service owns durable session metadata. This does not assert SH2 activation or change the first consumer.
 
+### 3.2 Production assembly activation (PROPOSED, inactive)
+
+This subsection records the requested production-assembly boundary; it does
+not publish an activation file format, operator-act format or new command.
+Without an admitted activation configuration, the daemon retains its stopped
+owner and installs no service controller. A proposed activation input is
+root-owned, regular, single-link and closed-schema, with an exact mode; its
+path, mode, members and relationship to the existing broker-owned configuration
+in §15.1 require publication before implementation.
+
+Production assembly must supply protected operator and account-owner identity,
+authenticated exact-content operator acts (§14), current caller and service
+authority, and the existing custody, time and qualification gates. The managed
+service-identity projection alone supplies none of those other authorities.
+A kernel peer UID identifies the connection; it does not by itself prove the
+authentication and content confirmation required for a widening act.
+
+The existing service dialect §5.1 owns `service.bind` and its check order;
+the managed service account must already exist. Sections 4.2, 5.4 and 14 own
+account-owner enrollment: stdin material must not echo or enter diagnostics,
+argv, environment or files outside broker custody. Neither this proposal nor
+the front-end examples publish the missing operator/enrollment transport.
+Service dialect §5.3 owns the service authorization lifetime: its default is
+900 seconds, a smaller deployment value is permitted, and a larger value
+refuses broker startup rather than being clamped. This is not token expiry.
+
+**STOP:operator-act-contract.** The operator entry-point grammar, authenticated
+act bytes and confirmation binding remain unpublished in §14. Activation
+schema, protected nonidentity authority sources and the account/bootstrap order
+also remain unresolved. See the [assembly contract stop](../docs/production-assembly-stop.md)
+for the source evidence and decisions needed to resume. No production entry
+or qualification gate is opened by this proposal.
+
 ## 4. Identities and trust
 
 ### 4.1 Peer identity and connections

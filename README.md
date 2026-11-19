@@ -84,6 +84,11 @@ integration and runtime qualification. Explicit activation gates:
 
 See [unresolved integration points](UNRESOLVED_QUESTIONS.md).
 
+The [production assembly contract stop](docs/production-assembly-stop.md)
+records the unpublished operator-act, protected-facts, activation and enrollment
+contracts that prevent safe assembly. The accompanying broker specification
+§3.2 is **PROPOSED**, inactive, and defines no activation switch or new command.
+
 The binding managed-identity projection decision of 2026-11-19 resolves the
 historical **P2-UM-LEDGER-CONTRACT** stop. The Linux production service identity
 provider, `service.NewManagedAuthority(root, protectedFacts)`, reads protected

@@ -1,5 +1,17 @@
 # Unresolved questions
 
+## Production assembly contract stop
+
+**STOP:operator-act-contract.** Broker §14 explicitly leaves the operator
+entry-point grammar, wire format, domain and canonical act bytes unpublished.
+The managed service-identity provider does not supply operator principals or
+authenticated operator acts. A peer UID check alone cannot satisfy widening-act
+authentication and exact-content confirmation. Activation schema/custody,
+protected nonidentity facts, owner enrollment transport, installer paths and
+bootstrap ordering also require publication before implementation. The
+[source-backed stop and resume decisions](docs/production-assembly-stop.md)
+bound the missing work; broker §3.2 is **PROPOSED**, not an activation decision.
+
 ## Claude secret-free service integration
 
 The accepted service dialect is the landed 0.13
