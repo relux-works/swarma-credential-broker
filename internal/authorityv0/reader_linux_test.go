@@ -14,6 +14,7 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/assemblyv0"
 	"github.com/relux-works/swarma-credential-broker/internal/policy"
 	"github.com/relux-works/swarma-credential-broker/internal/protectedio"
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/protectedfixture"
 	"github.com/relux-works/swarma-credential-broker/internal/wire"
 )
 
@@ -59,7 +60,10 @@ func newFixture(test *testing.T) *authorityFixture {
 		ObserverUIDs: []uint32{document.Observer.UID}, Accounts: []policy.Account{{Label: document.Accounts[0].Account, Enabled: true}},
 	}}
 	reader := New(config)
-	root := test.TempDir()
+	root := protectedfixture.TempDir(test, func(root string) error {
+		owner := uint32(os.Getuid())
+		return reader.files.CheckDirectory(context.Background(), root, protectedio.FilePolicy{UID: owner, GID: uint32(os.Getgid()), Mode: 0700}, owner)
+	})
 	reader.rootUID, reader.rootGID = uint32(os.Getuid()), uint32(os.Getgid())
 	reader.paths = paths{authority: filepath.Join(root, "configuration", "authority-v0.json"), lock: filepath.Join(root, "configuration", "authority.lock"), passwd: filepath.Join(root, "passwd"), group: filepath.Join(root, "group"), directory: filepath.Join(root, "configuration"), data: filepath.Join(root, "data"), store: filepath.Join(root, "data", "store")}
 	for _, directory := range []string{reader.paths.directory, reader.paths.data, reader.paths.store} {

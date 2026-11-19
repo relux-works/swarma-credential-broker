@@ -38,6 +38,12 @@ callback side effects.
 Use the assigned private Go environment, absolute `GO`, private mode-0700
 temporary directories and `GOFLAGS=-p=2` before invoking these commands:
 
+Both U02 packages use the shared `internal/testutil/protectedfixture` preflight
+and the real reader to check their fixture root before exercising a control.
+An unsafe ancestor fails with `protected_fixture_temp_ancestry` and its path;
+it never skips a witness. Linux CI creates and checks a mode-0700 directory
+under `RUNNER_TEMP`, then exports `TMPDIR` and `GOTMPDIR` before Go steps.
+
 | Tool | Exact entrypoint | Output |
 | --- | --- | --- |
 | Formatter | `gofmt -w internal/protectedio/*.go` | Updated source; private formatter log. |

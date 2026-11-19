@@ -286,3 +286,26 @@ Implementation integration questions:
   Apple API documentation does not qualify APFS/device power-loss behavior,
   directory full-sync semantics, restore custody or the post-read bound. Unknown
   guarantees keep admission closed; Linux-only evidence cannot waive parity.
+
+## U02 review boundaries
+
+- Spec 4.4 duplicate identity facts versus I03/C1 identity-only independence
+  still needs the acceptor to settle which config joins apply to that leg.
+  The identity callback also receives use-only schema members not validated
+  by that leg; full schema validation versus a narrowed return type is a
+  contract decision, not permission to add a use gate to identity narrowing.
+- Gate failures currently expose `ErrIdentityChanged`, `protectedio.ErrProtection`
+  or `fs.ErrNotExist`; later wire integration must map all gate refusals to
+  `principal_identity_changed`, never interpret a missing pinned lock as
+  authority absence. Callback-error preservation and the public mapping remain
+  explicit integration work, not an assertion that these classes are identical.
+- The inactive import guard remains a source walk; the later landing of the
+  toolchain-graph guard must retain both U02 package rows and their controls.
+- Direct read size/post-read timing clauses and the privileged `/` check lack
+  isolated narrowing witnesses. Existing final-window checks cover the public
+  authority path; no unprivileged fixture claims to replace the root check.
+  Descriptor close releases flock even without the redundant explicit unlock.
+- Ancestor special-bit refusal is an intentionally stricter current reader
+  bound, documented in its README; it is not a relaxed spec or a new authority
+  source. Directory alias/blank/NIS refusals and repeatable `Load` pins are also
+  documented as current behavior, not provisioning or startup enforcement.

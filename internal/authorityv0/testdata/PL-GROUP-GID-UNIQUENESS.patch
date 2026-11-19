@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -366 +366 @@
+-		if !valid || seenGID[gid] {
++		if !valid {

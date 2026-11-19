@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -58 +58 @@
+-		passwd:    protectedio.FilePolicy{UID: reader.rootUID, GID: reader.rootGID, Mode: 0644, Links: 1, MaxBytes: protectedio.MaxBytes},
++		passwd:    protectedio.FilePolicy{UID: reader.rootUID, GID: reader.brokerGID, Mode: 0644, Links: 1, MaxBytes: protectedio.MaxBytes},

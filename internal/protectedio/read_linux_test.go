@@ -9,12 +9,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/relux-works/swarma-credential-broker/internal/testutil/protectedfixture"
 	"golang.org/x/sys/unix"
 )
 
+func fixtureRoot(test *testing.T) string {
+	test.Helper()
+	return protectedfixture.TempDir(test, func(root string) error {
+		owner := uint32(os.Getuid())
+		return (Reader{}).CheckDirectory(context.Background(), root, FilePolicy{UID: owner, GID: uint32(os.Getgid()), Mode: 0700}, owner)
+	})
+}
+
 func fixture(test *testing.T, contents string, mode fs.FileMode) (string, FilePolicy) {
 	test.Helper()
-	path := filepath.Join(test.TempDir(), "record")
+	path := filepath.Join(fixtureRoot(test), "record")
 	if err := os.WriteFile(path, []byte(contents), mode); err != nil {
 		test.Fatal(err)
 	}
@@ -84,7 +93,7 @@ func TestProtectedFileAndAncestorProtection(test *testing.T) {
 			case "ancestor-mode":
 				err = os.Chmod(filepath.Dir(path), 0770)
 			case "ancestor-symlink":
-				alias := filepath.Join(test.TempDir(), "alias")
+				alias := filepath.Join(fixtureRoot(test), "alias")
 				err = os.Symlink(filepath.Dir(path), alias)
 				path = filepath.Join(alias, "record")
 			case "noncanonical":

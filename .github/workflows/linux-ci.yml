@@ -23,6 +23,25 @@ jobs:
         with:
           go-version: '1.26.10'
           cache: false
+      - name: Prepare protected test temporary root
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER_TEMP:-}"
+          test_root="$(mktemp -d "$RUNNER_TEMP/t.XXXXXX")"
+          chmod 0700 "$test_root"
+          ancestor="$test_root"
+          while :; do
+            test ! -L "$ancestor"
+            read -r owner mode < <(stat -c '%u %a' "$ancestor")
+            if (( (8#$mode & 07022) != 0 || (owner != 0 && owner != EUID) )); then
+              printf 'protected_fixture_temp_ancestry: unsafe ancestor %s\n' "$ancestor" >&2
+              exit 1
+            fi
+            test "$ancestor" != / || break
+            ancestor="$(dirname "$ancestor")"
+          done
+          printf 'TMPDIR=%s\nGOTMPDIR=%s\n' "$test_root" "$test_root" >> "$GITHUB_ENV"
       - name: Verify modules
         run: go mod verify
       - name: Build

@@ -11,11 +11,15 @@ the specified authority/lock, `/etc/passwd`, `/etc/group`, D/store and socket
 layout; no exported fixture or alternative-directory backend is provided.
 Synthetic tests privately substitute file locations and expected fixture
 ownership while retaining real descriptor, mode and `flock` checks.
+All seven source policies come from one private table; distinct synthetic
+root/broker IDs witness every owner, group, mode, size and ancestor policy.
 
 `Load` joins current canonical, closed authority bytes to protected local
 UID/name/home and primary-GID facts under the inode-pinned configuration gate.
 Role UIDs are disjoint; the present broker GID has no other primary or explicit
 member. This is bounded current equality, not O-03 creation/history proof.
+Directory files deliberately refuse duplicate UIDs/GIDs/names anywhere, blank
+lines and NIS rows; even an otherwise legitimate UID alias fails closed.
 Root authority and broker-owned operational configuration must agree exactly
 on installation, broker UID, the observer set and enabled account-label set;
 selected legacy `allowed_uids` is empty and socket/store paths are fixed.
@@ -56,3 +60,5 @@ Other plants and every named U02 row are listed in the
 are consumed without edits; the test fixture derives only the broker numeric
 owner/group needed for unprivileged real filesystem checks. No fixture result
 is dedicated-human provenance, native qualification or permission for live use.
+`Load` can mint fresh pins on repeat calls; startup-only invocation belongs to
+the later daemon-wiring unit, not this inactive reader.
