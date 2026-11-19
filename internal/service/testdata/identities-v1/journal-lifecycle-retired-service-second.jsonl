@@ -1,2 +1,2 @@
-{"format":"gen-journal/1","generation":"11111111111111111111111111111111","prev":"0000000000000000000000000000000000000000000000000000000000000000","seq":1,"state":"creating","time":"2026-10-01T00:00:00Z","uid":30001,"writer":"operator-manual"}
-{"format":"gen-journal/1","generation":"11111111111111111111111111111111","prev":"bc3192646b921aae14ab1c4a0a636313dacd3bd215d7dde53917562323071398","seq":2,"state":"active","time":"2026-10-01T00:00:00Z","uid":30001,"writer":"operator-manual"}
+{"format":"gen-journal/1","generation":"44444444444444444444444444444444","prev":"0000000000000000000000000000000000000000000000000000000000000000","seq":1,"state":"creating","time":"2026-10-01T00:00:00Z","uid":30004,"writer":"operator-manual"}
+{"format":"gen-journal/1","generation":"44444444444444444444444444444444","prev":"66dfa9a503a9cefe4a274c5f5c32e6d086f094be688bb3f1c3445aec4c79ba32","seq":2,"state":"active","time":"2026-10-01T00:00:00Z","uid":30004,"writer":"operator-manual"}

@@ -29,6 +29,7 @@ type managedFixture struct {
 	authority *ManagedAuthority
 	parent    string
 	journal   string
+	fifo      *os.File
 }
 
 type managedFixtureCase struct {
@@ -44,6 +45,7 @@ type managedFixtureCase struct {
 	Journal     string                   `json:"journal,omitempty"`
 	JournalHead string                   `json:"journal_head,omitempty"`
 	Principal   *managedFixturePrincipal `json:"principal,omitempty"`
+	Rule        string                   `json:"rule,omitempty"`
 }
 
 type managedFixturePrincipal struct {
@@ -59,6 +61,7 @@ type managedFixtureManifest struct {
 	Journal     string               `json:"journal"`
 	JournalHead string               `json:"journal_head"`
 	UID         uint32               `json:"uid"`
+	Matrix      []map[string]string  `json:"matrix"`
 }
 
 func managedCases(t *testing.T) managedFixtureManifest {
@@ -110,6 +113,37 @@ func managedFixtureContract(manifest managedFixtureManifest) error {
 			}
 		} else if item.Principal != nil || item.Generation != "" {
 			return fmt.Errorf("refusal promises a principal: %s", item.Name)
+		}
+	}
+	rules := make(map[string]bool)
+	for _, row := range manifest.Matrix {
+		fields := make(map[string]string)
+		for key, value := range row {
+			field := strings.ToLower(key)
+			if field != "accept" && field != "check" && field != "meaning" && field != "refuse" && field != "rule" || fields[field] != "" || value == "" {
+				return fmt.Errorf("invalid fixture matrix member: %s", key)
+			}
+			fields[field] = value
+		}
+		if len(fields) != 5 || rules[fields["rule"]] {
+			return fmt.Errorf("invalid fixture matrix rule: %s", fields["rule"])
+		}
+		rules[fields["rule"]] = true
+		matched := false
+		for index, item := range manifest.Cases {
+			if item.Name != fields["accept"] || index+1 >= len(manifest.Cases) {
+				continue
+			}
+			refusal := manifest.Cases[index+1]
+			matched = item.Check == fields["check"] && refusal.Check == item.Check && item.Rule == fields["rule"] && refusal.Rule == item.Rule && item.Verdict == "accept" && refusal.Name == fields["refuse"] && refusal.Verdict == "principal_ledger_mismatch"
+		}
+		if !matched {
+			return fmt.Errorf("fixture matrix lacks adjacent decision pair: %s", fields["rule"])
+		}
+	}
+	for _, item := range manifest.Cases {
+		if item.Rule != "" && !rules[item.Rule] {
+			return fmt.Errorf("unlisted fixture decision rule: %s", item.Rule)
 		}
 	}
 	return nil
@@ -213,6 +247,36 @@ func managedApplyCase(t *testing.T, fixture *managedFixture, manifest managedFix
 			err = os.Link(path, path+".extra")
 		case "not-regular":
 			if err = os.Remove(path); err == nil {
+				err = unix.Mkfifo(path, 0644)
+			}
+			if err == nil {
+				err = os.Chmod(path, 0644)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			descriptor, openErr := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+			if openErr != nil {
+				t.Fatal(openErr)
+			}
+			fixture.fifo = os.NewFile(uintptr(descriptor), "custody-fifo")
+			t.Cleanup(func() { fixture.fifo.Close() })
+			writer, openErr := os.OpenFile(path, os.O_WRONLY|unix.O_NONBLOCK, 0)
+			if openErr != nil {
+				t.Fatal(openErr)
+			}
+			raw := managedBytes(t, item.File)
+			written, writeErr := writer.Write(raw)
+			closeErr := writer.Close()
+			if writeErr != nil || closeErr != nil || written != len(raw) {
+				t.Fatalf("FIFO fixture bytes not buffered: wrote %d of %d, %v, %v", written, len(raw), writeErr, closeErr)
+			}
+			var stat unix.Stat_t
+			if unix.Fstat(descriptor, &stat) != nil || stat.Mode&unix.S_IFMT != unix.S_IFIFO || stat.Mode&07777 != 0644 || stat.Uid != fixture.authority.policy.uid || stat.Gid != fixture.authority.policy.gid || stat.Nlink != 1 {
+				t.Fatal("FIFO control must violate only the regular-file type requirement")
+			}
+		case "directory":
+			if err = os.Remove(path); err == nil {
 				err = os.Mkdir(path, 0755)
 			}
 		default:
@@ -228,6 +292,12 @@ func managedApplyCase(t *testing.T, fixture *managedFixture, manifest managedFix
 
 func managedCaseUnchanged(t *testing.T, fixture *managedFixture, item managedFixtureCase, before string) {
 	t.Helper()
+	if fixture.fifo != nil {
+		buffered, err := unix.IoctlGetInt(int(fixture.fifo.Fd()), unix.TIOCINQ)
+		if err != nil || buffered != len(managedBytes(t, item.File)) {
+			t.Fatalf("custody refusal consumed FIFO bytes: buffered=%d, err=%v", buffered, err)
+		}
+	}
 	if managedSnapshot(t, fixture.authority.root) != before {
 		t.Fatal("identity refusal changed protected filesystem state")
 	}
@@ -345,7 +415,7 @@ func TestManagedSharedFixtures(t *testing.T) {
 	manifest := managedCases(t)
 	for _, item := range manifest.Cases {
 		t.Run(item.Name, func(t *testing.T) {
-			if item.Check == "transition" {
+			if item.Consumer == "none" {
 				t.Skip("consumer=none: producer-only ValidateTransition; no broker pairwise transition API")
 			}
 			managedPositive(t, newManagedFixture(t).authority)
@@ -389,6 +459,59 @@ func TestManagedSharedFixtures(t *testing.T) {
 			}
 			managedCaseUnchanged(t, fixture, item, before)
 			t.Logf("check=%s consumer=%s verdict=%s effect=none principal=%#v", item.Check, item.Consumer, item.Verdict, principal)
+		})
+	}
+}
+
+// Claim: matrix metadata preserves adjacent ACCEPT/REFUSE controls; malformed
+// references and missing, duplicate or undeclared rules cannot pass preflight.
+func TestManagedFixtureDecisionMatrix(t *testing.T) {
+	manifest := managedCases(t)
+	for _, fault := range []string{"missing-field", "unknown-field", "duplicate-rule", "missing-accept", "wrong-check", "nonadjacent", "wrong-verdict", "unlisted-rule"} {
+		t.Run(fault, func(t *testing.T) {
+			candidate := manifest
+			candidate.Cases = append([]managedFixtureCase(nil), manifest.Cases...)
+			candidate.Matrix = append([]map[string]string(nil), manifest.Matrix...)
+			row := make(map[string]string)
+			for key, value := range manifest.Matrix[0] {
+				row[key] = value
+			}
+			candidate.Matrix[0] = row
+			want := "fixture matrix lacks adjacent decision pair"
+			switch fault {
+			case "missing-field":
+				delete(row, "meaning")
+				want = "invalid fixture matrix rule"
+			case "unknown-field":
+				row["unknown"] = "unexpected"
+				want = "invalid fixture matrix member"
+			case "duplicate-rule":
+				candidate.Matrix = append(candidate.Matrix, row)
+				want = "invalid fixture matrix rule"
+			case "missing-accept":
+				row["accept"] = "absent-case"
+			case "wrong-check":
+				row["check"] = "service"
+			case "nonadjacent":
+				for index, item := range candidate.Cases {
+					if item.Name == row["accept"] {
+						candidate.Cases[index+1], candidate.Cases[index+2] = candidate.Cases[index+2], candidate.Cases[index+1]
+						break
+					}
+				}
+			case "wrong-verdict":
+				for index, item := range candidate.Cases {
+					if item.Name == row["refuse"] {
+						candidate.Cases[index].Verdict = "accept"
+					}
+				}
+			case "unlisted-rule":
+				candidate.Cases[0].Rule = "undeclared-rule"
+				want = "unlisted fixture decision rule"
+			}
+			if err := managedFixtureContract(candidate); err == nil || !strings.HasPrefix(err.Error(), want+":") {
+				t.Fatalf("matrix fault %s: got %v, want %s", fault, err, want)
+			}
 		})
 	}
 }

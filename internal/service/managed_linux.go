@@ -208,6 +208,9 @@ func managedHex(value string, length int) bool {
 
 func decodeManaged(raw []byte, head string) (map[uint32]managedAccount, error) {
 	var document managedDocument
+	if len(raw) > managedIdentityLimit {
+		return nil, managedRefusal()
+	}
 	if _, err := wire.Parse(raw); err != nil || wire.Decode(raw, &document) != nil || document.Format != "swarma-managed-identities/1" || !managedHex(document.JournalHead, 64) || document.JournalHead != head {
 		return nil, managedRefusal()
 	}

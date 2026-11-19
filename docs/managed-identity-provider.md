@@ -123,7 +123,7 @@ release is activated. This unit never starts a daemon or opens live credentials.
 projection documents have canonical sorted-key JSON with no trailing LF;
 `journal.jsonl` has canonical LF-terminated records. Deliberately malformed,
 duplicate-key and noncanonical cases are negative byte fixtures, not claimed
-canonical documents. The producer-owned `cases.json` at snapshot `316c860`
+canonical documents. The final producer-owned `cases.json` accepted at snapshot `e26eaff`
 identifies each check kind, its consumer operation, exact verdict, transition
 history and filesystem condition. `SHA256SUMS` seals every case including that
 manifest and all journals; the producer README and
@@ -138,6 +138,13 @@ Principal. Producer-only transitions declare `consumer=none` and are skipped
 with a recorded reason; they do not claim a broker pairwise transition API.
 The shared decode refusals include zero UID, zero generation and NUL names;
 `TestManagedIdentityScalars` also checks these bounds across all supported kinds.
+The exact 8 MiB decode accept and 8 MiB + 1 refusal exercise the production
+decoder limit directly, as well as the protected reader's independent bound.
+All 43 manifest matrix rules retain adjacent ACCEPT/REFUSE controls. The
+`not-regular` custody row uses a FIFO with expected UID/GID, 0644 mode, one
+link and buffered valid projection bytes; only its file type violates custody.
+The separate directory row retains its multi-rule refusal. A custody refusal
+must preserve the FIFO buffer, not merely return no Principal.
 
 The broker consumes the fixtures in `TestManagedSharedFixtures`, verifies the
 seal in `TestManagedFixtureChecksums`, checks complete case-file coverage in

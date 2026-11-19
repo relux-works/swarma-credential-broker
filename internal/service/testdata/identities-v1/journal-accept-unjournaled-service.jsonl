@@ -1,0 +1,2 @@
+{"format":"gen-journal/1","generation":"22222222222222222222222222222222","prev":"0000000000000000000000000000000000000000000000000000000000000000","seq":1,"state":"creating","time":"2026-10-01T00:00:00Z","uid":30002,"writer":"operator-manual"}
+{"format":"gen-journal/1","generation":"22222222222222222222222222222222","prev":"76959a3efd701c3b9f9a6b2b67ddbce66b8f937b3cc358430b73dd71075ee2ce","seq":2,"state":"active","time":"2026-10-01T00:00:00Z","uid":30002,"writer":"operator-manual"}
