@@ -1,7 +1,7 @@
 {
   "baseline_spec_sha256": "616d58599f78d4ef0e69920198a179d104313299c2cb4d66138e0ff1becc259a",
   "construction": "C0-inactive",
-  "spec_commit": "e295b4c7c0dc397ecdaa89e73c057d53d2e3f533",
+  "spec_commit": "a864e2665a15a22b59964633d6691b86e5737c00",
   "spec_sha256": "c3d3bdfa9a12fe6e7fbc459474259f1f3a8f34600b46dc8b6a6e0ac85b1ec47d",
   "unresolved": [
     "O-01: publication/acceptance",
@@ -19,7 +19,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 447,
-          "last_line": 450
+          "last_line": 450,
+          "excerpt_sha256": "sha256:a05e04466fcfec71fdfc681158841fe54a842d0d553020aef690e4f4eb5432cc"
         }
       ]
     },
@@ -31,12 +32,14 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 409,
-          "last_line": 433
+          "last_line": 433,
+          "excerpt_sha256": "sha256:4394e58f2352f94745901877e84235d6d56f85c9745c367f53ba1600f58d84fe"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 454,
-          "last_line": 488
+          "last_line": 488,
+          "excerpt_sha256": "sha256:252b20d64e0e66833f42d061a98c10082920503654eabc5714983fad4fd8cc74"
         }
       ]
     },
@@ -48,7 +51,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -60,7 +64,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -72,7 +77,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 826,
-          "last_line": 850
+          "last_line": 850,
+          "excerpt_sha256": "sha256:7bb302ea0f426a400540d29ee23792d910d398cd2eb4b784d20238e0207f0f14"
         }
       ]
     },
@@ -84,7 +90,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 518,
-          "last_line": 536
+          "last_line": 536,
+          "excerpt_sha256": "sha256:8b43fe22038ef02b64c10d09ef26b2342e559fddb340e5b5de46884bc033ccf3"
         }
       ]
     },
@@ -96,7 +103,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 447,
-          "last_line": 450
+          "last_line": 450,
+          "excerpt_sha256": "sha256:a05e04466fcfec71fdfc681158841fe54a842d0d553020aef690e4f4eb5432cc"
         }
       ]
     },
@@ -108,12 +116,14 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 409,
-          "last_line": 433
+          "last_line": 433,
+          "excerpt_sha256": "sha256:4394e58f2352f94745901877e84235d6d56f85c9745c367f53ba1600f58d84fe"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 454,
-          "last_line": 488
+          "last_line": 488,
+          "excerpt_sha256": "sha256:252b20d64e0e66833f42d061a98c10082920503654eabc5714983fad4fd8cc74"
         }
       ]
     },
@@ -125,7 +135,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -137,7 +148,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -149,7 +161,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 826,
-          "last_line": 850
+          "last_line": 850,
+          "excerpt_sha256": "sha256:7bb302ea0f426a400540d29ee23792d910d398cd2eb4b784d20238e0207f0f14"
         }
       ]
     },
@@ -161,7 +174,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 518,
-          "last_line": 536
+          "last_line": 536,
+          "excerpt_sha256": "sha256:8b43fe22038ef02b64c10d09ef26b2342e559fddb340e5b5de46884bc033ccf3"
         }
       ]
     },
@@ -173,7 +187,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 447,
-          "last_line": 450
+          "last_line": 450,
+          "excerpt_sha256": "sha256:a05e04466fcfec71fdfc681158841fe54a842d0d553020aef690e4f4eb5432cc"
         }
       ]
     },
@@ -185,12 +200,14 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 409,
-          "last_line": 433
+          "last_line": 433,
+          "excerpt_sha256": "sha256:4394e58f2352f94745901877e84235d6d56f85c9745c367f53ba1600f58d84fe"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 454,
-          "last_line": 488
+          "last_line": 488,
+          "excerpt_sha256": "sha256:252b20d64e0e66833f42d061a98c10082920503654eabc5714983fad4fd8cc74"
         }
       ]
     },
@@ -202,7 +219,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -214,7 +232,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -226,7 +245,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 826,
-          "last_line": 850
+          "last_line": 850,
+          "excerpt_sha256": "sha256:7bb302ea0f426a400540d29ee23792d910d398cd2eb4b784d20238e0207f0f14"
         }
       ]
     },
@@ -238,7 +258,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 518,
-          "last_line": 536
+          "last_line": 536,
+          "excerpt_sha256": "sha256:8b43fe22038ef02b64c10d09ef26b2342e559fddb340e5b5de46884bc033ccf3"
         }
       ]
     },
@@ -250,7 +271,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 485,
-          "last_line": 503
+          "last_line": 503,
+          "excerpt_sha256": "sha256:68e2b74bb5bd5c207b1d9b59c3b257d9d27173df2431ad286cc43d5cdc17ae80"
         }
       ]
     },
@@ -262,12 +284,14 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 499,
-          "last_line": 503
+          "last_line": 503,
+          "excerpt_sha256": "sha256:3a66f4eec86176722c1ecd93de62b6ff6d413775c69e16e8652fd1780f3628eb"
         }
       ]
     },
@@ -279,7 +303,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 447,
-          "last_line": 450
+          "last_line": 450,
+          "excerpt_sha256": "sha256:a05e04466fcfec71fdfc681158841fe54a842d0d553020aef690e4f4eb5432cc"
         }
       ]
     },
@@ -291,12 +316,14 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 409,
-          "last_line": 433
+          "last_line": 433,
+          "excerpt_sha256": "sha256:4394e58f2352f94745901877e84235d6d56f85c9745c367f53ba1600f58d84fe"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 454,
-          "last_line": 488
+          "last_line": 488,
+          "excerpt_sha256": "sha256:252b20d64e0e66833f42d061a98c10082920503654eabc5714983fad4fd8cc74"
         }
       ]
     },
@@ -308,7 +335,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -320,7 +348,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -332,7 +361,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 826,
-          "last_line": 850
+          "last_line": 850,
+          "excerpt_sha256": "sha256:7bb302ea0f426a400540d29ee23792d910d398cd2eb4b784d20238e0207f0f14"
         }
       ]
     },
@@ -344,7 +374,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 518,
-          "last_line": 536
+          "last_line": 536,
+          "excerpt_sha256": "sha256:8b43fe22038ef02b64c10d09ef26b2342e559fddb340e5b5de46884bc033ccf3"
         }
       ]
     },
@@ -356,7 +387,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 447,
-          "last_line": 450
+          "last_line": 450,
+          "excerpt_sha256": "sha256:a05e04466fcfec71fdfc681158841fe54a842d0d553020aef690e4f4eb5432cc"
         }
       ]
     },
@@ -368,12 +400,14 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 409,
-          "last_line": 433
+          "last_line": 433,
+          "excerpt_sha256": "sha256:4394e58f2352f94745901877e84235d6d56f85c9745c367f53ba1600f58d84fe"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 454,
-          "last_line": 488
+          "last_line": 488,
+          "excerpt_sha256": "sha256:252b20d64e0e66833f42d061a98c10082920503654eabc5714983fad4fd8cc74"
         }
       ]
     },
@@ -385,7 +419,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -397,7 +432,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 435,
-          "last_line": 446
+          "last_line": 446,
+          "excerpt_sha256": "sha256:fc38abcfb0b9b5d59b21fa552772b32046e84ce0324467ffce6dd90568dacc1e"
         }
       ]
     },
@@ -409,7 +445,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 826,
-          "last_line": 850
+          "last_line": 850,
+          "excerpt_sha256": "sha256:7bb302ea0f426a400540d29ee23792d910d398cd2eb4b784d20238e0207f0f14"
         }
       ]
     },
@@ -421,7 +458,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 518,
-          "last_line": 536
+          "last_line": 536,
+          "excerpt_sha256": "sha256:8b43fe22038ef02b64c10d09ef26b2342e559fddb340e5b5de46884bc033ccf3"
         }
       ]
     },
@@ -432,13 +470,15 @@
       "sources": [
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1405,
-          "last_line": 1427
+          "first_line": 1415,
+          "last_line": 1437,
+          "excerpt_sha256": "sha256:e237deb7589b149ee36ba1688e309d2eda941933865e666a8a0b36512f274a7a"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1506,
-          "last_line": 1515
+          "first_line": 1516,
+          "last_line": 1525,
+          "excerpt_sha256": "sha256:024473559df5de38004418261719ca3f96ee3853a008cb17e8f5c2b51f06f065"
         }
       ]
     },
@@ -449,13 +489,15 @@
       "sources": [
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1405,
-          "last_line": 1427
+          "first_line": 1415,
+          "last_line": 1437,
+          "excerpt_sha256": "sha256:e237deb7589b149ee36ba1688e309d2eda941933865e666a8a0b36512f274a7a"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1506,
-          "last_line": 1515
+          "first_line": 1516,
+          "last_line": 1525,
+          "excerpt_sha256": "sha256:024473559df5de38004418261719ca3f96ee3853a008cb17e8f5c2b51f06f065"
         }
       ]
     },
@@ -466,18 +508,21 @@
       "sources": [
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1405,
-          "last_line": 1427
+          "first_line": 1415,
+          "last_line": 1437,
+          "excerpt_sha256": "sha256:e237deb7589b149ee36ba1688e309d2eda941933865e666a8a0b36512f274a7a"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1446,
-          "last_line": 1456
+          "first_line": 1456,
+          "last_line": 1466,
+          "excerpt_sha256": "sha256:4cb8bfce108a0c84889d45a9c4926c9b8f8155b9f60ac876f98ff6d2c9369bea"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1506,
-          "last_line": 1515
+          "first_line": 1516,
+          "last_line": 1525,
+          "excerpt_sha256": "sha256:024473559df5de38004418261719ca3f96ee3853a008cb17e8f5c2b51f06f065"
         }
       ]
     },
@@ -488,13 +533,15 @@
       "sources": [
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1405,
-          "last_line": 1427
+          "first_line": 1415,
+          "last_line": 1437,
+          "excerpt_sha256": "sha256:e237deb7589b149ee36ba1688e309d2eda941933865e666a8a0b36512f274a7a"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1466,
-          "last_line": 1486
+          "first_line": 1476,
+          "last_line": 1496,
+          "excerpt_sha256": "sha256:97ce909458cdb4878f5ac1027af22a7a20e98673c6a6a76091df1cbbfabdca68"
         }
       ]
     },
@@ -506,12 +553,14 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 75,
-          "last_line": 85
+          "last_line": 85,
+          "excerpt_sha256": "sha256:bc05c8ae017b64f8f1952ec285e6a90e7d9dec884938625891d86f03f2e28bdb"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 785,
-          "last_line": 824
+          "last_line": 824,
+          "excerpt_sha256": "sha256:5e105a5d061f1b8936958764ecea55b4db904f5aa2f11d774b7a45a1350cefe5"
         }
       ]
     },
@@ -523,12 +572,14 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 75,
-          "last_line": 85
+          "last_line": 85,
+          "excerpt_sha256": "sha256:bc05c8ae017b64f8f1952ec285e6a90e7d9dec884938625891d86f03f2e28bdb"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 785,
-          "last_line": 824
+          "last_line": 824,
+          "excerpt_sha256": "sha256:5e105a5d061f1b8936958764ecea55b4db904f5aa2f11d774b7a45a1350cefe5"
         }
       ]
     },
@@ -540,17 +591,20 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 91,
-          "last_line": 113
+          "last_line": 113,
+          "excerpt_sha256": "sha256:659d2f32778f75a267aacddd8a41943b27f9d98d1e29a2ab1ff2be4992df3a31"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 148,
-          "last_line": 151
+          "last_line": 151,
+          "excerpt_sha256": "sha256:4aae8f0ae9ebd9d7ecba0602db8ba0060ea34e0b85f62642596cf34b887e5964"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 458,
-          "last_line": 468
+          "last_line": 468,
+          "excerpt_sha256": "sha256:464982b5126d9b1d2fd5244927cf45b86031dd68534ead436c4b516698e44b87"
         }
       ]
     },
@@ -562,7 +616,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 469,
-          "last_line": 474
+          "last_line": 474,
+          "excerpt_sha256": "sha256:ba98b600e52a95e8784fcd9b4505295cd4b9e0720534cf62afd88f82ec27204b"
         }
       ]
     },
@@ -574,7 +629,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 1055,
-          "last_line": 1061
+          "last_line": 1061,
+          "excerpt_sha256": "sha256:ad9f183d446cb1bd2429737867383c5123eecc17ff8a40cfc8fa93af0d3ad6cb"
         }
       ]
     },
@@ -586,7 +642,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 1055,
-          "last_line": 1061
+          "last_line": 1061,
+          "excerpt_sha256": "sha256:ad9f183d446cb1bd2429737867383c5123eecc17ff8a40cfc8fa93af0d3ad6cb"
         }
       ]
     },
@@ -598,7 +655,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 1055,
-          "last_line": 1061
+          "last_line": 1061,
+          "excerpt_sha256": "sha256:ad9f183d446cb1bd2429737867383c5123eecc17ff8a40cfc8fa93af0d3ad6cb"
         }
       ]
     },
@@ -610,7 +668,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 1055,
-          "last_line": 1061
+          "last_line": 1061,
+          "excerpt_sha256": "sha256:ad9f183d446cb1bd2429737867383c5123eecc17ff8a40cfc8fa93af0d3ad6cb"
         }
       ]
     },
@@ -622,7 +681,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 1055,
-          "last_line": 1061
+          "last_line": 1061,
+          "excerpt_sha256": "sha256:ad9f183d446cb1bd2429737867383c5123eecc17ff8a40cfc8fa93af0d3ad6cb"
         }
       ]
     },
@@ -634,7 +694,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 1055,
-          "last_line": 1061
+          "last_line": 1061,
+          "excerpt_sha256": "sha256:ad9f183d446cb1bd2429737867383c5123eecc17ff8a40cfc8fa93af0d3ad6cb"
         }
       ]
     },
@@ -646,7 +707,8 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 1055,
-          "last_line": 1061
+          "last_line": 1061,
+          "excerpt_sha256": "sha256:ad9f183d446cb1bd2429737867383c5123eecc17ff8a40cfc8fa93af0d3ad6cb"
         }
       ]
     },
@@ -657,13 +719,15 @@
       "sources": [
         {
           "path": "spec/broker.md",
-          "first_line": 367,
-          "last_line": 389
+          "first_line": 391,
+          "last_line": 413,
+          "excerpt_sha256": "sha256:34bf68a8c5fe8da575727decf732088fad5d934d2f264f535879ce17b37c1aa0"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 81,
-          "last_line": 85
+          "last_line": 85,
+          "excerpt_sha256": "sha256:8c041b23658132bef666080c3c37af2cfc1d015e2841de292da78337c45fd6fb"
         }
       ]
     },
@@ -674,13 +738,15 @@
       "sources": [
         {
           "path": "spec/broker.md",
-          "first_line": 417,
-          "last_line": 429
+          "first_line": 441,
+          "last_line": 453,
+          "excerpt_sha256": "sha256:ae1f530eeafa9a561574d4b47ba82d03d3c720d6237615933e40b95f4bc463d2"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 81,
-          "last_line": 85
+          "last_line": 85,
+          "excerpt_sha256": "sha256:8c041b23658132bef666080c3c37af2cfc1d015e2841de292da78337c45fd6fb"
         }
       ]
     },
@@ -691,8 +757,9 @@
       "sources": [
         {
           "path": "spec/broker.md",
-          "first_line": 417,
-          "last_line": 429
+          "first_line": 441,
+          "last_line": 453,
+          "excerpt_sha256": "sha256:ae1f530eeafa9a561574d4b47ba82d03d3c720d6237615933e40b95f4bc463d2"
         }
       ]
     },
@@ -703,13 +770,15 @@
       "sources": [
         {
           "path": "spec/broker.md",
-          "first_line": 417,
-          "last_line": 429
+          "first_line": 441,
+          "last_line": 453,
+          "excerpt_sha256": "sha256:ae1f530eeafa9a561574d4b47ba82d03d3c720d6237615933e40b95f4bc463d2"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 81,
-          "last_line": 85
+          "last_line": 85,
+          "excerpt_sha256": "sha256:8c041b23658132bef666080c3c37af2cfc1d015e2841de292da78337c45fd6fb"
         }
       ]
     },
@@ -721,17 +790,20 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 349,
-          "last_line": 364
+          "last_line": 364,
+          "excerpt_sha256": "sha256:d2202856912adda422b0733115e714a145edaa09b4ace00b31c09c3e67e20915"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1589,
-          "last_line": 1591
+          "first_line": 1599,
+          "last_line": 1601,
+          "excerpt_sha256": "sha256:d794e90a7a0d1cae432ee1c136860f79a6cd1b4d60a4128e7b169f9ff2358e59"
         },
         {
           "path": "spec/broker.md",
-          "first_line": 900,
-          "last_line": 900
+          "first_line": 957,
+          "last_line": 957,
+          "excerpt_sha256": "sha256:15bcb5730b6a79a0c267555f5fe48aa9656aabb3dde48a6fd7c036cfb813b95d"
         }
       ]
     },
@@ -743,22 +815,26 @@
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 349,
-          "last_line": 364
+          "last_line": 364,
+          "excerpt_sha256": "sha256:d2202856912adda422b0733115e714a145edaa09b4ace00b31c09c3e67e20915"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
           "first_line": 424,
-          "last_line": 433
+          "last_line": 433,
+          "excerpt_sha256": "sha256:afe6d97704b13cc6abd3e8f09d84dac029360f445c4b0dac6c8605dc73cd4d28"
         },
         {
           "path": "spec/operator-and-activation-v0.md",
-          "first_line": 1589,
-          "last_line": 1591
+          "first_line": 1599,
+          "last_line": 1601,
+          "excerpt_sha256": "sha256:d794e90a7a0d1cae432ee1c136860f79a6cd1b4d60a4128e7b169f9ff2358e59"
         },
         {
           "path": "spec/broker.md",
-          "first_line": 900,
-          "last_line": 900
+          "first_line": 957,
+          "last_line": 957,
+          "excerpt_sha256": "sha256:15bcb5730b6a79a0c267555f5fe48aa9656aabb3dde48a6fd7c036cfb813b95d"
         }
       ]
     }

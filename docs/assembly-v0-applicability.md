@@ -3,7 +3,7 @@
 This register accompanies [construction contract C0](assembly-v0-construction-contract.md)
 and the repository owner's [inactive U02 stage C1](assembly-v0-construction-contract-c1.md).
 It does not supply acceptor approval. All S references are to C0's pinned
-`spec/operator-and-activation-v0.md` revision 4, not moving line numbers.
+`spec/operator-and-activation-v0.md` at commit `e295b4c7c0dc397ecdaa89e73c057d53d2e3f533`, not the amended file's moving line numbers.
 
 ## What applies
 

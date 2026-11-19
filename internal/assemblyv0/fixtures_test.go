@@ -23,7 +23,7 @@ var updateVectors = flag.Bool("update-assembly-vectors", false, "rewrite synthet
 const (
 	vectorDirectory     = "testdata/construction-v0"
 	specificationPath   = "spec/operator-and-activation-v0.md"
-	specificationCommit = "e295b4c7c0dc397ecdaa89e73c057d53d2e3f533"
+	specificationCommit = "a864e2665a15a22b59964633d6691b86e5737c00"
 	specificationSHA256 = "c3d3bdfa9a12fe6e7fbc459474259f1f3a8f34600b46dc8b6a6e0ac85b1ec47d"
 	fixtureInstallation = "fixture-installation-v0"
 	fixtureAccount      = "fixture/claude/subscription"
@@ -35,9 +35,10 @@ const (
 const baselineSpecificationSHA256 = "616d58599f78d4ef0e69920198a179d104313299c2cb4d66138e0ff1becc259a"
 
 type sourceReference struct {
-	Path      string `json:"path"`
-	FirstLine int    `json:"first_line"`
-	LastLine  int    `json:"last_line"`
+	Path          string `json:"path"`
+	FirstLine     int    `json:"first_line"`
+	LastLine      int    `json:"last_line"`
+	ExcerptSHA256 string `json:"excerpt_sha256"`
 }
 
 type vectorEntry struct {
@@ -64,7 +65,7 @@ type constructionVector struct {
 }
 
 func sourceLines(first, last int) sourceReference {
-	return sourceReference{specificationPath, first, last}
+	return sealedSourceReference(specificationPath, first, last)
 }
 
 func digestBytes(data []byte) Digest {
@@ -145,14 +146,14 @@ func constructionVectors() map[string]constructionVector {
 		PlatformRoot: "/opt/swarma", ServiceName: "credential-gateway", Kind: "claude-oauth-token",
 		AuthorityDigest: authorityDigest, Continuity: Continuity{"production"},
 	}
-	add("activation-default.json", activation, "Disabled document with omitted lifetime; sole selector defaults to 900 seconds.", sourceLines(1405, 1427), sourceLines(1446, 1456), sourceLines(1506, 1515))
+	add("activation-default.json", activation, "Disabled document with omitted lifetime; sole selector defaults to 900 seconds.", sourceLines(1415, 1437), sourceLines(1456, 1466), sourceLines(1516, 1525))
 	for _, seconds := range []uint32{1, 900} {
 		selected := activation
 		selected.ServiceLeaseMaxLifetimeSeconds = &seconds
-		add(fmt.Sprintf("activation-%d.json", seconds), selected, "Disabled document with an explicit admitted lifetime boundary, without clamping.", sourceLines(1405, 1427), sourceLines(1506, 1515))
+		add(fmt.Sprintf("activation-%d.json", seconds), selected, "Disabled document with an explicit admitted lifetime boundary, without clamping.", sourceLines(1415, 1437), sourceLines(1516, 1525))
 	}
 	activation.Enabled = true
-	add("activation-enabled-synthetic.json", activation, "Structurally enabled test bytes only; no installed file, protected-source join or use authority.", sourceLines(1405, 1427), sourceLines(1466, 1486))
+	add("activation-enabled-synthetic.json", activation, "Structurally enabled test bytes only; no installed file, protected-source join or use authority.", sourceLines(1415, 1437), sourceLines(1476, 1496))
 	prefixSum := sha256.Sum256(enrollmentPreimage())
 	prefix := TokenPrefix(hex.EncodeToString(prefixSum[:16]))
 	expiry := UTC("2030-02-01T00:00:00Z")
@@ -208,12 +209,12 @@ func constructionVectors() map[string]constructionVector {
 		TerminalCaller: authority.TerminalCallers[0], BrokerUID: authority.Broker.UID,
 		SocketPath: "/opt/swarma/run/credential-broker/broker.sock", Freshness: BoottimeFreshness{"boottime", fixtureBoot, 1000, 301000},
 		TTYDevice: TTYDevice{136, 1}, AccountPolicy: nil, Continuity: nil,
-	}, "Unbind terminal session retains required null account_policy/continuity and the spec-pinned installed socket.", sourceLines(349, 364), sourceLines(1589, 1591), sourceReference{"spec/broker.md", 900, 900})
+	}, "Unbind terminal session retains required null account_policy/continuity and the spec-pinned installed socket.", sourceLines(349, 364), sourceLines(1599, 1601), sealedSourceReference("spec/broker.md", 957, 957))
 	session := vectors["session-unbind.json"].value.(TerminalSession)
 	session.Freshness = UTCFreshness{"utc", "2030-01-01T00:00:00Z", "2030-01-01T00:05:00Z"}
 	session.AccountPolicy = &SessionAccountPolicy{fixtureAccount, false}
 	session.Continuity = &Continuity{"production"}
-	add("session-widening.json", session, "Widening session has UTC freshness and protected non-null account policy and production continuity.", sourceLines(349, 364), sourceLines(424, 433), sourceLines(1589, 1591), sourceReference{"spec/broker.md", 900, 900})
+	add("session-widening.json", session, "Widening session has UTC freshness and protected non-null account policy and production continuity.", sourceLines(349, 364), sourceLines(424, 433), sourceLines(1599, 1601), sealedSourceReference("spec/broker.md", 957, 957))
 	unicodeBody := vectors["act-lift.body.json"].value.(OperatorBody)
 	unicodeArguments := unicodeBody.Arguments.(LiftArguments)
 	unicodeArguments.Account = "fixture/λ/😀"
@@ -233,7 +234,7 @@ func constructionVectors() map[string]constructionVector {
 	}
 	grantPreimage := append([]byte("swarma-credential-broker grant/1\n"), canonicalBytes(grantBody)...)
 	grant := GrantEnvelope{grantBody, digestBytes(grantPreimage), Signature(base64.RawURLEncoding.EncodeToString(ed25519.Sign(syntheticKey(), grantPreimage)))}
-	add("grant-envelope.json", grant, "Unchanged baseline signed value shape with required null parent; no new root-delegation ceremony.", sourceReference{"spec/broker.md", 367, 389}, sourceLines(81, 85))
+	add("grant-envelope.json", grant, "Unchanged baseline signed value shape with required null parent; no new root-delegation ceremony.", sealedSourceReference("spec/broker.md", 391, 413), sourceLines(81, 85))
 	for _, target := range []struct {
 		name   string
 		target RevocationTarget
@@ -241,13 +242,13 @@ func constructionVectors() map[string]constructionVector {
 		body := RevocationBody{Type: "revocation/1", Revokes: target.target, By: authority.OperatorKey, At: "2030-01-01T00:00:00Z"}
 		preimage := append([]byte("swarma-credential-broker revocation/1\n"), canonicalBytes(body)...)
 		envelope := RevocationEnvelope{body, digestBytes(preimage), Signature(base64.RawURLEncoding.EncodeToString(ed25519.Sign(syntheticKey(), preimage)))}
-		add("revocation-"+target.name+".json", envelope, "Unchanged baseline revocation target sum and omitted optional reason; no publication or revocation authority.", sourceReference{"spec/broker.md", 417, 429}, sourceLines(81, 85))
+		add("revocation-"+target.name+".json", envelope, "Unchanged baseline revocation target sum and omitted optional reason; no publication or revocation authority.", sealedSourceReference("spec/broker.md", 441, 453), sourceLines(81, 85))
 		if target.name == "key" {
 			reason := "synthetic revocation reason"
 			body.Reason = &reason
 			preimage = append([]byte("swarma-credential-broker revocation/1\n"), canonicalBytes(body)...)
 			envelope = RevocationEnvelope{body, digestBytes(preimage), Signature(base64.RawURLEncoding.EncodeToString(ed25519.Sign(syntheticKey(), preimage)))}
-			add("revocation-key-reason.json", envelope, "Signed key-target revocation with a non-empty optional string reason beside omitted/null controls.", sourceReference{"spec/broker.md", 417, 429})
+			add("revocation-key-reason.json", envelope, "Signed key-target revocation with a non-empty optional string reason beside omitted/null controls.", sealedSourceReference("spec/broker.md", 441, 453))
 		}
 	}
 	return vectors

@@ -1,6 +1,7 @@
 # Assembly v0 construction contract C0
 
-This stage retains its U00/U01 scope and source pin. The repository owner's
+This stage retains its U00/U01 scope and historical e295b4c line base; C1
+revises its executable whole-file pins and vector citations. The repository owner's
 [construction stage C1](assembly-v0-construction-contract-c1.md) separately
 extends inactive construction to U02 only against the published DN-05 text;
 it does not accept an O-point or authorize activation.
@@ -14,10 +15,11 @@ engineering acceptance remains the review gate; this document does **not** asser
 verdict. O-01 and O-19 remain open. Consumers must not call a proposed seam
 accepted merely because a Go declaration compiles.
 
-The source pin is `e295b4c7c0dc397ecdaa89e73c057d53d2e3f533`,
-`spec/operator-and-activation-v0.md` revision 4, SHA-256
+The historical source pin is commit `e295b4c7c0dc397ecdaa89e73c057d53d2e3f533`,
+`spec/operator-and-activation-v0.md` as stored at that commit, SHA-256
 `d242db6d897ffe7a6fc662df9c47f9d67a035ddcbaffbcc245b87b13ad9d7c79`.
-References below use that file's line numbers, abbreviated **S**. The supplied
+All **S** and `spec/broker.md:` line references below resolve only at that
+commit, not the amended working files. The supplied
 implementation plan section 2 supplies engineering names, not additional wire
 authority. This task covers I01–I21 only; I22–I24 and all later implementations
 are outside its scope.
@@ -180,3 +182,6 @@ All other unresolved points and applicability are in
 or checked-in pin selects an installed SSH stack, private key, identity backend
 or custody. [The vector index](../internal/assemblyv0/testdata/construction-v0/index.json)
 binds each exact file/preimage to source lines and a byte digest.
+Its executable source commit, whole-file pins and sealed excerpt hashes now
+resolve against the published DN-05 bytes, as recorded in
+[C1's source rebase](assembly-v0-construction-contract-c1.md#source-pin-revision-for-dn-05-publication).

@@ -14,6 +14,7 @@ section 1 and section 5.1 step 5, at section 4.4's clause links. The exact
 [equality-or-refusal joins](../spec/broker.md#42-principals) apply; neither config
 nor root authority takes precedence over a mismatched duplicate. Absent or
 disabled activation retains the existing baseline behavior and texts verbatim.
+The six clause preambles and three "Here, this profile/proposal means" glosses are non-normative applicability notes.
 
 C1 authorizes **no daemon wiring, no default change, no activation and no
 installation**. Curator Core acceptance of O-01 remains required before any
@@ -78,33 +79,74 @@ publication supplies no runtime, native or protected-provenance qualification.
 
 ## Source-pin revision for DN-05 publication
 
-On 2026-11-19 the repository owner authorizes the two expected source-pin
-revisions below for the published candidate texts. The reason for both is
-**DN-05 publication**. In `internal/assemblyv0`, only these two SHA-256 values
-change, synchronized between the constants in `fixtures_test.go` and the
-source-pin metadata in `testdata/construction-v0/index.json`.
+On 2026-11-19 the repository owner authorized the two whole-file source-pin
+revisions below for **DN-05 publication**. Fix round 1 also authorizes rebasing
+the sealed vector citations to those amended bytes and adding per-excerpt
+seals and regression checks. The constants in `fixtures_test.go` and metadata
+in `testdata/construction-v0/index.json` remain synchronized. Vector payloads
+and the historical C0 construction scope do not change.
 
 | Source | Old SHA-256 | New SHA-256 | Reason |
 | --- | --- | --- | --- |
 | `spec/broker.md` | `e069ccf61e89b2f6efa27227eb80349f5379181f64b6ce46d960a64a609a6834` | `616d58599f78d4ef0e69920198a179d104313299c2cb4d66138e0ff1becc259a` | DN-05 publication |
 | `spec/operator-and-activation-v0.md` | `d242db6d897ffe7a6fc662df9c47f9d67a035ddcbaffbcc245b87b13ad9d7c79` | `c3d3bdfa9a12fe6e7fbc459474259f1f3a8f34600b46dc8b6a6e0ac85b1ec47d` | DN-05 publication |
 
-No test logic, vector payload, vector source-line reference, historical C0
-construction label or historical source-commit field changes. Those historical
-fields remain C0 evidence, not a claim that the amended texts existed at that
-source commit. The source-pin guard must still reject any further change to
-either file: each independent one-byte scratch change must fail its named
-source-pin check, while the unmodified candidate must pass. This revision
-neither supplies Curator Core acceptance nor changes any C1 authority limit.
+The index's `spec_commit` is now the DN-05 publishing commit
+`a864e2665a15a22b59964633d6691b86e5737c00`; both new digests exist at that
+commit. The old digests and the historical C0/applicability S and broker line
+references resolve only at `e295b4c7c0dc397ecdaa89e73c057d53d2e3f533`.
+Neither the unchanged "Revision: 4" heading nor a bare revision number selects
+between those two byte contents: the explicit commits and digests do.
+
+All 76 index citations now resolve to the same exact excerpt bytes as before
+publication. Seventeen citations move; the other 59 keep their line numbers.
+The complete moved-span inventory is below; repeated vector citations count
+separately. No cited excerpt is widened to include a new amendment.
+
+| Source | Vectors | Historical lines | Published lines | Citation count |
+| --- | --- | --- | --- | --- |
+| operator spec | `activation-1.json`, `activation-900.json`, `activation-default.json`, `activation-enabled-synthetic.json` | 1405–1427 | 1415–1437 | 4 |
+| operator spec | `activation-default.json` | 1446–1456 | 1456–1466 | 1 |
+| operator spec | `activation-enabled-synthetic.json` | 1466–1486 | 1476–1496 | 1 |
+| operator spec | `activation-1.json`, `activation-900.json`, `activation-default.json` | 1506–1515 | 1516–1525 | 3 |
+| operator spec | `session-unbind.json`, `session-widening.json` | 1589–1591 | 1599–1601 | 2 |
+| broker spec | `grant-envelope.json` | 367–389 | 391–413 | 1 |
+| broker spec | `revocation-grant.json`, `revocation-key.json`, `revocation-key-reason.json` | 417–429 | 441–453 | 3 |
+| broker spec | `session-unbind.json`, `session-widening.json` | 900 | 957 | 2 |
+
+Each citation includes `excerpt_sha256`: SHA-256 of the exact UTF-8 bytes from
+`first_line` through `last_line`, inclusive, retaining each line's LF when
+present. The 26 distinct expected excerpt seals are independently frozen in
+`source_index_test.go` from the historical excerpts, not recomputed from the
+current file during a check or vector regeneration. A missing or invalid seal,
+invalid line range, unpinned path, changed excerpt or shifted line refuses.
+Future edits therefore require an explicit rebase even if someone refreshes
+the whole-file digest. The existing independent whole-file drift guards remain.
+
+Run `go test -count=1 ./internal/assemblyv0` for the vectors, citation checks and
+paired line-shift refusals/valid controls. `TestConstructionSourceCitations`
+checks every stored citation against the current source independently of the
+whole-file pins. `TestConstructionSourceCitationLineShift` inserts one line in
+each pinned source in memory and requires the specific excerpt-drift refusal.
+`TestConstructionSourceCitationBoundaries` checks seals and bounds beside valid
+LF and no-terminal-LF controls. Regeneration uses
+`go test ./internal/assemblyv0 -run '^TestConstructionVectors$' -update-assembly-vectors`
+only after reviewing source spans and expected excerpt seals; it writes the
+vector directory, not new expected excerpt seals. Capture command logs and
+throwaway mutation evidence in task-owned `.temp/` scratch.
+
+This rebase neither supplies Curator Core acceptance nor changes any C1
+authority limit. It is index/vector-test evidence, not U02 implementation.
 
 ## Evidence boundary
 
-No production Go code, daemon behavior or existing reviewer test logic changes
-in this unit; only the two expected source pins above are revised.
+No production Go code, daemon behavior or previously committed reviewer test
+is removed or renamed. This fix changes only documentation and source-index
+metadata/test logic; no vector payload or amended specification byte changes.
 The brief supplies no attack-surface table: this is a declared brief gap, not a
 waiver of later U02 coverage. O-03 provenance, O-19 final acceptance and all
 other open O-points are outside this unit's contract, not implicitly covered.
-The Go suite with only those source pins revised is a no-production-code-change
-control, not U02 implementation
+The Go suite is a no-production-code-change control, not U02 implementation
 evidence or specification acceptance. Publication review is limited to exact
-amendment bytes, conditional applicability, links and these C1 boundaries.
+amendment bytes, conditional applicability, links, sealed citations and these
+C1 boundaries.
