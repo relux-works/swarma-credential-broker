@@ -11,6 +11,9 @@ protected nonidentity facts, owner enrollment transport, installer paths and
 bootstrap ordering also require publication before implementation. The
 [source-backed stop and resume decisions](docs/production-assembly-stop.md)
 bound the missing work; broker §3.2 is **PROPOSED**, not an activation decision.
+The [operator and activation v0 candidate](spec/operator-and-activation-v0.md)
+now proposes all six missing contracts. Its DN-01 through DN-09 decisions remain
+open; the stop is pending acceptance, not a claim that no candidate text exists.
 
 ## Claude secret-free service integration
 

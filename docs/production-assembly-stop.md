@@ -104,3 +104,28 @@ mutant, and no omitted implementation row is treated as out of contract.
 The entire requested production assembly remains blocked, including its
 negative/positive controls and canary proof. No review acceptance, hosted
 checks, landing, installation or native qualification is claimed.
+
+## Proposed contract section for owner review
+
+The six gaps above are now addressed by one candidate:
+[Operator and activation v0](../spec/operator-and-activation-v0.md), revision 1,
+**PROPOSED**, test profile v0, single Linux host, Claude service only.
+The evidence and gap table above describe the inspected baseline; the new
+section proposes bytes and integration, not an accepted revision of section 14.
+**STOP:operator-act-contract remains pending owner decisions**, followed by
+specification-acceptor review and the independent implementation/qualification
+gates. No code, command, activation file or unit is installed by this packet.
+
+| Original stop point | Proposed resolution |
+| --- | --- |
+| `operator-act-contract` | Section 2: terminal-only per-act password sudo, canonical exact-content act, confirmation and protected authentication receipt; DN-01 through DN-03. |
+| `owner-enrollment-transport` | Section 3: configured operator owns the account; TTY-only no-echo capture, transient digest-prefix commitment and existing custody; DN-04. |
+| `protected-authority-assembly` | Section 4: protected source inventory, closed schemas, freshness and independent containment; DN-02, DN-05 through DN-07. |
+| `activation-schema` | Section 5: separate root-owned closed file, inactive when absent, explicit enabled semantics; DN-05. |
+| `bootstrap-and-deployment` | Section 6: create managed service, enroll account, bind, then start gateway; broker control plane starts before enrollment; unit fields proposed under DN-08. |
+| `service-lifetime-selector` | Section 5: activation member, default 900 s, startup refusal above 900 without clamping; DN-05. |
+
+The full [DECISION-NEEDED register](../spec/operator-and-activation-v0.md#8-decision-needed-register)
+gives two options and a recommendation for every unfixed bundle. DN-09 preserves
+the separately owned continuity/recovery gates instead of inventing a witness.
+Accepting this candidate does not itself authorize enrollment or production use.
