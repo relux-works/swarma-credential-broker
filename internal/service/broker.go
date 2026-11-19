@@ -45,6 +45,11 @@ type View interface {
 	Sequence() json.RawMessage
 }
 
+type identityWindow interface {
+	identityContext() context.Context
+	materialReleased()
+}
+
 // WithIdentity settles only protected principal/operator evidence and remains
 // available when caller grants or use-authority readers are unavailable.
 // WithCurrent acquires current use facts before the broker state lock, holding
@@ -338,6 +343,33 @@ func validPrincipal(p Principal, uid uint32) bool {
 func principalRef(p Principal) string {
 	return fmt.Sprintf("%d:%s:%s:%s", p.UID, p.Generation, p.Role, p.Service)
 }
+
+func (b *Broker) acquire(ctx context.Context, view View) error {
+	window := ctx
+	if identity, ok := view.(identityWindow); ok {
+		window = identity.identityContext()
+	}
+	select {
+	case <-ctx.Done():
+		return refuse("request_deadline_exceeded")
+	case <-window.Done():
+		if ctx.Err() != nil {
+			return refuse("request_deadline_exceeded")
+		}
+		return refuse("principal_ledger_mismatch")
+	case <-b.gate:
+	}
+	if ctx.Err() != nil {
+		b.gate <- struct{}{}
+		return refuse("request_deadline_exceeded")
+	}
+	if window.Err() != nil {
+		b.gate <- struct{}{}
+		return refuse("principal_ledger_mismatch")
+	}
+	return nil
+}
+
 func (b *Broker) Open(ctx context.Context, uid uint32) (Principal, error) {
 	var p Principal
 	if b == nil {
@@ -352,10 +384,8 @@ func (b *Broker) Open(ctx context.Context, uid uint32) (Principal, error) {
 		if !validPrincipal(p, uid) {
 			return refuse("role_not_permitted")
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-b.gate:
+		if err := b.acquire(ctx, v); err != nil {
+			return err
 		}
 		defer func() { b.gate <- struct{}{} }()
 		if p.Role == "service" && !b.serviceBound(p) {
@@ -435,10 +465,8 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 			if decode(raw, &r, "operation_id", "service_name", "uid", "service_generation", "account", "kind", "installation_policy_digest") != nil {
 				return refuse("request_malformed")
 			}
-			select {
-			case <-ctx.Done():
-				return refuse("request_deadline_exceeded")
-			case <-b.gate:
+			if err := b.acquire(ctx, v); err != nil {
+				return err
 			}
 			defer func() { b.gate <- struct{}{} }()
 			if b.failed {
@@ -469,10 +497,8 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 	ran := false
 	run := func(v View) error {
 		ran = true
-		select {
-		case <-ctx.Done():
-			return refuse("request_deadline_exceeded")
-		case <-b.gate:
+		if err := b.acquire(ctx, v); err != nil {
+			return err
 		}
 		defer func() { b.gate <- struct{}{} }()
 		if ctx.Err() != nil {
@@ -532,10 +558,8 @@ func (b *Broker) Call(ctx context.Context, p Principal, method string, raw json.
 	// baseline unavailable-sequence representation, never a locally invented one.
 	if method == "service.revocation.check" {
 		fallbackErr := b.authority.WithIdentity(ctx, func(v View) error {
-			select {
-			case <-ctx.Done():
-				return refuse("request_deadline_exceeded")
-			case <-b.gate:
+			if err := b.acquire(ctx, v); err != nil {
+				return err
 			}
 			defer func() { b.gate <- struct{}{} }()
 			current, e := v.Principal(p.UID)
@@ -1132,13 +1156,27 @@ func (b *Broker) replayMaterial(ctx context.Context, v View, p Principal, o *wir
 	return b.material(ctx, v, l, r.Until, expiry, publish)
 }
 func (b *Broker) material(ctx context.Context, v View, l *wire.ServiceLeaseRecord, until time.Time, expiry *time.Time, publish func(any) error) error {
+	var identityErr error
 	err := b.accounts[l.Account].Publish(ctx, until, b.evaluation, func(token []byte) error {
 		if ctx.Err() != nil || !b.evaluation().Before(until) {
 			return refuse("lease_not_active")
 		}
-		// The provider and account gates still exclude authority/hold changes here.
-		return publish(wire.ServiceLease{LeaseID: l.ID, Account: l.Account, Harness: l.Harness, Kind: l.Kind, Payload: wire.ServicePayload{Kind: l.Kind, Value: string(token)}, TokenExpiresAt: expiry, AuthorizedUntil: until.UTC().Format(time.RFC3339Nano), Renewable: true})
+		current, err := v.Principal(l.UID)
+		if err != nil || current != (Principal{UID: l.UID, Generation: l.Generation, Service: l.Service, Role: "service"}) {
+			identityErr = refuse("principal_ledger_mismatch")
+			return identityErr
+		}
+		err = publish(wire.ServiceLease{LeaseID: l.ID, Account: l.Account, Harness: l.Harness, Kind: l.Kind, Payload: wire.ServicePayload{Kind: l.Kind, Value: string(token)}, TokenExpiresAt: expiry, AuthorizedUntil: until.UTC().Format(time.RFC3339Nano), Renewable: true})
+		if err == nil {
+			if identity, ok := v.(identityWindow); ok {
+				identity.materialReleased()
+			}
+		}
+		return err
 	})
+	if identityErr != nil {
+		return identityErr
+	}
 	// A lost/partial reply leaves a durable outcome; replay repeats final checks.
 	// It never revokes or extends the record merely to compensate for transport.
 	if err != nil {

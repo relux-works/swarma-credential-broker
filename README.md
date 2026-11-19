@@ -93,7 +93,9 @@ Future activation selects it explicitly at `service.New(authority, accounts, now
 the default daemon still installs no provider or service controller. No new
 CLI activation selector, static UID fallback or installation is added. Missing
 use facts, installation, trusted time/continuity and journal restore/high-water
-integration remain activation gates. See the [provider contract and shared
+integration remain activation gates. Material handoff rechecks the live principal;
+transport completion within its read window still requires native qualification.
+See the [provider contract and shared
 fixtures](docs/managed-identity-provider.md) and [custody gates](docs/claude-custody.md).
 
 For the inactive [new-mode topology](spec/secret-free-mode.md#2-processes-and-custody),

@@ -143,7 +143,7 @@ func (a *ManagedAuthority) withManaged(ctx context.Context, current bool, fn fun
 		if err := fn(view); err != nil {
 			return err
 		}
-		if !view.live() {
+		if !view.released.Load() && !view.live() {
 			return managedRefusal()
 		}
 		return nil
@@ -313,9 +313,17 @@ type managedView struct {
 	facts    View
 	ctx      context.Context
 	active   atomic.Bool
+	released atomic.Bool
 }
 
-func (v *managedView) live() bool { return v.active.Load() && v.ctx.Err() == nil }
+func (v *managedView) identityContext() context.Context { return v.ctx }
+
+func (v *managedView) materialReleased() { v.released.Store(true) }
+
+func (v *managedView) live() bool {
+	deadline, bounded := v.ctx.Deadline()
+	return v.active.Load() && v.ctx.Err() == nil && (!bounded || time.Now().Before(deadline))
+}
 
 func (v *managedView) Principal(uid uint32) (Principal, error) {
 	account, exists := v.accounts[uid]

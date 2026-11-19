@@ -73,7 +73,18 @@ Each `WithIdentity`/`WithCurrent` pass:
    facts, `ledger.json`, a configured UID or a previous snapshot.
 
 The library read-window bound is 250 ms. A canceled, expired or retained view
-cannot authorize a later lookup. The callback is bounded local work; this is
+cannot authorize a later lookup. Broker state-lock waits use that window, and
+issuance and replay recheck the exact lease principal inside the custody callback
+immediately before handing material to the transport. Expiry refuses with
+`principal_ledger_mismatch` before publication. A durable outcome saved before
+expiry remains replayable under fresh evidence; effect none here means no
+material release, not rollback of the existing durable replay transaction.
+A successful material handoff is never retrospectively relabelled an effect-none
+identity refusal. The transport callback must itself complete within the window;
+its synchronous interface cannot enforce a write deadline. Native transport
+deadline propagation and bounded-publication qualification remain activation
+gates, not properties proved by the in-memory publication tests.
+The callback is bounded local work; this is
 not permission to do network calls while holding the journal lock. Projection
 parsing has an 8 MiB safety bound; the journal keeps its format-owner 1 MiB bound.
 Installation must qualify ACL restrictions and prohibit lock/journal inode
@@ -132,8 +143,9 @@ lease count, durable state and identity evidence unchanged. Effect none is an
 observed invariant, not an invented wire-error member.
 Root installation and ACL/durability qualification are not claimed by tests
 using the private unprivileged ownership seam. The producer copy belongs at
-user-manager `testdata/identities-v1/`; this consumer copy is reconciled byte for
-byte with its published canonical set. Consumer tests alone do not attest a
+user-manager `testdata/identities-v1/`; this consumer copy was compared byte for
+byte with the draft producer set. Landing requires a fresh comparison against
+the accepted producer commit. Consumer tests alone do not attest a
 different producer checkout or installed deployment.
 
 Run from an isolated private checkout with absolute HOME/caches, the selected
