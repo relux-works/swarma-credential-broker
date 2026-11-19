@@ -1,0 +1,5 @@
+--- a/internal/activationv0/activation.go
++++ b/internal/activationv0/activation.go
+@@ -92 +92 @@
+-			return Selection{state: Absent}, nil
++			return Selection{state: Enabled, lifetime: 900 * time.Second}, nil
