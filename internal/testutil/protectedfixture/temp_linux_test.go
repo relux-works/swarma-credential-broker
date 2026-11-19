@@ -14,9 +14,10 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/protectedio"
 )
 
-// Claim: under umask 022 the returned fixture passes the unchanged exact-0700 reader check, while a widened leaf still refuses.
-func TestTempDirUmask022(test *testing.T) {
-	previous := syscall.Umask(0022)
+// Claim: under umask 022 or 002 the returned fixture passes the unchanged exact-0700 reader check, while a widened leaf still refuses.
+func checkTempDirUmask(test *testing.T, mask int) {
+	test.Helper()
+	previous := syscall.Umask(mask)
 	defer syscall.Umask(previous)
 	owner, group := uint32(os.Getuid()), uint32(os.Getgid())
 	check := func(root string) error {
@@ -24,7 +25,7 @@ func TestTempDirUmask022(test *testing.T) {
 	}
 	root := TempDir(test, check)
 	if err := check(root); err != nil {
-		test.Fatalf("umask 022 fixture refused: %v", err)
+		test.Fatalf("umask %03o fixture refused: %v", mask, err)
 	}
 	if err := os.Chmod(root, 0755); err != nil {
 		test.Fatal(err)
@@ -32,6 +33,14 @@ func TestTempDirUmask022(test *testing.T) {
 	if err := check(root); !errors.Is(err, protectedio.ErrProtection) {
 		test.Fatalf("widened fixture leaf admitted: %v", err)
 	}
+}
+
+func TestTempDirUmask022(test *testing.T) {
+	checkTempDirUmask(test, 0022)
+}
+
+func TestTempDirUmask002(test *testing.T) {
+	checkTempDirUmask(test, 0002)
 }
 
 // Claim: GOTMPDIR selects the checked fixture tree even when TMPDIR names an unsafe tree; unsafe ancestry itself remains covered by TestTempAncestry.

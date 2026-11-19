@@ -1,0 +1,5 @@
+--- a/internal/testutil/protectedfixture/temp_linux.go
++++ b/internal/testutil/protectedfixture/temp_linux.go
+@@ -35 +35 @@
+-	if err := ancestryError(filepath.Dir(root), owner); err != nil {
++	if err := ancestryError(root, owner); err != nil {

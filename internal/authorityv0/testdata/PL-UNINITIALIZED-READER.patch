@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -187 +187 @@
+-	if ctx == nil || callback == nil || reader == nil || reader.files == nil || reader.newGate == nil {
++	if ctx == nil || callback == nil || reader == nil {

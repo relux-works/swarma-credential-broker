@@ -32,7 +32,7 @@ func TempDir(test *testing.T, check func(string) error) string {
 	test.Helper()
 	owner := uint32(os.Getuid())
 	root := test.TempDir()
-	if err := ancestryError(root, owner); err != nil {
+	if err := ancestryError(filepath.Dir(root), owner); err != nil {
 		test.Fatal(err)
 	}
 	if err := os.Chmod(root, 0700); err != nil {

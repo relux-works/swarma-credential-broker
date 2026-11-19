@@ -17,7 +17,11 @@ recorder separately witnesses every composed `Load`, `WithPinned` and
 `WithIdentity` call, including gate construction and final rechecks; only
 its delegation maps synthetic IDs to the real unprivileged fixture owner.
 Every delegated read, directory check and lock uses the real protected
-reader. This proves the call-site bindings, not privileged provisioning.
+reader. `TestNewBindsProductionSeam` separately asserts that `New` installs
+exactly `protectedio.Reader{}` and `protectedio.NewConfigGate`, not policy-
+rewriting adapters. These witnesses prove wiring and call-site bindings, not
+privileged provisioning. A nil, zero-value or incompletely initialized reader
+refuses every public window without invoking its callback or returning pins.
 The `/etc/group` protection extends the spec 4.1 passwd row by analogy;
 it is not presented as an additional normative source row.
 

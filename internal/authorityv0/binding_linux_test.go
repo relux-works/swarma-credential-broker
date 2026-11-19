@@ -10,8 +10,62 @@ import (
 	"testing"
 
 	"github.com/relux-works/swarma-credential-broker/internal/assemblyv0"
+	"github.com/relux-works/swarma-credential-broker/internal/policy"
 	"github.com/relux-works/swarma-credential-broker/internal/protectedio"
 )
+
+// Claim: New binds the exact concrete protected reader and lock factory, not adapters that could rewrite the policies witnessed at their call sites.
+func TestNewBindsProductionSeam(test *testing.T) {
+	reader := New(policy.Config{})
+	if _, ok := reader.files.(protectedio.Reader); !ok {
+		test.Fatalf("production protected reader rebound: %T", reader.files)
+	}
+	if reader.newGate == nil || reflect.ValueOf(reader.newGate).Pointer() != reflect.ValueOf(protectedio.NewConfigGate).Pointer() {
+		test.Fatal("production lock gate rebound")
+	}
+}
+
+// Claim: nil, zero-value and incompletely initialized readers refuse all public windows without panic, callback or startup output, beside a valid real-filesystem control.
+func TestUninitializedReaderRefuses(test *testing.T) {
+	for _, name := range []string{"nil", "zero", "missing-reader", "missing-gate"} {
+		test.Run(name, func(test *testing.T) {
+			fixture := newFixture(test)
+			pins := validWindow(test, fixture)
+			reader := fixture.reader
+			switch name {
+			case "nil":
+				reader = nil
+			case "zero":
+				reader = &Reader{}
+			case "missing-reader":
+				reader.files = nil
+			case "missing-gate":
+				reader.newGate = nil
+			}
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					test.Fatalf("uninitialized reader panicked: %v", recovered)
+				}
+			}()
+			document, refusedPins, err := reader.Load(context.Background())
+			if !errors.Is(err, ErrIdentityChanged) || !reflect.DeepEqual(document, assemblyv0.AuthorityDocument{}) || !reflect.DeepEqual(refusedPins, StartupPins{}) {
+				test.Fatalf("uninitialized reader returned startup output or wrong refusal: %v", err)
+			}
+			for _, method := range []string{"WithPinned", "WithIdentity"} {
+				called := false
+				callback := func(context.Context, assemblyv0.AuthorityDocument) error { called = true; return nil }
+				if method == "WithPinned" {
+					err = reader.WithPinned(context.Background(), pins, callback)
+				} else {
+					err = reader.WithIdentity(context.Background(), callback)
+				}
+				if !errors.Is(err, ErrIdentityChanged) || called {
+					test.Fatalf("uninitialized reader admitted %s or wrong refusal: %v callback=%v", method, err, called)
+				}
+			}
+		})
+	}
+}
 
 type protectedCall struct {
 	kind, path  string

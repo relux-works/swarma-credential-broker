@@ -1,0 +1,18 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -105 +105 @@
+-	return &Reader{config: config, files: protectedio.Reader{}, newGate: protectedio.NewConfigGate, brokerUID: uint32(os.Geteuid()), brokerGID: uint32(os.Getegid()), paths: paths{
++	return &Reader{config: config, files: brokerOwned{}, newGate: protectedio.NewConfigGate, brokerUID: uint32(os.Geteuid()), brokerGID: uint32(os.Getegid()), paths: paths{
+@@ -108,0 +109,12 @@
++}
++
++type brokerOwned struct{}
++
++func (brokerOwned) Read(ctx context.Context, path string, policy protectedio.FilePolicy) (protectedio.Identity, []byte, error) {
++	policy.UID = uint32(os.Geteuid())
++	return (protectedio.Reader{}).Read(ctx, path, policy)
++}
++
++func (brokerOwned) CheckDirectory(ctx context.Context, path string, policy protectedio.FilePolicy, ancestorUID uint32) error {
++	policy.UID = uint32(os.Geteuid())
++	return (protectedio.Reader{}).CheckDirectory(ctx, path, policy, uint32(os.Geteuid()))

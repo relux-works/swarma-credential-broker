@@ -184,7 +184,7 @@ func (reader *Reader) current(ctx context.Context, use bool) (snapshot, error) {
 }
 
 func (reader *Reader) window(ctx context.Context, pins *StartupPins, use bool, callback func(context.Context, snapshot) error) error {
-	if ctx == nil || callback == nil || reader == nil {
+	if ctx == nil || callback == nil || reader == nil || reader.files == nil || reader.newGate == nil {
 		return ErrIdentityChanged
 	}
 	if err := ctx.Err(); err != nil {
