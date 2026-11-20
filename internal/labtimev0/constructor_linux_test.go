@@ -113,9 +113,9 @@ func TestLabPublicConstructorEnrollmentJoins(test *testing.T) {
 	}
 }
 
-// Claim: replaced or absent fences between loading Start and public construction refuse without spending the generation; restoring the exact fence permits construction/use.
+// Claim: malformed, absent or canonical same-length reissued fences refuse public construction without spending the generation; restoring exact loaded bytes permits construction/use.
 func TestLabPublicConstructorCurrentJoin(test *testing.T) {
-	for _, fault := range []string{"replaced", "removed"} {
+	for _, fault := range []string{"replaced", "removed", "reissued"} {
 		test.Run(fault, func(test *testing.T) {
 			fixture := publicSetup(test)
 			heads, err := fixture.prepare()
@@ -127,10 +127,13 @@ func TestLabPublicConstructorCurrentJoin(test *testing.T) {
 			if err != nil {
 				test.Fatal(err)
 			}
-			if fault == "replaced" {
+			switch fault {
+			case "replaced":
 				err = os.WriteFile(fixture.path, []byte("{}"), 0644)
-			} else {
+			case "removed":
 				err = os.Remove(fixture.path)
+			case "reissued":
+				err = os.WriteFile(fixture.path, reissuedFence(test, start), 0644)
 			}
 			if err != nil {
 				test.Fatal(err)
@@ -144,6 +147,57 @@ func TestLabPublicConstructorCurrentJoin(test *testing.T) {
 			}
 			constructorUseControl(test, fixture, start, heads)
 		})
+	}
+}
+
+func reissuedFence(test *testing.T, start *Start) []byte {
+	test.Helper()
+	var fence Fence
+	if err := Decode(start.raw, &fence); err != nil {
+		test.Fatal("decode loaded fence fixture", err)
+	}
+	fence.ApprovalDigest = sum([]byte("reissued fence approval"))
+	raw := encoded(test, fence)
+	var replacement Fence
+	if err := Decode(raw, &replacement); err != nil || replacement != fence || !replacement.Consumed || replacement.Generation != start.Generation() || replacement.Context != start.Context() || len(raw) != len(start.raw) || bytes.Equal(raw, start.raw) {
+		test.Fatal("canonical same-length replacement fixture", err)
+	}
+	return raw
+}
+
+// Claim: a canonical same-length fence with a different approval identity closes public use without burn or floor changes, beside unchanged-byte use controls before and after replacement.
+func TestLabPublicUseCurrentJoin(test *testing.T) {
+	fixture := publicSetup(test)
+	heads, err := fixture.prepare()
+	if err != nil {
+		test.Fatal(err)
+	}
+	start := fixture.start(test, heads, nil)
+	lab := constructorUseControl(test, fixture, start, heads)
+	before, err := os.ReadFile(filepath.Join(fixture.clock.root, "lab-floor"))
+	if err != nil {
+		test.Fatal(err)
+	}
+	if os.WriteFile(fixture.path, reissuedFence(test, start), 0644) != nil {
+		test.Fatal("replace fence fixture")
+	}
+	fixture.clock.setTime(270, fixtureBoot)
+	if raw, err := lab.ConsumeWithManager(context.Background(), fixture.clock.request(strings.Repeat("b", 32)), fixture.journal, heads.Manager); !errors.Is(err, ErrUnavailable) || len(raw) != 0 {
+		test.Fatal("well-formed replacement admitted at use", err)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.clock.root, "lab-burned")); !errors.Is(err, os.ErrNotExist) {
+		test.Fatal("reissued fence burned installation", err)
+	}
+	after, err := os.ReadFile(filepath.Join(fixture.clock.root, "lab-floor"))
+	if err != nil || !bytes.Equal(before, after) {
+		test.Fatal("reissued fence changed floor", err)
+	}
+	if os.WriteFile(fixture.path, start.raw, 0644) != nil || os.Chmod(fixture.path, 0644) != nil {
+		test.Fatal("restore fence fixture")
+	}
+	fixture.clock.setTime(290, fixtureBoot)
+	if raw, err := lab.ConsumeWithManager(context.Background(), fixture.clock.request(strings.Repeat("c", 32)), fixture.journal, heads.Manager); err != nil || len(raw) == 0 {
+		test.Fatal("restored fence public use control", err)
 	}
 }
 

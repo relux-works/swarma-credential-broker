@@ -74,6 +74,10 @@ MUTANTS = [
     ('spent-start-first', 'internal/labtimev0/consumer_linux.go', '\tif markerErr != unix.ENOENT {', '\tif false && markerErr != unix.ENOENT {', './internal/labtimev0', 'TestLabPublicConstructorSpentStart', 'A06', 'spent generation refuses before stale-head burn join'),
     ('prepare-journal', 'internal/labtimev0/consumer_linux.go', '\tif err != nil {\n\t\treturn Heads{}, ErrUnavailable\n\t}\n\tif err := lab.provision(ctx, witnessRoot); err != nil {', '\tif false && err != nil {\n\t\treturn Heads{}, ErrUnavailable\n\t}\n\tif err := lab.provision(ctx, witnessRoot); err != nil {', './internal/labtimev0', 'TestLabPublicPrepareJournalJoin', 'A06', 'unverified prepare history refuses before genesis'),
     ('prepare-journal-before-write', 'internal/labtimev0/consumer_linux.go', '\tmanager, err := ManagerExtension(journal, Head{SHA256: "sha256:" + strings.Repeat("0", 64)})\n\tif err != nil {\n\t\treturn Heads{}, ErrUnavailable\n\t}\n\tif err := lab.provision(ctx, witnessRoot); err != nil {\n\t\treturn Heads{}, err\n\t}\n', '\tif err := lab.provision(ctx, witnessRoot); err != nil {\n\t\treturn Heads{}, err\n\t}\n\tmanager, err := ManagerExtension(journal, Head{SHA256: "sha256:" + strings.Repeat("0", 64)})\n\tif err != nil {\n\t\treturn Heads{}, ErrUnavailable\n\t}\n', './internal/labtimev0', 'TestLabPublicPrepareJournalJoin', 'A06', 'unverified prepare leaves both roots empty'),
+    ('current-length-construct', 'internal/labtimev0/fence_linux.go', '!bytes.Equal(raw, start.raw)', 'len(raw) != len(start.raw) || bytes.Equal(raw, nil)', './internal/labtimev0', 'TestLabPublicConstructorCurrentJoin', 'A06', 'public construct currentness reduced to length only'),
+    ('current-semantic-construct', 'internal/labtimev0/fence_linux.go', '!bytes.Equal(raw, start.raw)', 'func() bool { var fence Fence; return Decode(raw, &fence) != nil || !fence.Consumed || fence.Generation != start.Generation() || fence.Context != start.Context() || bytes.Equal(raw, nil) }()', './internal/labtimev0', 'TestLabPublicConstructorCurrentJoin', 'A06', 'public construct currentness reduced to valid fence grammar and same consumed/generation/context fields'),
+    ('current-length-use', 'internal/labtimev0/fence_linux.go', '!bytes.Equal(raw, start.raw)', 'len(raw) != len(start.raw) || bytes.Equal(raw, nil)', './internal/labtimev0', 'TestLabPublicUseCurrentJoin', 'A06', 'public use currentness reduced to length only'),
+    ('current-semantic-use', 'internal/labtimev0/fence_linux.go', '!bytes.Equal(raw, start.raw)', 'func() bool { var fence Fence; return Decode(raw, &fence) != nil || !fence.Consumed || fence.Generation != start.Generation() || fence.Context != start.Context() || bytes.Equal(raw, nil) }()', './internal/labtimev0', 'TestLabPublicUseCurrentJoin', 'A06', 'public use currentness reduced to valid fence grammar and same consumed/generation/context fields'),
 ]
 
 
@@ -141,7 +145,12 @@ EXPECTED_FAILURES = {'format': 'operator member-0-literal-empty admit false',
  'inventory-burn': 'caller inventory burned installation',
  'spent-start-first': 'spent start replay burned installation',
  'prepare-journal': 'unverified prepare journal admitted',
- 'prepare-journal-before-write': 'unverified prepare wrote genesis'}
+ 'prepare-journal-before-write': 'unverified prepare wrote genesis',
+ 'current-length-construct': 'constructor currentness join bypass',
+ 'current-semantic-construct': 'constructor currentness join bypass',
+ 'current-length-use': 'well-formed replacement admitted at use',
+ 'current-semantic-use': 'well-formed replacement admitted at use',
+}
 
 
 def main():

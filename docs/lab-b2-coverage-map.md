@@ -54,6 +54,27 @@ nil-Start negative shares the currentness guard, not a separate field join.
 All earlier test names are retained. C0b/C0c's independent coverage map and
 sealed contract index are preserved exactly from `eef0f9f3`.
 
+## Fence currentness regression (fix round 3)
+
+A06 requires exact loaded-fence bytes at public construction and every use.
+`TestLabPublicConstructorCurrentJoin/reissued` and
+`TestLabPublicUseCurrentJoin` replace the consumed fence with a canonical,
+same-length fence carrying a different approval digest, leaving its generation,
+context and consumed bit intact. The record decoder accepts the replacement;
+it is not evidence of a newly approved start. Restoring the original bytes is
+an adjacent positive control. Refusal leaves the floor and burn state unchanged;
+construction also leaves the generation unspent.
+
+| Currentness gate | Named regression | Narrowing overlays |
+|---|---|---|
+| construction | `TestLabPublicConstructorCurrentJoin/reissued` | current-length-construct, current-semantic-construct |
+| each use | `TestLabPublicUseCurrentJoin` | current-length-use, current-semantic-use |
+
+The length overlays accept any same-length replacement; semantic overlays
+accept well-formed consumed fences matching generation and context while
+ignoring the changed approval identity. Both are weaker than byte identity.
+No product code or frozen surface is changed by this regression-only round.
+
 ## Per-mutant evidence
 
 The checked-in `tests/lab-b2/mutants.py` specifies each exact replacement,
