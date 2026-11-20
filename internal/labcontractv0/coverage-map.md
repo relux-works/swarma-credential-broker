@@ -103,9 +103,52 @@ minus/plus one, enum/singleton exact spelling, canonical post-epoch and four-dig
 year bounds, and each integer lower/upper bound. The safe-integer upper refusal
 is at the shared canonical gate, not mislabeled as a field range refusal.
 
-The former wire-body-subset mutant now survives the 72 wire fixtures: the new
-metadata/diagnostic typed readers independently require the missing fields.
-That is a bounded redundancy observation, not a killed mutant or a universal
-equivalence claim. Removing both the path-presence and sentinel-reader gates
+The wire-body-subset mutant is equivalent under the unchanged value readers:
+each measured body path is independently required by its typed/value check.
+It is reported as a survivor, never counted as a killed mutant. Removing both the path-presence and sentinel-reader gates
 (wire-body-subset-sentinel-unchecked) fails the required-field negative; the
 wire-sentinel-type-unchecked mutant separately fails the new type negatives.
+
+
+## Mechanically generated grammar controls
+
+`generated_test.go` derives the matrix from every field grammar in the closed
+inventory, including element grammars of empty arrays. Each mutation runs beside
+its accepted control. It does not infer admissibility from the reference checker.
+The direct field checks isolate grammar/count limits from unrelated frame ceilings
+and seals; the existing canonical-record and re-sealed closure controls remain.
+All literal bytes are altered and removed individually, all fixed-case letters
+are flipped individually, and all separators are altered/removed; UUID separators
+also move at constant total length. There is no case operation on a digit.
+
+| Normative rule | Generated cases / named test | Narrowing source overlays |
+| --- | --- | --- |
+| Every field and array-element grammar: JSON kinds | null and every other wrong JSON kind beside a same-type control; TestLabGeneratedGrammarPairs | grammar-<node>-null; grammar-<node>-type |
+| Every singleton and every enum member | per-byte alteration/removal, suffix/empty, per-letter case, each separator alternative; TestLabGeneratedGrammarPairs | singleton-prefix-only; singleton-case-insensitive; enum-prefix-only; enum-case-insensitive |
+| Digest label/prefix | each sha256: byte altered/removed, complete prefix removed, letter case and colon variants; TestLabFieldGrammarPairs; TestLabGeneratedGrammarPairs | digest-prefix-byte-0..6; digest-prefix-optional; digest-prefix-caseless; digest-prefix-separator-any |
+| Each independent hex group | 0/9/a/f accepted, slash/colon/backtick/g/uppercase refused; group length minus/plus one refused; TestLabFieldGrammarPairs; TestLabGeneratedGrammarPairs | <kind>-g<group>-uppercase/alpha-g/slash/colon/backtick/no0/no9/noa/nof/short/long |
+| Every UUID dash | altered, removed, doubled, replaced by hex and shifted at constant length; TestLabFieldGrammarPairs | uuid-separator-1..4-any/optional/underscore; uuid-hex-or-dash-36; uuid-four-dashes-anywhere |
+| ASCII and string lengths | 0/1/2/max-1/max/max+1 bytes; 0x20/21/22/7d/7e/7f and non-ASCII; TestLabGeneratedGrammarPairs | id-empty; id-127; id-lower-inside; material-empty; material-4095; material-upper-inside |
+| Every integer range | min-1/min/min+1/max-1/max/max+1, fractional number and wrong JSON kinds; TestLabGeneratedGrammarPairs | <range>-low/high--1/1; uint-min-minus1/plus1; integer-max-minus1/plus1 |
+| Canonical time | epoch and four-digit-year bounds at nanosecond precision, component bounds, fractional count, fixed T/Z case, every separator and offset/redundant-fraction refusals; TestLabGeneratedGrammarPairs | time-epoch-off; time-noncanonical |
+| Every array grammar | 0/1/255/256 accepted, 257 refused, plus all wrong JSON kinds; TestLabGeneratedGrammarPairs | array-limit-255; array-limit-257; grammar-<array-node>-null/type |
+| Every measured body occurrence | null/all wrong JSON kinds; literal mutations for retained closed values; count minus/exact/plus one; numeric minus/exact/plus one; Boolean opposite; TestLabGeneratedWirePairs | wire-tools-null-as-empty; wire-sentinel-null-as-string; wire-body-values-unchecked |
+| Envelope/header literals and each beta token | per-byte/case/separator mutations; original value and case-insensitive header-name controls; TestLabGeneratedWireEnvelopePairs | wire-ua-unchecked; duplicate-beta |
+| Three principal pairs | gateway only, caller only and both kinds swapped; exact service/worker valid pair; TestLabPrincipalDisjointPairs | principal-kinds-distinct-only; principal-kinds-not-both-wrong; principal-kinds-swapped-also |
+| Composed approval/journal seals | closed stale-seal record refuses approval_seal/journal_seal beside original record; TestLabComposedSealPairs | composed-approval-seal-off; composed-journal-seal-off |
+
+The three exported null-leaf wire fixtures preserve the other 72 cases and bring
+the corpus to 75 cases (2 admitted, 73 refused). Sentinel/prompt string contents
+were not retained by the measurement: they are type-checked, not frozen to the
+public reconstructed strings. There is no negative array count in JSON; zero is
+the lower count control. Fixed-length hex groups have one accepted length, so
+both immediately neighboring lengths refuse rather than inventing an interior.
+Native multi-record joins, custody/effects and live qualification remain outside
+C0; these construction checks make no production acceptance claim.
+
+The same mechanical label matrix also runs for every root/nested JSON member
+name (`TestLabGeneratedClosedFieldPairs`), with specific field_set refusals and
+no seal gate. Both admitted HTTP profiles run the envelope/header matrix, not
+only POST. Header names retain their case-insensitive valid controls; JSON
+member names remain case-sensitive. Reconstructed open string fields admit
+empty, changed and non-ASCII strings, rather than freezing the public markers.

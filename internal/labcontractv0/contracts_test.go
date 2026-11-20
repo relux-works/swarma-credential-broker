@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "d7b0465472e641b9cab174e2ab36a56b82bd1e376fb887d06a77a42dfe461b87"
+const indexSHA256 = "fe6fb25f7a2e13fed826cb9709535e6e9a4e5ea2b20229f4f90639e8da945446"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -713,7 +713,7 @@ func TestLabAPIKeyWireFixturePairs(test *testing.T) {
 			refusedCount++
 		}
 	}
-	if validCount != 2 || refusedCount != 70 {
+	if validCount != 2 || refusedCount != 73 {
 		test.Fatal("missing wire controls")
 	}
 	test.Run("cache-placement-multiset", func(test *testing.T) {
@@ -1231,7 +1231,7 @@ func grammarValues(kind string) grammarPair {
 		members := strings.Split(kind, "|")
 		invalid := []any{"PUBLIC-OUT-OF-ENUM", false}
 		for _, member := range members {
-			for _, variant := range []string{strings.ToUpper(member), member[:len(member)-1], member + "x"} {
+			for _, variant := range []string{strings.ToUpper(member), strings.ToLower(member), member[:len(member)-1], member + "x"} {
 				if !slices.Contains(members, variant) {
 					invalid = append(invalid, variant)
 				}
@@ -1259,6 +1259,13 @@ func grammarValues(kind string) grammarPair {
 		"capture-timeout": {"range: capture-timeout", []any{int64(300)}, []any{int64(299), int64(301), "300"}},
 	}
 	pair := pairs[kind]
+	for _, mutation := range scalarMutations(kind) {
+		if mutation.Admit {
+			pair.Valid = append(pair.Valid, mutation.Value)
+		} else if _, text := mutation.Value.(string); text {
+			pair.Invalid = append(pair.Invalid, mutation.Value)
+		}
+	}
 	if slices.Contains([]string{"digest", "operation", "uuid", "commit"}, kind) {
 		valid := pair.Valid[0].(string)
 		prefix := 0
@@ -1457,7 +1464,7 @@ func principalsDisjoint(gateway, caller map[string]any) bool {
 	return gateway["uid"] != caller["uid"] && gateway["generation"] != caller["generation"] && gateway["execution_id"] != caller["execution_id"] && gateway["kind"] == "service" && caller["kind"] == "worker"
 }
 
-// Claim: authority, lease and journal pairs require disjoint UID/generation/execution and service/worker kinds; shared tuple components and each wrong kind refuse beside valid pairs.
+// Claim: authority, lease and journal pairs require disjoint UID/generation/execution and service/worker kinds; shared tuple components and each single-side or jointly swapped kind refuse beside valid pairs.
 func TestLabPrincipalDisjointPairs(test *testing.T) {
 	_, fixtures := loadContracts(test)
 	count := 0
@@ -1493,6 +1500,14 @@ func TestLabPrincipalDisjointPairs(test *testing.T) {
 						}
 					})
 				}
+				test.Run("swapped-kinds", func(test *testing.T) {
+					changedGateway := cloneObject(test, gateway)
+					changedCaller := cloneObject(test, caller)
+					changedGateway["kind"], changedCaller["kind"] = caller["kind"], gateway["kind"]
+					if principalsDisjoint(changedGateway, changedCaller) {
+						test.Fatal("swapped kinds admitted")
+					}
+				})
 				for _, name := range []string{"uid", "generation", "execution_id"} {
 					changed := cloneObject(test, caller)
 					changed[name] = gateway[name]
