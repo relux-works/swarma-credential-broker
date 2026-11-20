@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,7 +18,7 @@ import (
 	"github.com/relux-works/swarma-credential-broker/internal/egress"
 )
 
-func closeFixture(t *testing.T, imagePath, mode string, sink func(string)) (*ownerSession, *atomic.Bool) {
+func closeFixture(t *testing.T, imagePath, mode string, sink func(string), installPause func(*testing.T, context.Context) (func(), <-chan struct{})) (*ownerSession, *atomic.Bool) {
 	t.Helper()
 	image, err := os.Open(imagePath)
 	if err != nil {
@@ -52,6 +51,7 @@ func closeFixture(t *testing.T, imagePath, mode string, sink func(string)) (*own
 	var cancelled atomic.Bool
 	s := &ownerSession{origin: o, ch: &ownerChannel{r: outR, w: inW}, done: make(chan struct{}), execution: newRowExecution()}
 	s.cancel = func() { cancel(); cancelled.Store(true) }
+	arm, paused := installPause(t, ctx)
 	t.Cleanup(func() { s.cancel(); <-s.done })
 	s.diagnosticContext = withOwnerDiagnostics(ctx, sink)
 	go func() {
@@ -68,14 +68,26 @@ func closeFixture(t *testing.T, imagePath, mode string, sink func(string)) (*own
 	if _, err = s.receive("startup"); err != nil {
 		t.Fatal(err)
 	}
+	if mode == "owner-close-wait" {
+		arm()
+		select {
+		case <-paused:
+		case <-ctx.Done():
+			t.Fatal("supervisor did not acknowledge the post-startup pause", ctx.Err())
+		}
+		want := egress.OriginObservation{OriginDiagnostic: egress.OriginDiagnostic{Phase: egress.OriginEntered}, Operation: egress.OperationPause, Child: egress.ChildStopObserved}
+		if got := o.Observation(); got != want {
+			t.Fatal("paused supervisor observation changed", got)
+		}
+	}
 	return s, &cancelled
 }
 
 // Claim: the real two-second close timeout freezes pending/entered facts before
 // cancellation, then cancels and joins a real owned process before delivery.
 // A clean exit still succeeds; an ordinary cancellation refuses without inventing
-// a timeout. This does not reproduce or explain a particular hosted CI delay.
-func TestOwnerCloseTimeoutSnapshot(t *testing.T) {
+// a timeout. A test-only pause holds the actual observation until cancellation.
+func ownerCloseTimeoutSnapshot(t *testing.T, installPause func(*testing.T, context.Context) (func(), <-chan struct{})) {
 	image := filepath.Join(t.TempDir(), "origin")
 	cmd := exec.Command(os.Getenv("GO"), "build", "-p=1", "-o", image, "../egress/testdata/origin")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -98,7 +110,7 @@ func TestOwnerCloseTimeoutSnapshot(t *testing.T) {
 					t.Fatal("diagnostic callback ran before pipe cleanup", err)
 				}
 				records = append(records, record)
-			})
+			}, installPause)
 			if kind == "cancelled" {
 				s.cancel()
 				<-s.done
@@ -135,13 +147,8 @@ func TestOwnerCloseTimeoutSnapshot(t *testing.T) {
 				}
 				return
 			}
-			want := "owner close timeout close_cancel=not_issued supervisor=pending phase=entered exit=unavailable"
-			// Timing selects the operation, but never a free-form label or a
-			// completed child wait while the published phase is still entered.
-			pattern := regexp.MustCompile("^" + regexp.QuoteMeta(want) +
-				" operation=(unavailable|start|started_callback|bootstrap_receive|bootstrap_ack|notification|entry_receive|entry_ack|task_inventory|wait_peek|terminal_peek|birth_read|stop_consume|resume|trace_options|exec_read|identity|ready_callback|challenge|membership|terminate|final_wait|refusal_cleanup|waited_callback|pause)" +
-				" child=(unavailable|started|stop_observed|terminal_observed)$")
-			if len(records) != 1 || !pattern.MatchString(records[0]) {
+			want := "owner close timeout close_cancel=not_issued supervisor=pending phase=entered exit=unavailable operation=pause child=stop_observed"
+			if len(records) != 1 || records[0] != want {
 				t.Fatal("pre-cancel snapshot missing or changed", records)
 			}
 			if time.Since(start) < 2*time.Second {

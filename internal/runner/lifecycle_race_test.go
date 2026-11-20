@@ -87,16 +87,23 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 	args := []string{"-f", "-e", "trace=openat,read", "-e", "raw=read", "-P", path,
 		"-e", "inject=openat:signal=SIGSTOP", "-o", "/proc/self/fd/3"}
 	args = append(args, command...)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, tracer, args...)
+	cmd.WaitDelay = time.Second
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.ExtraFiles = []*os.File{traceWrite}
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output
 	must(t, cmd.Start())
 	must(t, traceWrite.Close())
+	must(t, traceRead.SetReadDeadline(time.Now().Add(30*time.Second)))
+	tracees := map[int]int{}
 	defer func() {
+		for _, fd := range tracees {
+			_ = unix.PidfdSendSignal(fd, syscall.SIGKILL, nil, 0)
+			unix.Close(fd)
+		}
 		// This process group was allocated by cmd.Start above, never discovered by
 		// name. It contains only this trace and its fixture descendants.
 		if cmd.ProcessState == nil {
@@ -113,6 +120,7 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 	observed, opens := false, 0
 	target := map[int]bool{}
 	pending := map[int]bool{}
+	unfinished := procTraceOpens{}
 	var evidence strings.Builder
 	scanner := bufio.NewScanner(traceRead)
 	for scanner.Scan() {
@@ -126,7 +134,7 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 		if parseErr != nil {
 			continue
 		}
-		if strings.Contains(line, "openat(") && strings.Contains(line, path) && strings.Contains(line, ") = ") && !strings.Contains(line, "= -1") {
+		if unfinished.opened(tid, line, path) {
 			executable, _ := os.Readlink(fmt.Sprintf("/proc/%d/exe", tid))
 			pending[tid] = true
 			target[tid] = (follow && executable == supervisorPath) || (!follow && executable == command[0])
@@ -134,13 +142,15 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 				opens++
 			}
 		}
-		if !strings.Contains(line, "stopped by SIGSTOP") || !pending[tid] {
+		if !strings.Contains(line, "stopped by SIGSTOP") {
 			continue
 		}
 		// A Go syscall may run on any thread; signal the pinned thread group's
 		// leader rather than treating a thread ID as a process ID.
-		delete(pending, tid)
 		status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", tid))
+		if os.IsNotExist(err) && !pending[tid] {
+			continue
+		}
 		must(t, err)
 		tgid := 0
 		for _, field := range strings.Split(string(status), "\n") {
@@ -152,8 +162,16 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 		if tgid == 0 {
 			t.Fatal("stopped tracee group identity missing")
 		}
-		fd, err := unix.PidfdOpen(tgid, 0)
-		must(t, err)
+		fd, pinned := tracees[tgid]
+		if !pinned {
+			fd, err = unix.PidfdOpen(tgid, 0)
+			must(t, err)
+			tracees[tgid] = fd
+		}
+		if !pending[tid] {
+			continue
+		}
+		delete(pending, tid)
 		if target[tid] && opens >= wantOpen && !observed {
 			if disappear {
 				must(t, helper.Process.Kill())
@@ -164,10 +182,12 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 			observed = true
 		}
 		err = unix.PidfdSendSignal(fd, syscall.SIGCONT, nil, 0)
-		unix.Close(fd)
 		must(t, err)
 	}
-	must(t, scanner.Err())
+	if err := scanner.Err(); err != nil {
+		must(t, os.WriteFile(trace, []byte(evidence.String()), 0600))
+		t.Fatalf("proc trace did not complete before its deadline: %v\n%s", err, evidence.String())
+	}
 	runErr := cmd.Wait()
 	must(t, os.WriteFile(trace, []byte(evidence.String()), 0600))
 	data, err := os.ReadFile(trace)
@@ -181,6 +201,37 @@ func traceProcRead(t *testing.T, follow, disappear bool, command ...string) {
 	if runErr != nil {
 		t.Fatalf("lifecycle failed after proc observation: %v\n%s\n%s", runErr, output.String(), data)
 	}
+}
+
+type procTraceOpens map[int]string
+
+func (unfinished procTraceOpens) opened(tid int, line, path string) bool {
+	const resumed = "<... openat resumed>"
+	if position := strings.Index(line, resumed); position >= 0 {
+		prefix, ok := unfinished[tid]
+		delete(unfinished, tid)
+		if !ok {
+			return false
+		}
+		line = prefix + line[position+len(resumed):]
+	} else if strings.Contains(line, "openat(") && strings.Contains(line, strconv.Quote(path)) {
+		if position := strings.Index(line, "<unfinished ...>"); position >= 0 {
+			unfinished[tid] = line[:position]
+			return false
+		}
+	} else {
+		return false
+	}
+	position := strings.LastIndex(line, " = ")
+	if position < 0 {
+		return false
+	}
+	result := strings.Fields(line[position+3:])
+	if len(result) == 0 {
+		return false
+	}
+	fd, err := strconv.Atoi(result[0])
+	return err == nil && fd >= 0
 }
 
 func requirePtrace(t *testing.T) {

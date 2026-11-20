@@ -45,17 +45,25 @@ func TestOriginMissingTaskLeaderOverlay(t *testing.T) {
 						t.Fatal(err)
 					}
 					deadline := time.Now().Add(3 * time.Second)
-					for time.Now().Before(deadline) {
-						var si unix.Siginfo
-						if err := unix.Waitid(unix.P_PID, pid, &si, unix.WEXITED|unix.WNOHANG|unix.WNOWAIT|unix.WALL, nil); err != nil {
-							t.Fatal(err)
+					poll := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+					for {
+						remaining := time.Until(deadline)
+						if remaining <= 0 {
+							t.Fatal("owned terminal publication deadline")
 						}
-						if si.Code >= 1 && si.Code <= 3 {
-							return
+						ready, err := unix.Poll(poll, int((remaining+time.Millisecond-1)/time.Millisecond))
+						if err == unix.EINTR {
+							continue
 						}
-						time.Sleep(time.Millisecond)
+						if err != nil || ready != 1 || poll[0].Revents != unix.POLLIN {
+							t.Fatal("owned terminal publication event", ready, poll[0].Revents, err)
+						}
+						break
 					}
-					t.Fatal("owned terminal publication deadline")
+					var si unix.Siginfo
+					if err := unix.Waitid(unix.P_PID, pid, &si, unix.WEXITED|unix.WNOHANG|unix.WNOWAIT|unix.WALL, nil); err != nil || si.Code < 1 || si.Code > 3 {
+						t.Fatal("owned terminal publication missing after pidfd readiness", si, err)
+					}
 				}
 				calls := 0
 				if stage == "overtaken" {

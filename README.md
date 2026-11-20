@@ -179,6 +179,24 @@ immutable units. It grants no production currentness or durable recovery authori
 
 ## Tools
 
+The owner-close timeout fixture uses a test-only Go overlay to acknowledge a
+post-startup supervisor pause before exercising the real two-second timeout.
+Run `GO="$(command -v go)" go test -race -count=1 -run "^TestOwnerCloseTimeoutSnapshot" ./internal/qualify`
+for the positive lifecycle and the late-capture mutation control. The mutation
+must fail its nested timeout assertion while its clean and cancelled controls
+pass; that expected child failure is not a failing parent test. The existing
+egress missing-task and runner qualification controls likewise require specific
+negative child verdicts. Preserve command logs under task-owned `.temp/` scratch;
+overlay sources and manifests live in test temporary directories. These
+synthetic checks do not qualify a live owner or provision host fixtures.
+
+The runner proc-disappearance fixture synchronizes on successful `strace`
+open/stop events, joining unfinished/resumed opens by thread ID before releasing
+the stopped group. `go test -race -run "^Test(CommandProcDisappearance|ProcTraceOpenCompletion)$" ./internal/runner`
+checks the real lifecycle plus deterministic complete/split/failed trace
+records. Trace reads have a thirty-second deadline; fixture cleanup pins stopped
+groups with pidfds so a failed trace cannot leave its owned processes stopped.
+
 The inactive [assembly v0 construction contract](docs/assembly-v0-construction-contract.md)
 and [applicability register](docs/assembly-v0-applicability.md) cover U00/U01
 declarations, closed record sum codecs and synthetic vectors only. They install
