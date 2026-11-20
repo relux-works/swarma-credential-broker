@@ -336,3 +336,17 @@ owner-approved live model/output/spend bounds and released consumer assemblies
 remain unsupplied execution gates. The recorded 2026-11-20 direction/residual act
 is not consent for all owner roles. No production acceptance or live Q result is
 inferred from a content seal, synthetic fixture or local exact-client probe.
+
+## Lab B2 native and integration gates
+
+The [B2 producer](docs/lab-b2-time.md) implements only the tagged library and
+fixture-tested gates. C-OPEN-OWNERS remains unrecorded; neither a fixture seal
+nor the dedicated lab authority identifier establishes consent or native
+qualification. B5 must independently authenticate current owner/off-VM inputs,
+release/VM/invocation pins and C1 retirement/revocation/replacement acts. B1
+must join B2’s durable time/floor/manager heads to its own heads and call the
+deadline predicate before release; B4/Q must measure root-only every-start
+protection, real NTS/bootstrap inventory, adapter closure, fsync/crash behavior,
+boot/monotonic continuity and bounded collection under qualified load. C1
+metadata acceptance is not a privileged restore/reset route. The whole-VM live
+rollback residual remains, and no production witness/default is opened.
