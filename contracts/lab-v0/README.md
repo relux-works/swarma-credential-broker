@@ -1,9 +1,9 @@
-# Lab contract C0 with C0b/C0c/C0d/C0e addenda, revision 10
+# Lab contract C0 with C0b/C0c/C0d/C0e/C0f addenda, revision 11
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
 This is the closed byte inventory of [lab profile §5.2](../../docs/lab-profile-v0.md#52-c0s-closed-byte-inventory-and-consumer-joins).
-The 30 entries in `surfaces.json` (24 base, C0b, two C0c frames and three C0e records) are authoritative together with this document;
+The 31 entries in `surfaces.json` (24 base, C0b, two C0c frames, three C0e records and C0f) are authoritative together with this document;
 `fixtures.json` pairs every own-format valid record with an unknown-field
 negative. Nested negatives carry a complete mutated record, path (array indices
 are integers), structure, field and mutation; each is paired with that surface's
@@ -400,3 +400,17 @@ first-bound count/output/USD/wall stops. Each refusal has an unchanged valid
 control. No price source download, fixture or reference transition is native
 gateway enforcement or production acceptance. See the coverage map for named
 rule witnesses and source-overlay mutations.
+
+## C0f protected installation binding
+
+[installation-binding.md](installation-binding.md) freezes the sole root-written
+B5 -> B1/M1 installation record, typed approval preimage, exact protected
+placement, expected manager/store/daemon tuple and epoch rotation. It uses
+C0b's sealed R/A/P chain and a typed installation-binding InputPin, never a
+C0c response as the expected manifest. B1/M1 read only; B5 never touches B1
+private recovery, native DAC is unchanged and the broker remains nonroot.
+The existing complete recursive catalogue applies to every new field, literal,
+member, bound and paired role; intended-step protection, seal-independent
+identity joins, same/new/old epoch controls and source-overlay witnesses are
+in the coverage map. Synthetic installation-binding-fixtures.json is not
+root installation, native provisioning or consumer adoption evidence.

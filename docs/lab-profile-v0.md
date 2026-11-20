@@ -671,13 +671,13 @@ coverage or native qualification already exists.
 | Unit | Repository | Bounded implementation scope | Dependencies | Acceptance rows | LU |
 | --- | --- | --- | --- | --- | --- |
 | C0 | swarma-credential-broker | Freeze section 5.2 byte surfaces and API-key-mode/body fixtures once, with published reproducible probe artifacts; review the lab conflict and exact C amendment/join/owner-decision record. No inferred production acceptance. | none | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 0.5 |
-| B1 | swarma-credential-broker | Tagged lab daemon and committed-account bootstrap; narrowly parameterized API-key custody/service record family; real managed gateway/caller facts; worker/legacy refusal; durable operation/hold/state and finite-plan narrowing reserve; C0d serialized publication pairs, floor/seen separation, periodic singles and native-age fence. Reuse service arithmetic/store, not a second lease engine or invented production receipt. | C0 | A01,A02,A03,A05,A07,A08,A09 | 1.5 |
+| B1 | swarma-credential-broker | Tagged lab daemon and committed-account bootstrap; narrowly parameterized API-key custody/service record family; real managed gateway/caller facts; worker/legacy refusal; durable operation/hold/state and finite-plan narrowing reserve; C0d serialized publication pairs, floor/seen separation, periodic singles and native-age fence. Read the protected [C0f installation binding](../contracts/lab-v0/installation-binding.md), never first-response pins. Reuse service arithmetic/store, not a second lease engine or invented production receipt. | C0 | A01,A02,A03,A05,A07,A08,A09 | 1.5 |
 | B2 | swarma-credential-broker | Tagged qualified NTS consumer/local C witness, settlement and sticky watermark/hold continuity; root off-home per-start fence, off-VM head/expiry join and persisted manager-prefix floor; burned-install/no-restore path. No production witness/default change. Live construction/qualification additionally waits for C-OPEN-OWNERS. | C0 | A01,A06,A07 | 1.5 |
 | B3 | swarma-credential-broker | Root-only lab control protocol/CLI: prep/enroll/bind/activate/unbind/lift; authenticated broker peer before bounded no-echo stdin capture, no spill and native session retirement; per-operation UNKNOWN reconciliation. No signed production operator ceremony. | B1 | A01,A03,A04,A05,A06,A08,A09 | 1.0 |
 | G1 | swarma-chain-lab | Tagged API-key managed source/intake with the exact eleven-flag API-key-mode profile; reject OAuth/unknown flags and unsupported coupled fields; preserve errors/SSE. Durable hold/recovery, deadline renewal, C0d 300-ms current RPC, 750-ms current watchdog, 500-ms closure and 3000-ms native end-to-end ceiling. | C0 | A01,A02,A03,A07,A08,A09 | 1.5 |
 | G1b | swarma-chain-lab | C0e sole per-attempt gate on every billable upstream forward/retry: durable ordinal and worst-case output/USD reservation using the owner-approved published price pin, authoritative usage settlement, full-reservation sticky UNKNOWN, first-bound stop and protected ledger joins to C0b, C0c and B4. No process-start counting substitute. | C0,G1 | A01,A02,A03,A05,A06,A07,A09,A10,A11,A12 | 1.5 |
 | M1 | swarma-user-manager | Tagged closed API-key lab mapping with only ANTHROPIC_API_KEY=ssh-placeholder; preserve production mapping/seccomp. Format-owned setup and genuine helper/one-start executor; approved bound-presence/approval start admission and no-privileged-agent access readback; no attempt counting (G1b owns every forward); C0c observation server with unchanged 250-ms global lock cooldown and C0d single/pair scheduling qualification. | C0 | A01,A02,A03,A04,A06,A09,A10,A11,A12 | 1.5 |
-| B5 | swarma-credential-broker | Root bootstrap/aggregate copy verifier and atomic placement; exact disabled unit/config/ACL/native-readback plan; off-VM preparation/next-plan/stop seals; source-owned lab bundle manifest. Not a full-platform installer or a root source build. Verify owner-role/access/cap records and generate persisted nonsecret operation envelopes after each predecessor commits and before its own invocation. | B2,B3,G1,G1b,M1 | A01,A04,A06,A10,A11,A12 | 1.0 |
+| B5 | swarma-credential-broker | Root bootstrap/aggregate copy verifier and atomic placement; sole root writer of the [C0f installation binding](../contracts/lab-v0/installation-binding.md), never B1-private recovery; exact disabled unit/config/ACL/native-readback plan; off-VM preparation/next-plan/stop seals; source-owned lab bundle manifest. Not a full-platform installer or a root source build. Verify owner-role/access/cap records and generate persisted nonsecret operation envelopes after each predecessor commits and before its own invocation. | B2,B3,G1,G1b,M1 | A01,A04,A06,A10,A11,A12 | 1.0 |
 | B4 | swarma-credential-broker | Tagged native qualification driver and protected lifecycle scanner; complete Q1–Q6 valid/negative/public-plant commands, actual worker peers, C0d periodic/pair/native-age/current/closure timing and stream observation, C0e protected gateway ledger/price/plan/start joins, immutable metadata-only pack and bounded fixture cleanup. Native inert preflight precedes real-key use. In-custody needle attestation and root-only whole-needle matcher; owner executes every live Q command. | B1,B2,B3,G1,G1b,M1,B5 | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 1.5 |
 | RB | swarma-credential-broker | Main-owned lab build/release profile and expected inventory, future signed broker tag, independent second build, checksums/provenance/fragment and release review. Production admission rejects lab tags; lab admission builds lab-only targets. | B4 | A01,A11 | 0.5 |
 | RG | swarma-chain-lab | Main-owned gateway lab archive/input policy and future signed tag; correct tagged binary/members/unit plus independent rebuild/review/checksums. Disjoint lab tag admission/provenance; cut only after B4 integrated verification. | B4 | A01,A02,A11 | 0.5 |
@@ -726,7 +726,7 @@ valid own-format controls; production acceptance is never widened to pass it.
 Existing manager-owned production records are the explicit exception in 3.1.
 
 The C0 freeze is [contracts/lab-v0/README.md](../contracts/lab-v0/README.md), with
-30 closed formats, including C0b's `swarma-broker-lab-bounded-invocation/1` (B5 → M1/G1b/B4).
+31 closed formats, including C0b's `swarma-broker-lab-bounded-invocation/1` (B5 → M1/G1b/B4).
 The [C0b addendum](../contracts/lab-v0/bounded-invocation.md) freezes owner-set bounds and exact approval/executor joins.
 [C0c](../contracts/lab-v0/observation.md) adds `swarma-broker-lab-observation-request/1` (B1 → M1) and `swarma-broker-lab-observation-response/1` (M1 → B1), with native-lock currentness, C0d publication-pair versus periodic-single consumption, distinct native sequence/observation counter, and final-publication joins. C0e adds the gateway-only attempt ledger and approved model-price pin below. These are construction bytes, not production acceptance or any owner/native execution gate.
 
@@ -744,6 +744,7 @@ The [C0b addendum](../contracts/lab-v0/bounded-invocation.md) freezes owner-set 
 | `swarma-broker-lab-q-evidence/1`: all Q rows, real command exits, effect/completeness/encoding bounds | B4 → Q and independent evidence readers |
 | `swarma-broker-lab-model-price/1`, `swarma-broker-lab-attempt-group/1`, `swarma-broker-lab-attempt-ledger/1`: C0e published price and durable group-clock/per-attempt accounting/start/evidence joins | B5 → G1b/B4 for price; G1b → M1/B1/B4 for group; G1b → B1/B4/B5 for ledger; [closed addendum](../contracts/lab-v0/attempt-accounting.md) |
 | `swarma-lab-release-set/1`: all product/tag/asset/digest/mode/provenance and second-build comparisons | RB/RG/RM/B5 → root verifier/B1/G1/M1/B4 |
+| `swarma-broker-lab-installation-binding/1`: expected manager/store/daemon tuple, approval/release digests and install epoch | B5 root → B1/M1; exact protected source and rotation in [C0f](../contracts/lab-v0/installation-binding.md) |
 
 Root mutating requests carry `operation_id` (fresh 128-bit identifier), method,
 installation/account, qualification revision, exact nonsecret input digests and
@@ -943,6 +944,13 @@ config/preparation in `/etc/swarma/lab/`; broker state in
 `/var/lib/swarma-lab/evidence/` (root 0700/0600). Binaries root:root 0755, units
 root:root 0644. All literal unit names below are lab-only and initially disabled,
 `Restart=no`; no `enable --now` and no production activation file.
+
+B5's install-set writes the sole [C0f installation binding](../contracts/lab-v0/installation-binding.md)
+at `/etc/swarma/lab/installation-binding.json`, root:daemon-group 0640 under
+root:daemon-group 0750. It verifies the approved typed preimage and native setup
+readback before install success or daemon start. Reinstall/rotation first closes
+and quiesces old use, then advances the epoch; B1/M1 never write this record or
+adopt first-response pins, and B5 never accesses B1-private recovery.
 
 ### 7.2 Qualify manager, create identities and prepare control plane
 

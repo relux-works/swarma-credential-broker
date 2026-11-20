@@ -1,6 +1,6 @@
 # C0 construction coverage map
 
-Scope: the 30 byte formats (24 base, C0b, two C0c frames and three C0e records) in lab profile section 5.2, not runtime A01–A12 acceptance.
+Scope: the 31 byte formats (24 base, C0b, two C0c frames, three C0e records and C0f) in lab profile section 5.2, not runtime A01–A12 acceptance.
 No separate attack-surface catalog was supplied; the profile inventory is the
 bounded construction surface. Own-format controls are canonical public fixtures.
 The source overlay mutant `foreign-format` disables string-singleton checking;
@@ -13,6 +13,7 @@ actual production-reader cross-read integration. Those remain assigned by sectio
 | `swarma-broker-lab-model-price/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-model-price/1`; canonical valid fixture | `c0e-format`; `c0e-member-closure` |
 | `swarma-broker-lab-attempt-group/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-attempt-group/1`; canonical valid fixture | `c0e-format`; `c0e-member-closure` |
 | `swarma-broker-lab-attempt-ledger/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-attempt-ledger/1`; canonical valid fixture | `c0e-format`; `c0e-member-closure` |
+| `swarma-broker-lab-installation-binding/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-installation-binding/1`; canonical synthetic control | `c0f-format`; `c0f-member-closure` |
 | `swarma-broker-lab-activation/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-activation/1`; adjacent canonical valid fixture | `foreign-format` |
 | `swarma-broker-lab-authority/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-authority/1`; adjacent canonical valid fixture | `foreign-format` |
 | `swarma-broker-lab-preparation/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-preparation/1`; adjacent canonical valid fixture | `foreign-format` |
@@ -507,3 +508,114 @@ overlays were also replayed against this candidate; all fail their named tests.
 | c0e-null-closure | Delegate null closure to a later grammar check | TestLabNestedClosurePairs/swarma-broker-lab-model-price/1/GatewayPrices/null |
 | c0e-array-bound | Admit 257 attempt members | TestLabGatewayArrayPairs/257 |
 | c0e-byte-bound | Admit one byte above the frozen ceiling | TestLabPayloadLimitPairs/swarma-broker-lab-model-price/1 |
+
+## C0f protected installation binding
+
+Scope: one new external format, reusing Context and ObservationManager, no runtime
+installer/client/server or private recovery surface. Every C0 recursive operator
+applies to I; the semantic catalogue additionally attacks the typed target
+domain/member labels, member selectors and installation-binding InputPin name.
+The target/member/pin helpers are exercised directly so their negatives do not
+fail merely because another release seal would reject the mutation. Native
+stat/peer/provisioning/fsync/quiescence and timing remain B5/B1/M1 qualification
+obligations under the construction-only clause, not synthetic acceptance.
+
+| Rule / cases | Named paired tests | Narrowing overlays |
+| --- | --- | --- |
+| Exact format/member closure, null/all wrong kinds, every literal/member operator, both numeric/byte bounds and nested closure; valid controls on I | TestLabClosedSurfacePairs; TestLabNestedClosurePairs; TestLabGeneratedClosedFieldPairs; TestLabGeneratedGrammarPairs; TestLabGeneratedObjectBytePairs; TestLabGeneratedCanonicalBytePairs; TestLabPayloadLimitPairs | c0f-format; c0f-member-closure; c0f-null-closure; c0f-nested-closure; c0f-byte-bound; c0f-epoch-positive |
+| Root owner, exact file/group/mode/link/ancestor/ACL facts; absent/stale/unreadable/partial current path, no repair and sticky close | TestLabInstallationProtectionPairs; TestLabInstallationJoinPairs/current-read | c0f-protection-*; c0f-current-read; c0f-sticky |
+| Typed target excludes only A/R, exact complete I pins in both plans, unique approved broker member, exact executable products/modes/digests; full literal/value catalogue | TestLabInstallationTargetPairs; TestLabInstallationInputPinPairs; TestLabInstallationExecutablePairs; TestLabInstallationLiteralPairs | c0f-target-*; c0f-pin-*; c0f-executable-* |
+| Complete C0b owner/expiry/revocation chain, Context and A/R digests, install-plan joins, no response TOFU; every manager/daemon/store/boot pin | TestLabInstallationFixturePairs; TestLabInstallationJoinPairs; TestLabInstallationInstallPlanPairs | c0f-chain; c0f-context; c0f-approval; c0f-release; c0f-manager-*; c0f-store; c0f-daemon-*; c0f-boot; c0f-native |
+| UID/GID both sides 0/1/2 and max-1/max/max+1; each role and both swapped beside nonroot daemon/root manager | TestLabInstallationRolePairs | c0f-role-* |
+| Same/new/old/missing-latch epoch invalidates in-flight use without advancing private state; approved root-only rotation, complete quiescence, exact next epoch, fresh instance, absent prior and overflow; no B5 private recovery access | TestLabInstallationJoinPairs; TestLabInstallationRotationPairs | c0f-epoch; c0f-writer-*; c0f-rotation-* |
+
+### C0f replay evidence
+
+Each row below is a source overlay at this candidate's exact bytes. Its Go
+process exits 1 at the named intended assertion; compile/setup failures and
+no-tests runs do not count. There are 73 narrowing gate overlays and one
+separate frozen-domain construction regression control (c0f-target-domain).
+All 74 fail a named test, with zero survivors. Stage-specific joins may retain
+independent later gates: a wrong refusal step is a regression, not a claim that
+every such overlay would admit bad authority. Native filesystem, peer,
+installation and concurrency qualification are not supplied by these references.
+Logs and independent source/witness reconciliation: `.temp/lab-c0f/mutants/`
+and `.temp/lab-c0f/mutation-audit-01.log`. Historical C0b–C0e overlay reports above
+are not claimed replayed here; their committed test names remain in the suites.
+
+| Source overlay | Narrowed gate / regression control | Named failing test | Exit |
+| --- | --- | --- | --- |
+| `c0f-protection-present` | Ignore opened-file protection present | `TestLabInstallationProtectionPairs/absence` | 1 |
+| `c0f-protection-regular` | Ignore opened-file protection regular | `TestLabInstallationProtectionPairs/regular` | 1 |
+| `c0f-protection-ancestors` | Ignore opened-file protection ancestors | `TestLabInstallationProtectionPairs/ancestors` | 1 |
+| `c0f-protection-acl` | Ignore opened-file protection acl | `TestLabInstallationProtectionPairs/acl` | 1 |
+| `c0f-protection-owner` | Ignore opened-file protection owner | `TestLabInstallationProtectionPairs/owner` | 1 |
+| `c0f-protection-group` | Ignore opened-file protection group | `TestLabInstallationProtectionPairs/group` | 1 |
+| `c0f-protection-mode` | Ignore opened-file protection mode | `TestLabInstallationProtectionPairs/mode-read` | 1 |
+| `c0f-protection-links` | Ignore opened-file protection links | `TestLabInstallationProtectionPairs/links-two` | 1 |
+| `c0f-protection-parent-owner` | Ignore opened-file protection parent-owner | `TestLabInstallationProtectionPairs/parent-owner` | 1 |
+| `c0f-protection-parent-group` | Ignore opened-file protection parent-group | `TestLabInstallationProtectionPairs/parent-group` | 1 |
+| `c0f-protection-parent-mode` | Ignore opened-file protection parent-mode | `TestLabInstallationProtectionPairs/parent-write` | 1 |
+| `c0f-current-read` | Trust a cached or replaced path instead of a fresh complete protected read | `TestLabInstallationJoinPairs/current-read` | 1 |
+| `c0f-sticky` | Reopen the same group after its binding check failed | `TestLabInstallationProtectionPairs/absence` | 1 |
+| `c0f-fence` | Refuse without closing the active group | `TestLabInstallationProtectionPairs/absence` | 1 |
+| `c0f-epoch` | Adopt a new epoch in an active group | `TestLabInstallationJoinPairs/new-epoch` | 1 |
+| `c0f-epoch-only` | Ignore the private epoch high-water | `TestLabInstallationJoinPairs/old-epoch` | 1 |
+| `c0f-digest-only` | Ignore a changed full installation image at the same epoch | `TestLabInstallationJoinPairs/same-epoch-new-digest` | 1 |
+| `c0f-chain` | Treat unverified owner provenance as sufficient | `TestLabInstallationJoinPairs/owner` | 1 |
+| `c0f-context` | Omit installation context validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/context` | 1 |
+| `c0f-approval` | Omit installation approval validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/approval_record_sha256` | 1 |
+| `c0f-release` | Omit installation release validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/release_set_sha256` | 1 |
+| `c0f-target-read` | Omit installation target-read validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/unapproved-coherent-native-tuple` | 1 |
+| `c0f-manager-executable-read` | Omit installation manager-executable-read validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/manager-unapproved-executable` | 1 |
+| `c0f-daemon-executable-read` | Omit installation daemon-executable-read validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/daemon-unapproved-executable` | 1 |
+| `c0f-pin-read` | Omit installation pin-read validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/launch-binding-pin` | 1 |
+| `c0f-roles-read` | Omit installation roles-read validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/coherent-root-daemon` | 1 |
+| `c0f-boot` | Omit installation boot validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/boot` | 1 |
+| `c0f-native` | Omit installation native validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/native` | 1 |
+| `c0f-store` | Omit installation store validation (remaining independent gates stay enabled) | `TestLabInstallationJoinPairs/store` | 1 |
+| `c0f-daemon-daemon-uid` | Ignore the actual daemon daemon_uid | `TestLabInstallationJoinPairs/daemon-uid` | 1 |
+| `c0f-daemon-daemon-gid` | Ignore the actual daemon daemon_gid | `TestLabInstallationJoinPairs/daemon-gid` | 1 |
+| `c0f-daemon-daemon-executable` | Ignore the actual daemon daemon_executable_sha256 | `TestLabInstallationJoinPairs/daemon-executable` | 1 |
+| `c0f-daemon-daemon-socket` | Ignore the actual daemon daemon_socket_path | `TestLabInstallationJoinPairs/daemon-socket` | 1 |
+| `c0f-daemon-observation-socket` | Ignore the actual daemon observation_socket_path | `TestLabInstallationJoinPairs/observation-socket` | 1 |
+| `c0f-manager-identity` | Ignore observed manager identity while comparing every other member | `TestLabInstallationJoinPairs/observed-manager-identity` | 1 |
+| `c0f-manager-instance_id` | Ignore observed manager instance_id while comparing every other member | `TestLabInstallationJoinPairs/observed-manager-instance_id` | 1 |
+| `c0f-manager-executable_sha256` | Ignore observed manager executable_sha256 while comparing every other member | `TestLabInstallationJoinPairs/observed-manager-executable_sha256` | 1 |
+| `c0f-manager-boot_id` | Ignore observed manager boot_id while comparing every other member | `TestLabInstallationJoinPairs/observed-manager-boot_id` | 1 |
+| `c0f-target-domain` | Construct a different target domain than the frozen approved preimage | `TestLabInstallationFixturePairs` | 1 |
+| `c0f-target-product` | Ignore target member product | `TestLabInstallationTargetPairs/product` | 1 |
+| `c0f-target-mode` | Ignore target member mode | `TestLabInstallationTargetPairs/mode` | 1 |
+| `c0f-target-digest` | Ignore target member digest | `TestLabInstallationTargetPairs/digest` | 1 |
+| `c0f-target-unique` | Ignore target member unique | `TestLabInstallationTargetPairs/duplicate` | 1 |
+| `c0f-target-missing` | Ignore target member missing | `TestLabInstallationTargetPairs/missing` | 1 |
+| `c0f-pin-unique` | Ignore typed I pin unique | `TestLabInstallationInputPinPairs/install/unrelated-duplicate` | 1 |
+| `c0f-pin-digest` | Ignore typed I pin digest | `TestLabInstallationInputPinPairs/install/wrong-digest` | 1 |
+| `c0f-pin-missing` | Ignore typed I pin missing | `TestLabInstallationInputPinPairs/install/missing` | 1 |
+| `c0f-role-uid-low` | Widen installation native role uid-low | `TestLabInstallationRolePairs/uid/0` | 1 |
+| `c0f-role-uid-high` | Widen installation native role uid-high | `TestLabInstallationRolePairs/uid/4294967295` | 1 |
+| `c0f-role-gid-low` | Widen installation native role gid-low | `TestLabInstallationRolePairs/gid/0` | 1 |
+| `c0f-role-gid-high` | Widen installation native role gid-high | `TestLabInstallationRolePairs/gid/4294967295` | 1 |
+| `c0f-role-manager` | Widen installation native role manager | `TestLabInstallationRolePairs/manager-only-swap` | 1 |
+| `c0f-executable-product` | Accept unapproved executable product | `TestLabInstallationExecutablePairs/manager/product` | 1 |
+| `c0f-executable-mode` | Accept unapproved executable mode | `TestLabInstallationExecutablePairs/manager/mode` | 1 |
+| `c0f-executable-digest` | Accept unapproved executable digest | `TestLabInstallationExecutablePairs/manager/digest` | 1 |
+| `c0f-install-context` | Skip B5 root-only install-plan context join | `TestLabInstallationInstallPlanPairs/context` | 1 |
+| `c0f-install-approval` | Skip B5 root-only install-plan approval join | `TestLabInstallationInstallPlanPairs/off_vm_approval_sha256` | 1 |
+| `c0f-install-release` | Skip B5 root-only install-plan release join | `TestLabInstallationInstallPlanPairs/release_set_sha256` | 1 |
+| `c0f-install-pin` | Skip B5 root-only install-plan pin join | `TestLabInstallationInstallPlanPairs/binding-pin` | 1 |
+| `c0f-writer-root` | Permit B5 rotation without root boundary | `TestLabInstallationRotationPairs/not-root` | 1 |
+| `c0f-writer-approval` | Permit B5 rotation without approval boundary | `TestLabInstallationRotationPairs/unapproved` | 1 |
+| `c0f-writer-quiescence` | Permit B5 rotation without quiescence boundary | `TestLabInstallationRotationPairs/in-flight` | 1 |
+| `c0f-writer-private` | Permit B5 rotation without private boundary | `TestLabInstallationRotationPairs/private-read-or-write` | 1 |
+| `c0f-rotation-fresh` | Weaken rotation fresh guard before any write | `TestLabInstallationRotationPairs/missing-prior` | 1 |
+| `c0f-rotation-first` | Weaken rotation first guard before any write | `TestLabInstallationRotationPairs/fresh-not-one` | 1 |
+| `c0f-rotation-overflow` | Weaken rotation overflow guard before any write | `TestLabInstallationRotationPairs/overflow` | 1 |
+| `c0f-rotation-next` | Weaken rotation next guard before any write | `TestLabInstallationRotationPairs/skip-epoch` | 1 |
+| `c0f-rotation-instance` | Weaken rotation instance guard before any write | `TestLabInstallationRotationPairs/reused-instance` | 1 |
+| `c0f-format` | Treat fixed discriminator/literal fields as arbitrary values | `TestLabClosedSurfacePairs/swarma-broker-lab-installation-binding/1` | 1 |
+| `c0f-member-closure` | Check named fields but accept additional members | `TestLabClosedSurfacePairs/swarma-broker-lab-installation-binding/1` | 1 |
+| `c0f-null-closure` | Delegate null refusal to type checks instead of the required closure gate | `TestLabClosedSurfacePairs/swarma-broker-lab-installation-binding/1` | 1 |
+| `c0f-nested-closure` | Check nested JSON kind only, not nested closure | `TestLabNestedClosurePairs/swarma-broker-lab-installation-binding/1/Context/unknown` | 1 |
+| `c0f-byte-bound` | Skip pre-decode 16384-byte bound | `TestLabPayloadLimitPairs/swarma-broker-lab-installation-binding/1` | 1 |
+| `c0f-epoch-positive` | Accept zero positive install epoch | `TestLabGeneratedGrammarPairs/swarma-broker-lab-installation-binding/1/[install_epoch]/positive/integer-0` | 1 |
