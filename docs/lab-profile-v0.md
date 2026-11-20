@@ -1,15 +1,15 @@
-# Lab profile v0: capped Anthropic API key on colony1
+# Lab profile v0: capped Anthropic API key on the dedicated lab VM
 
 **Status: PROPOSED. Design for review, not an executable release or an activation approval.**
 
-**DECLARED CONFLICT — LAB ONLY, NEVER PRODUCTION.** the owner's decision of
+**DECLARED CONFLICT — LAB ONLY, NEVER PRODUCTION.** The owner's decision of
 2026-11-20 selects a manual-root lab route instead of the production assembly.
 This profile deliberately does **not** satisfy broker section 14's authenticated,
 content-signed operator ceremony or `spec/operator-and-activation-v0.md`'s
 DN-01–DN-08 implementation. Its DN-09 **option C** proposal also conflicts with
 `docs/time-contract.md` and `docs/qualified-time-api.md`; C's own opening
 conditions in section 4 remain mandatory. Production A is not changed.
-It replaces those operator mechanisms with commands the owner runs in his own root
+It replaces those operator mechanisms with commands the owner runs in the owner's own root
 SSH session. It never enables the production daemon, accepts a production
 activation document, imports a subscription token, or claims Curator Core
 acceptance. The production path remains separate and closed pending its own
@@ -28,7 +28,7 @@ publication or Q check before its execution gates are met.
 The newer decision supersedes the supplied qualification plan's subscription
 login and snapshot-reset steps **for this lab only**. The account is a dedicated
 Anthropic **API key with an owner-approved spend cap**, never the owner's subscription or
-`claude setup-token` output. The owner creates and enrolls it himself. The six Q
+`claude setup-token` output. The owner creates and enrolls it personally. The six Q
 requirements are reproduced in section 8; its controls remain mandatory. The
 cap belongs to the vendor workspace/project or other enforcing billing object,
 not the key bytes: record that object, its hard limit, period, effective readback
@@ -43,14 +43,11 @@ resolve at these immutable inspected commits, not at an older runbook's pins:
 | G | swarma-chain-lab | `87e8a7e41a073f6fb3b6ff2d09299162ee16deb3` |
 | M | swarma-user-manager | `7c5e9eebbaf859246d4e5adc600a6727e5773e34` |
 | D | swarma-docs | `bc1132c9d9be60864ef7195efa83215357ad3011` |
-| I | supplied inputs, retained with the review packet | the six named Markdown inputs, not release authority |
-| W | `docs/lab-wire-profile-v0.md` in this revision | self-contained exact-binary synthetic wire/body evidence, 2026-11-20 |
+| W | `docs/lab-wire-profile-v0.md` in this revision | exact-binary synthetic wire/body observation, 2026-11-20; repository reproduction limit stated there |
 
-Read together: qualification plan; `RUNBOOK-colony1-qualification.md`;
-`RUNBOOK-GAPS-HANDOFF.md`; `BROKER-IMPLEMENTATION-PLAN-v0.md`;
-`DECISION-claude-gateway-launch-contract-v1.md`; and
-`DECISION-managed-identity-projection-v1.md`. Their historical STOPs and estimated
-states are inputs, not current implementation findings.
+Historical qualification and implementation plans are background only. All
+load-bearing Q requirements, gap definitions, unit allocations and source pins
+are reproduced here; an unpublished input is not an acceptance authority.
 
 Book-first dispositions:
 
@@ -99,8 +96,44 @@ roster and human/operator attribution, approves it off-VM **before key creation*
 and controls the window until vendor revocation. Record the vendor creation
 instant and the attestation window; a window starting later refuses enrollment. An agent's unprivileged worker UID is not privileged access.
 
-`verify-access` compares the attested inventory with native guest and externally
-attested control-plane readback before enrollment, activation and each Q group.
+The same `swarma-broker-lab-access-attestation/1` has two mandatory off-VM
+sections, approved by the owner rather than inferred from guest UID checks:
+
+- **Owner endpoint, creation through committed enrollment:** the owner attests
+  a nonrecording endpoint and vendor-console browser profile and terminal with
+  no agent process, browser automation or extension with page access, screen
+  capture, remote desktop, screen-control or computer-use session. Clipboard
+  history and sync are disabled. No password manager, notes, transfer file or
+  other interim holder is used; only the immediate transient transfer from the
+  one-time display to the authenticated no-echo prompt is allowed. Clear the
+  clipboard and close the one-time display immediately after input or abort.
+  A key exposed to, displayed in or reachable from an agent context is
+  **ineligible and vendor-revoked**, never admitted after cleanup. The production
+  endpoint exclusion and ineligible-credential rules remain the basis:
+  `B:spec/operator-and-activation-v0.md:304` and
+  `B:spec/operator-and-activation-v0.md:621`.
+- **Vendor organisation for the whole key life:** the owner inventories effective
+  principals and delegated credentials/sessions able to administer the lab
+  workspace, its enforcing cap/limit, or its keys, including create, re-scope,
+  disable and limit-change rights. No agent identity, agent-controlled session
+  or agent-held admin key is allowed, even behind a human principal's name.
+  Read back the complete roster and cap **before creation and before each Q
+  group**; compare with the owner-approved roster, workspace and limit. Any
+  change invalidates admission and quiesces use. Missing visibility or doubt
+  means no creation/use, or revoke and recreate after exclusion is re-established.
+
+B3/B4 admission fixtures pair an owner-only endpoint and vendor roster valid
+control with **endpoint-agent-reachable** and **vendor-agent-admin** negatives
+(and missing/stale/changed readbacks). Each must refuse before capture or key
+use, with no credential/lease effect; use public inert data, never expose a real
+key to test a forbidden endpoint. A04 and A12 carry both negatives.
+
+`verify-access` compares all three attested surfaces: native guest/external
+control-plane readback, owner endpoint exclusion, and owner-obtained complete
+vendor roster/cap readback. It runs before creation/enrollment, activation and
+each Q group; the owner performs and approves the off-VM readbacks. A local
+Boolean cannot substitute for those observations or remotely prove endpoint
+cleanliness. Its metadata records their scope, digest, freshness and window.
 Missing external visibility is incomplete, not absence of access. Freeze access
 changes during the window and audit them off-VM; any change invalidates admission,
 quiesces use and requires owner review/vendor revocation if exclusion is lost.
@@ -141,8 +174,8 @@ This is the measured API-key row:
 - The **actual step-2 intake** also requires `scheme == "oauth-bearer"`, attaches
   `Authorization`, applies the closed `pricedBetaProfile` gate, then copies
   the admitted `Anthropic-Beta`:
-  `G:experiments/model-proxy/service/intake_linux.go:272`,
-  `G:experiments/model-proxy/service/intake_linux.go:308` and
+  `G:experiments/model-proxy/service/intake_linux.go:274`,
+  `G:experiments/model-proxy/service/intake_linux.go:309` and
   `G:experiments/model-proxy/service/intake_linux.go:358`.
 - Its client/source require `claude-oauth-token`:
   `G:experiments/model-proxy/service/client_linux.go:355` and
@@ -185,10 +218,11 @@ claude-code-20250219,interleaved-thinking-2025-05-14,context-management-2025-06-
    JSON bytes and incremental SSE. Fixed TLS host/SNI is `api.anthropic.com`;
    no proxy environment, redirects or arbitrary endpoint. Copy only the reviewed
    protocol-header allowlist; `anthropic-version` is `2023-06-01` for this pin.
-3. Remove all worker authentication; install exactly one `x-api-key` from the
-   current API-key lease. Never forward Authorization, Proxy-Authorization,
-   Cookie or an additional credential. Neither placeholder nor real key enters
-   a URL, error or another header.
+3. Remove all worker authentication. **POST only:** install exactly one
+   `x-api-key` from the current API-key lease. **Policy-limits GET:** forward
+   credential-free, with neither x-api-key nor Authorization. Never forward
+   Proxy-Authorization, Cookie or another credential. Neither placeholder nor
+   real key enters a URL, error or another header.
 4. Parse the beta comma-list, trim ASCII whitespace, require exact lowercase
    tokens, reject empty/duplicate/case-variant tokens and multiple header fields,
    and reject any token outside the eleven-token set. Retain every admitted
@@ -209,10 +243,15 @@ claude-code-20250219,interleaved-thinking-2025-05-14,context-management-2025-06-
    `G:experiments/model-proxy/cmd/model-proxy/testdata/claude-code-2.1.328-messages.json:11`
    has both scope and `ttl:1h`; it is a negative against API-key-mode substitution,
    not evidence that the plain API-key client sends that TTL.
-6. Policy-limits GET uses the same fixed upstream/API-key policy; preserve its
-   real status/error, never synthesize successful restrictions. Native Q1 must
-   show the pinned bounded invocation tolerates its genuine result. Local wire
-   success is not vendor authorization or proof of every beta entitlement.
+6. Policy-limits GET keeps the fixed upstream and current admission checks,
+   **not credential injection**: the measured API-key client sends it without
+   credentials (`W:docs/lab-wire-profile-v0.md:31`). Do not reuse the landed OAuth
+   intake's bearer attachment (`G:experiments/model-proxy/service/intake_linux.go:309`).
+   Preserve the genuine status/error, including authentication/unsupported
+   errors; never synthesize successful restrictions. Pair credential-free GET
+   as the valid control with a worker-supplied key/Authorization on GET refused
+   before forwarding. Native Q1 must show the pinned invocation tolerates that
+   genuine result; local wire success is not vendor authorization.
 7. Clear Authorization and x-api-key from holder-owned objects on every terminal
    path; the current Drop removes only Authorization
    (`G:experiments/model-proxy/service/adapter_linux.go:181`). No headers/bodies,
@@ -220,6 +259,11 @@ claude-code-20250219,interleaved-thinking-2025-05-14,context-management-2025-06-
 
 C0 freezes the exact model, output/cost bounds and invocation before release;
 the probe's observed default `max_tokens:128000` is **not** a live budget approval.
+G1 must not reuse the landed single-value beta check: it checks only
+`values[0]` at `G:experiments/model-proxy/service/intake_linux.go:282`, while
+copying every value at `G:experiments/model-proxy/service/intake_linux.go:358`.
+`TestLabAPIKeyDuplicateBetaFields` must reject two Anthropic-Beta fields before
+forwarding beside the valid single-field measured request; A02 owns this case.
 G1/M1 tests pair the valid measured API-key request, all eleven flags retained
 and coupled fields preserved, with OAuth-mode input/flag forwarding, unknown or
 duplicate/case-variant beta, missing required beta, one-hour TTL, wrong marker,
@@ -341,8 +385,12 @@ Retained contracts and qualifications:
   `hold-lift` with the exact active hold ID may lift; lifting never revives an
   ended lease or unbound service. No `clear_block` substitute.
 - **Revocation:** one-second end-to-end bound, not merely a one-second poll
-  constant. Poll detection budget is 250 ms cadence + 250 ms RPC + at most 500 ms
-  cancellation/closure under qualified load. Independently arm a **500 ms**
+  constant. The lab sets 250 ms cadence + **200 ms RPC timeout**, strictly
+  below the 500 ms watchdog, leaving 50 ms scheduling margin; cancellation/closure
+  takes at most another 500 ms under qualified load. The landed defaults are
+  250 ms/250 ms (`G:experiments/model-proxy/cmd/model-proxy/managed_linux.go:36`
+  and `G:experiments/model-proxy/cmd/model-proxy/managed_linux.go:37`),
+  so G1 must change the timeout rather than claim the defaults have margin. Independently arm a **500 ms**
   watchdog from the last successful current check; watchdog closure must finish
   within another 500 ms, hence at most 1 s from that check. Measure both paths.
   Unavailability, missed deadline, stale generation or hold cancels in-flight
@@ -386,23 +434,24 @@ user-manager owners must explicitly accept the **exact amendment bytes**, joined
 start/high-water rules and dedicated machine/account/revision/expiry.
 Accepting only the residual cannot open C
 (`B:spec/operator-and-activation-v0.md:1143`). Section 9 still says C is
-not in force (`B:spec/operator-and-activation-v0.md:1755`). This document does not
+not in force (`B:spec/operator-and-activation-v0.md:1756`). This document does not
 amend production acceptance or infer missing owner decisions from root access.
 
 ### 4.1 Dated lab decision record and open conditions
 
 | Record / condition | Dated act and scope | Present status |
 | --- | --- | --- |
-| OD-LAB-2026-11-20 | On 2026-11-20 the repository owner selected lab path B for colony1, a dedicated capped API key enrolled personally, NTS/no restore, and accepted the live whole-VM snapshot/rollback residual for this lab. This paragraph records that owner act. | Recorded lab direction and residual acceptance only; not a release/activation approval. |
+| OD-LAB-2026-11-20 | On 2026-11-20 the repository owner selected lab path B for the dedicated lab VM, a dedicated capped API key enrolled personally, NTS/no restore, and accepted the live whole-VM snapshot/rollback residual for this lab. This paragraph records that owner act. | Recorded lab direction and residual acceptance only; not a release/activation approval. |
 | C-OPEN-OWNERS | Repository, time-contract and user-manager owners accept the exact API-key variant in 4.2, qualified-time API text, joined start/high-water rules, protected VM/account/revision/expiry and residual. A single act may cover roles only if it explicitly names authority for each; an override must explicitly establish that authority and scope. | **Not recorded** by OD-LAB-2026-11-20; mandatory before B2's live construction/qualification or any enrollment/use. |
 | C-OPEN-JOINS | Every-start outside-home fence and off-VM clock/final-head approval; exact manager journal prefix persisted before release, never observed-state reset. | Specified below; implementation/native evidence still required. |
-| C-OPEN-PROTECTION | Complete no-privileged-agent access attestation, cap readback, exact release/invocation/VM identity and fixed expiry approved by the owner off-VM. | Required execution inputs, not supplied by this proposal. |
+| C-OPEN-PROTECTION | Complete guest/control-plane exclusion for the key life, owner-endpoint exclusion from creation through committed enrollment, and agent-free vendor-organisation workspace/cap/key administration roster, read back before creation and every Q group. The owner approves those observations, cap readback, exact release/invocation/VM identity and fixed expiry off-VM; any change invalidates admission. | Required execution inputs, not supplied by this proposal. |
 
 C0 freezes a `swarma-broker-lab-owner-decision/1` record naming all three owner
 roles, the amendment/API/join digests and installation, independently verified
 VM/account, qualification revision and expiry. Its approval record is kept
 off-VM and copied through the reviewed root verifier; self-asserted guest bytes
-are not approval. B2 depends on accepted C0 **and C-OPEN-OWNERS**; B5 and the
+are not approval. B2 implementation depends on accepted C0; its **live
+construction/qualification additionally waits for C-OPEN-OWNERS**. B5 and the
 enrollment/activation commands refuse without that record. Unknown or expired
 acceptance is closed. The dated residual act does not invent an amendment,
 qualification revision, expiry or another owner's consent.
@@ -480,7 +529,7 @@ digests; neither published production document is modified by this exception.
 
 ### 4.3 Joined start, high-water and native obligations
 
-On colony1 this means all of the following, not merely "chrony is synchronized":
+On the dedicated lab VM this means all of the following, not merely "chrony is synchronized":
 
 1. Infra supplies the protected complete chrony source/configuration inventory,
    NTS certificate/bootstrap and authenticated-source evidence. Every selected
@@ -524,7 +573,7 @@ On colony1 this means all of the following, not merely "chrony is synchronized":
    this explicit risk, the exact reviewed revision/VM/account and time-box in
    the owner's off-VM approval. No production promotion of any C result or witness.
 
-The protected `test_api_key=true` marker, independently verified colony1 VM
+The protected `test_api_key=true` marker, independently verified the dedicated lab VM VM
 identity and qualification expiry are mandatory at enrollment, bind, issue,
 renewal and final use. Other accounts/VMs/revisions refuse. No hard-coded hostname
 or locally self-asserted machine-id alone proves the qualified VM.
@@ -540,40 +589,40 @@ coverage or native qualification already exists.
 | Row | Required valid and forbidden outcomes | Units |
 | --- | --- | --- |
 | A01 | Tagged lab records/build graph work; production/lab activation, authority, custody, journal, fence and floor cross-read/import or production-store adoption refuses. | C0, B1, B2, B3, G1, M1, B5, B4, RB, RG, RM, Q |
-| A02 | Measured API-key mapping injects exactly x-api-key and retains all eleven non-OAuth flags/required body fields; OAuth/unknown/duplicate/case-variant flag, missing beta, wrong scheme, redirect and fake policy success refuse. | C0, B1, G1, M1, B4, RG, Q |
+| A02 | Measured API-key mapping injects exactly x-api-key and retains all eleven non-OAuth flags/required body fields; OAuth/unknown/duplicate/case-variant flag, two beta header fields, missing beta, wrong scheme, redirect and fake policy success refuse; credential-free policy-limits GET works, worker-supplied authentication on GET refuses. | C0, B1, G1, M1, B4, RG, Q |
 | A03 | Current kernel gateway and managed caller execution work; worker/stale or reused UID, wrong class/placement, root JSON spoof and legacy material route refuse. | C0, B1, B3, G1, M1, B4, Q |
-| A04 | Owner-only no-echo bounded capture and custody work; privileged agent reach, spill, non-TTY/nonroot input, successor residue and second prompt for committed/UNKNOWN operation refuse. | C0, B3, M1, B5, B4, Q |
+| A04 | Owner-only no-echo bounded capture with clean endpoint and unchanged human-only vendor roster works; endpoint-agent-reachable, vendor-agent-admin or changed roster, privileged agent reach, interim copy, spill, non-TTY/nonroot input, successor residue and second prompt for committed/UNKNOWN operation refuse. | C0, B3, M1, B5, B4, Q |
 | A05 | Fresh committed account/journal and exact-ID status reconcile; orphan/missing-as-empty, contradictory retry, UNKNOWN replay and lost narrowing reserve refuse. | C0, B1, B3, B4, Q |
-| A06 | Accepted exact C opening record plus native NTS/fence/prefix floor admits use; missing owner role/amendment/join decision, plain NTP, fixture witness, rewind or expired approval closes use. | C0, B2, M1, B5, B4, Q |
+| A06 | Accepted exact C opening record plus native NTS/fence/prefix floor admits enrollment/activation/use; missing owner role/amendment/join decision, plain NTP, fixture witness, rewind or expired approval closes use. | C0, B2, B3, M1, B5, B4, Q |
 | A07 | Issue/renew obeys 1..900 and earliest deadline; gateway ceiling mismatch, >900, stale/replayed/retargeted or UNKNOWN duplicate effect refuses. | C0, B1, B2, G1, B4, Q |
 | A08 | Whole-needle leak match durably holds the account; local-only/ack-loss reopening, nonowner or wrong-ID lift and ended-lease resurrection fail. | C0, B1, B3, G1, B4, Q |
-| A09 | Root unbind/current control works; poll removal closes all affected streams/connections/listener within 1 s, and 500-ms watchdog plus closure within another 500 ms is independently measured. | C0, B1, B3, G1, M1, B4, Q |
+| A09 | Root unbind/current control works; poll removal closes all affected streams/connections/listener within 1 s, and 500-ms watchdog plus closure within another 500 ms is independently measured; slow in-time current checks do not trigger teardown. | C0, B1, B3, G1, M1, B4, Q |
 | A10 | Approved closed API-key lab mapping/Unix launch works; inherited auth, production OAuth mapping substitution, other families/io_uring/network FDs and unapproved executor refuse. | C0, M1, B5, B4, RM, Q |
 | A11 | Approved complete lab aggregate/second build installs; production/lab tag confusion, unapproved digest, unsafe member/link/mode, substitution or missing native NSS closure refuses. | C0, M1, B5, B4, RB, RG, RM, Q |
-| A12 | Owner-run complete lifecycle/surface scan and access attestation work; missing real needle/version, partial-needle oracle, inaccessible surface, privileged agent access or raw evidence export refuses. | C0, M1, B5, B4, Q |
+| A12 | Owner-run complete lifecycle/surface scan and full guest/endpoint/vendor access attestation work; owner-only endpoint/roster is the valid control beside endpoint-agent-reachable and vendor-agent-admin/changed-roster negatives; missing real needle/version, partial-needle oracle, inaccessible surface, privileged agent access or raw evidence export refuses. | C0, M1, B5, B4, Q |
 
 ### 5.1 Unit-to-row plan, graph and LU
 
 | Unit | Repository | Bounded implementation scope | Dependencies | Acceptance rows | LU |
 | --- | --- | --- | --- | --- | --- |
-| C0 | swarma-credential-broker | Freeze section 5.2 byte surfaces and API-key-mode/body fixtures once; review the lab conflict and exact C amendment/join/owner-decision record. No inferred production acceptance. | none | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 0.5 |
+| C0 | swarma-credential-broker | Freeze section 5.2 byte surfaces and API-key-mode/body fixtures once, with published reproducible probe artifacts; review the lab conflict and exact C amendment/join/owner-decision record. No inferred production acceptance. | none | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 0.5 |
 | B1 | swarma-credential-broker | Tagged lab daemon and committed-account bootstrap; narrowly parameterized API-key custody/service record family; real managed gateway/caller facts; worker/legacy refusal; durable operation/hold/state and finite-plan narrowing reserve. Reuse service arithmetic/store, not a second lease engine or invented production receipt. | C0 | A01,A02,A03,A05,A07,A08,A09 | 1.5 |
 | B2 | swarma-credential-broker | Tagged qualified NTS consumer/local C witness, settlement and sticky watermark/hold continuity; root off-home per-start fence, off-VM head/expiry join and persisted manager-prefix floor; burned-install/no-restore path. No production witness/default change. Live construction/qualification additionally waits for C-OPEN-OWNERS. | C0 | A01,A06,A07 | 1.5 |
-| B3 | swarma-credential-broker | Root-only lab control protocol/CLI: prep/enroll/bind/unbind/lift; authenticated broker peer before bounded no-echo stdin capture, no spill and native session retirement; per-operation UNKNOWN reconciliation. No signed production operator ceremony. | B1 | A01,A03,A04,A05,A08,A09 | 1.0 |
+| B3 | swarma-credential-broker | Root-only lab control protocol/CLI: prep/enroll/bind/activate/unbind/lift; authenticated broker peer before bounded no-echo stdin capture, no spill and native session retirement; per-operation UNKNOWN reconciliation. No signed production operator ceremony. | B1 | A01,A03,A04,A05,A06,A08,A09 | 1.0 |
 | G1 | swarma-chain-lab | Tagged API-key managed source/intake with the exact eleven-flag API-key-mode profile; reject OAuth/unknown flags and unsupported coupled fields; preserve errors/SSE. Durable hold/recovery, deadline renewal, 500-ms watchdog and full one-second teardown. | C0 | A01,A02,A03,A07,A08,A09 | 1.5 |
 | M1 | swarma-user-manager | Tagged closed API-key lab mapping with only ANTHROPIC_API_KEY=ssh-placeholder; preserve production mapping/seccomp. Format-owned setup and genuine helper/one-start executor; approved bounded invocation and no-privileged-agent access readback. | C0 | A01,A02,A03,A04,A06,A09,A10,A11,A12 | 1.5 |
-| B5 | swarma-credential-broker | Root bootstrap/aggregate copy verifier and atomic placement; exact disabled unit/config/ACL/native-readback plan; off-VM preparation/next-plan/stop seals; source-owned lab bundle manifest. Not a full-platform installer or a root source build. Verify owner-role/access/cap records and generate persisted nonsecret operation envelopes before invocation. | B2,B3,G1,M1 | A01,A04,A06,A10,A11,A12 | 1.0 |
+| B5 | swarma-credential-broker | Root bootstrap/aggregate copy verifier and atomic placement; exact disabled unit/config/ACL/native-readback plan; off-VM preparation/next-plan/stop seals; source-owned lab bundle manifest. Not a full-platform installer or a root source build. Verify owner-role/access/cap records and generate persisted nonsecret operation envelopes after each predecessor commits and before its own invocation. | B2,B3,G1,M1 | A01,A04,A06,A10,A11,A12 | 1.0 |
 | B4 | swarma-credential-broker | Tagged native qualification driver and protected lifecycle scanner; complete Q1–Q6 valid/negative/public-plant commands, actual worker peers, timing/stream observation, immutable metadata-only pack and bounded fixture cleanup. Native inert preflight precedes real-key use. In-custody needle attestation and root-only whole-needle matcher; owner executes every live Q command. | B1,B2,B3,G1,M1,B5 | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 1.5 |
 | RB | swarma-credential-broker | Main-owned lab build/release profile and expected inventory, future signed broker tag, independent second build, checksums/provenance/fragment and release review. Production admission rejects lab tags; lab admission builds lab-only targets. | B4 | A01,A11 | 0.5 |
-| RG | swarma-chain-lab | Main-owned gateway lab archive/input policy and future signed tag; correct tagged binary/members/unit plus independent rebuild/review/checksums. Disjoint lab tag admission/provenance. | G1 | A01,A02,A11 | 0.5 |
-| RM | swarma-user-manager | Future signed manager tag including native cgo NSS probe, launcher, isolated setup/executor and exact Claude dependency; native closure and independent rebuild/review/checksums. Disjoint lab tag admission/provenance. | M1 | A01,A10,A11 | 0.5 |
-| Q | swarma-credential-broker | Owner-run colony1 Q1–Q6 with sanitized evidence, independent record review and second evidence read. No credential or privileged host access by an agent. | RB,RG,RM; owner/Infra gates | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 0.5 |
+| RG | swarma-chain-lab | Main-owned gateway lab archive/input policy and future signed tag; correct tagged binary/members/unit plus independent rebuild/review/checksums. Disjoint lab tag admission/provenance; cut only after B4 integrated verification. | B4 | A01,A02,A11 | 0.5 |
+| RM | swarma-user-manager | Future signed manager tag including native cgo NSS probe, launcher, isolated setup/executor and exact Claude dependency; native closure and independent rebuild/review/checksums. Disjoint lab tag admission/provenance; cut only after B4 integrated verification. | B4 | A01,A10,A11 | 0.5 |
+| Q | swarma-credential-broker | Owner-run the dedicated lab VM Q1–Q6 with sanitized evidence, independent record review and second evidence read. No credential or privileged host access by an agent. | RB,RG,RM; owner/Infra gates | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 0.5 |
 
 Total estimated effort is **12 LU**. The precedence-only critical path is
 **6.5 LU**: C0 → B1 → B3 → B5 → B4 → RB → Q. The implementation graph is:
 C0 → {B1, B2, G1, M1}; B1 → B3; {B2, B3, G1, M1} → B5;
-{B1, B2, B3, G1, M1, B5} → B4 → RB; G1 → RG; M1 → RM;
-{RB, RG, RM} → Q. C-OPEN-OWNERS is an additional nondevelopment gate on B2;
+{B1, B2, B3, G1, M1, B5} → B4 → {RB, RG, RM};
+{RB, RG, RM} → Q. C-OPEN-OWNERS additionally gates B2 live construction/qualification;
 owner/Infra/release acceptance gates remain prerequisites, not invented duration.
 
 At planned parallel width **3**, this feasible resource-constrained schedule is
@@ -583,17 +632,17 @@ At planned parallel width **3**, this feasible resource-constrained schedule is
 | --- | --- | --- | --- |
 | 0–0.5 | C0 | — | — |
 | 0.5–2 | B1 | B2 | G1 |
-| 2–3.5 | M1 | B3 until 3 | RG until 2.5 |
-| 3.5–4.5 | B5 | RM until 4 | — |
+| 2–3.5 | M1 | B3 until 3 | — |
+| 3.5–4.5 | B5 | — | — |
 | 4.5–6 | B4 | — | — |
-| 6–6.5 | RB | — | — |
+| 6–6.5 | RB | RG | RM |
 | 6.5–7 | Q | — | — |
 
 One LU includes bounded implementation, review, a fix round and accepted landing.
 These estimates are provisional: no measured unit durations were supplied. The
-reference is the full-path plan's 31-LU effort and its distinct 12-LU graph lower
-bound, reduced by landed manager mapping and gateway step 2, not a measured
-velocity claim. B1/B4 are broad; if splitting is needed, preserve these acceptance
+reference is the bounded scope in this table and the landed broker, manager
+mapping and gateway step-2 mechanisms cited in sections 2–3, not an unpublished
+full-path estimate or a measured velocity claim. B1/B4 are broad; if splitting is needed, preserve these acceptance
 obligations and recompute the graph/estimate before changing the plan.
 
 Separately unestimated: all owner-role C decisions, key/cap setup, digest/risk
@@ -627,7 +676,12 @@ Existing manager-owned production records are the explicit exception in 3.1.
 Root mutating requests carry `operation_id` (fresh 128-bit identifier), method,
 installation/account, qualification revision, exact nonsecret input digests and
 expected authority heads in a root-owned, immutable operation envelope. B5
-persists and the owner approves each envelope **before invocation or key entry**.
+generates each envelope **after its predecessor commits**, from the returned
+committed heads and available exact inputs; the owner approves it off-VM
+**before its own invocation**. Apart from already executed install/prepare acts,
+only the enrol envelope precedes key entry. Bind/activate, Q4 unbind, Q5 lift,
+next-generation, quiesce and stop-seal envelopes are not pre-generated with
+unknown heads or hold IDs.
 For enrollment the envelope binds preparation, never a public key hash. IDs are
 not session identifiers or credentials and are never reused for another act.
 
@@ -647,6 +701,13 @@ The Q2 matcher is a new **root-only**, bounded streaming interface, not a worker
 or gateway substring oracle. It matches each complete current issued-version
 needle under the closed encodings: raw bytes, JSON-escaped string, standard and
 URL-safe base64 (padded/unpadded), and strict percent encoding (hex case variants).
+For a needle embedded in a longer base64 run, the matcher internally derives
+**all three byte-offset alignments (0, 1, 2)** and excludes partial boundary
+sextets affected by adjacent bytes. These are holder-derived matching variants,
+never caller-supplied partial needles. If an alignment has no nonempty stable
+interior, scanning is incomplete, not clean. `scanner-plants` covers every
+alignment for standard/URL-safe and padded/unpadded encodings, beside cleanup
+clean controls; matching only offset 0 must fail.
 Malformed or unscannable input is incomplete. It never accepts a caller-supplied
 partial needle, returns offsets/prefixes/snippets, or reveals needle bytes/hashes.
 Its result is only clean/match/incomplete; match invokes the same durable hold
@@ -695,7 +756,7 @@ include **all** product digests in `swarma-lab-release-set/1`, including hashes 
 checksum files/fragments, unit/config/schema/helper/executor assets and every
 archive member's mode/target. Include Claude Code 2.1.328's exact vendor artifact,
 source/origin verification and digest as an approved dependency of the manager
-set; a version string is not an executable pin. Pin the colony1 OS/architecture,
+set; a version string is not an executable pin. Pin the the dedicated lab VM OS/architecture,
 libc/NSS backend, chrony/NTS source policy and exact native preflight evidence.
 No real host pins or artifact digests are supplied by this document.
 
@@ -709,11 +770,15 @@ checks remain gates. Signatures are consistency evidence, **not the owner's appr
 exact aggregate bytes and SHA-256, bootstrap binary SHA-256, site installation
 operation SHA-256 and every nonsecret operation input, all product tags/
 commits/checksums, second-build comparisons and reviews, installed paths/modes,
-VM/OS/NTS inputs, lab-conflict text, API account and cap-enforcing vendor object/limit/period/readback, model/total cost and
+VM/OS/NTS inputs, lab-conflict text, planned lab account, vendor workspace and
+cap-enforcing object/limit/period/readback, complete guest/control-plane/vendor
+rosters and owner-endpoint exclusion, model/total cost and
 inference limits, qualification revision/expiry and the C rollback residual.
-No blank field, floating tag/model, unverified asset or source build on colony1
+No blank field, floating tag/model, unverified asset or source build on the dedicated lab VM
 is accepted. No agent creates a key, supplies approval, tags or publishes this
-planning checkout.
+planning checkout. **This approval records the workspace and cap object, not
+a key. No key exists yet.** Key creation waits for section 7.3's completed 7.2
+readback, fresh `verify-access` and authenticated prompt.
 
 ## 7. Proposed exact root runbook
 
@@ -721,7 +786,8 @@ planning checkout.
 C-OPEN-OWNERS records the repository/time-contract/user-manager approvals of
 4.2 and joined start/high-water rules for this exact VM/account/revision/expiry;
 all A rows pass native inert-key preflight; Infra T2 phase A and the complete
-no-privileged-agent access inventory are attested and verified by the owner;
+guest/control-plane, owner-endpoint and vendor-organisation access sections
+are attested and verified by the owner, including current roster/cap readback;
 cap-enforcing object/readback and aggregate/bootstrap digests are approved off-VM.
 A dated residual acceptance alone satisfies none of the missing C-opening rows.
 Only the owner runs sections 7–8.1, including every `swarma-lab-qualify` command.
@@ -729,6 +795,14 @@ Vendor validity is established by the owner-run Q1, never by inert preflight.
 Use the selected released architecture, not a guessed uname mapping. All uppercase
 `REPLACE_...` strings below are **nonsecret placeholders that must be replaced**;
 validators refuse them. Never substitute a credential into any shell command.
+
+The **Infra baseline (T2 phase A, already assigned to Infra)** means a fresh
+dedicated lab VM with approved OS/kernel/architecture, native authenticated NTS
+readback, protected owner SSH with recording/forwarding excluded, no Unix
+forwarders or inherited network FDs, swap/hibernation/core-dump exclusion and
+externally verified VM/control-plane identity. Section 2 adds the complete
+access window; section 7.2 still owns the product-specific manager/NSS setup.
+The phase label alone proves none of these preconditions.
 
 ### 7.1 Host tools and bootstrap, owner as root
 
@@ -793,6 +867,14 @@ set -eu
 /opt/swarma/libexec/swarma-user-manager-lab-setup qualify --plan /etc/swarma/lab/install-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup create-identities --plan /etc/swarma/lab/install-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup verify-identities --plan /etc/swarma/lab/install-plan.json
+```
+
+After the manager returns committed identity/journal heads, B5 generates the
+`prepare.json` envelope from that readback and the owner approves it off-VM.
+Then continue; no key has been created:
+
+```sh
+set -eu
 /opt/swarma/lab/bin/swarma-credential-broker-lab prepare --plan /etc/swarma/lab/install-plan.json --operation-from /etc/swarma/lab/operations/prepare.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from /etc/swarma/lab/operations/prepare.json
 systemctl daemon-reload
@@ -806,7 +888,7 @@ accepts root. It provisions reviewed nonlogin broker/control-caller accounts,
 closed policy/skeletons, native NSS/qualification/bootstrap and the one-start
 launch gate using manager-owned format writers. No hand-authored identities or
 generation journal. The normal helper rejects bare root
-(`M:cmd/swarma-user-manager/main.go:71`); setup invokes it with genuine verified
+(`M:cmd/swarma-user-manager/main.go:72`); setup invokes it with genuine verified
 sudo provenance through its separately pinned operator/dispatcher users, exact
 no-argv rule, bounded stdin and dropped capabilities. It must not spoof SUDO_UID.
 
@@ -816,7 +898,7 @@ worker creation is the corresponding approved `kind:"agent"` request from the
 configured dispatcher. Persist request identities before invoking; same request
 on uncertainty. Only the manager writes identities.json. Read back the returned
 UID/GID/generation, active trusted/local service record and current journal-head
-join (`I:DECISION-managed-identity-projection-v1.md:11`). The approved worker
+join (`B:internal/service/managed_linux.go:358`). The approved worker
 placement/class and root:S home custody remain the manager's, not an installer
 chmod workaround.
 
@@ -824,11 +906,15 @@ Manager qualification keeps the existing CAP_NET_ADMIN-excluding native entry,
 current-boot qualification unit/readback and matching pins; no `qualified:true`
 flip without it. `prepare` creates only the separately approved lab account plan,
 fresh empty store and disabled marker. The broker starts **control-only**, with
-no material-serving controller. No lease can be issued by these steps. B5 has already persisted immutable
-operation envelopes under `/etc/swarma/lab/operations/`: the `enrol.json` record
-contains a fresh `operation_id`, `method:enrol`, account `lab/anthropic`, the exact
-preparation digest and expected heads. Bind, activate, Q4 unbind, Q5 lift, each
-next-generation transition, quiesce and stop seal have **different** IDs/files.
+no material-serving controller. No lease can be issued by these steps. After
+committed preparation/readback, B5 persists only the next `enrol.json` envelope
+under `/etc/swarma/lab/operations/`: fresh `operation_id`, `method:enrol`, account
+`lab/anthropic`, exact preparation digest and committed expected heads. The
+owner approves its nonsecret bytes off-VM before key entry. Generate each later
+envelope only after its immediate predecessor commits and its inputs exist:
+bind after enrollment, activate after bind, unbind after the current binding,
+lift after the current hold ID, and next/stop acts after their exact predecessor
+heads. Each has a different ID/file and a new off-VM approval before invocation.
 The owner-approved site packet includes `lab-install-operation.json` for the
 first step; its SHA-256 is independently approved off-VM. Immutable product
 releases contain its schema/template, not a pre-used installation ID. The
@@ -837,10 +923,18 @@ no operation file contains a credential or a digest derived from one.
 
 ### 7.3 Enroll from the owner's terminal, with no transfer file
 
-The owner has already created the dedicated capped API key in the owner's vendor
-session, after access exclusion and before release approval. No agent/browser
-session sees it. After metadata-only preparation/readback, use a
-**new dedicated root SSH session with no parent server-side successor shell**:
+No key is created during release approval, bootstrap or preparation. Complete
+7.2's metadata-only readback and the current endpoint/vendor/guest
+`verify-access` inside the attested window. Use a **new dedicated root SSH
+session with no parent server-side successor shell** and wait for the
+authenticated no-echo prompt below. Only then does the owner create the
+dedicated capped key in the owner's own vendor browser session and paste it
+**immediately from the one-time display at that prompt**. There is no interim
+copy or holder: no file, notes, password manager, clipboard history/sync or open
+key display across approval/preparation steps. Clear the transient clipboard and
+close the display immediately after input or abort. If the prompt/channel,
+endpoint exclusion or vendor roster is uncertain, do not enter it; vendor-revoke
+any newly created key and recreate only after exclusion is verified.
 
 ```sh
 set -eu
@@ -898,7 +992,7 @@ closed until bind and activation.
 **Owner-endpoint paste residual:** a refusal or early SSH exit before the prompt
 can leave a paste in the owner's local shell/history. Server-side retirement
 does not prevent that DN-04 residual
-(`B:spec/operator-and-activation-v0.md:1752`). The owner checks the prompt/channel
+(`B:spec/operator-and-activation-v0.md:1751`). The owner checks the prompt/channel
 before entering anything; if spill is suspected, revoke the key from the vendor
 session and follow endpoint cleanup. Never describe remote no-echo/exec as
 protection against pasting into the wrong endpoint.
@@ -907,7 +1001,9 @@ protection against pasting into the wrong endpoint.
 
 Reconnect in the owner's root session. All arguments/files below are nonsecret.
 Reconcile committed enrollment before bind; reconcile each mutating result before
-advancing. UNKNOWN/status exit 2 stops this block and authorizes no retry:
+advancing. After committed enrollment, B5 generates the generation-specific
+`bind.json` from those committed heads and the owner approves it off-VM.
+UNKNOWN/status exit 2 stops this block and authorizes no retry:
 
 
 ```sh
@@ -918,6 +1014,16 @@ OPS='/etc/swarma/lab/operations/REPLACE_APPROVED_START_GENERATION'
 /opt/swarma/lab/bin/swarma-lab-qualify verify-access --attestation /etc/swarma/lab/access-attestation.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab bind --account lab/anthropic --service credential-gateway --identity /etc/swarma/lab/gateway-identity.json --authority /etc/swarma/lab/authority.json --operation-from "$OPS/bind.json"
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from "$OPS/bind.json"
+```
+
+After bind commits, B5 generates `activate.json` from its returned authority
+heads and the owner approves it off-VM, together with the joined start approval.
+B3 owns `activate`; no activation envelope exists with guessed pre-bind heads.
+Then run:
+
+```sh
+set -eu
+OPS='/etc/swarma/lab/operations/REPLACE_APPROVED_START_GENERATION'
 /opt/swarma/lab/bin/swarma-credential-broker-lab verify-start --off-vm-approval /etc/swarma/lab/start-approval.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab activate --decision /etc/swarma/lab/owner-decision.json --operation-from "$OPS/activate.json"
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from "$OPS/activate.json"
@@ -978,7 +1084,9 @@ All commands in this section run in the owner's root SSH session, never an
 agent session. The driver drops to the genuine managed worker for worker-peer
 controls; it does not grant that worker or an agent root. Before each Q group,
 run `swarma-lab-qualify verify-access --attestation /etc/swarma/lab/access-attestation.json`.
-The owner verifies both guest readback and Infra's external access attestation.
+The owner verifies guest/control-plane readback, the endpoint attestation and
+the complete current vendor-organisation roster/cap readback; a changed roster
+invalidates admission before the next group, even if guest bytes are unchanged.
 Agents may read only the sanitized export after the owner approves its contents.
 
 The **proposed** installed driver is `/opt/swarma/lab/bin/swarma-lab-qualify` (B4).
@@ -1043,7 +1151,11 @@ set -eu
 ```
 
 Negative control: individually plant a **public noncredential** marker in inert
-worker environment, argv, file, worker-log and gateway-log fixtures. The same
+worker environment, argv, file, worker-log and gateway-log fixtures. Include
+standard/URL-safe base64, padded/unpadded, with the public marker at all three
+byte offsets inside a longer encoded run; the matcher derives its own variants
+and excludes partial boundary sextets. Offset-0-only matching is a failing
+control. Pair each planted match with clean after owned cleanup. The same
 scanner/configuration must detect each at its intended surface, then detect no
 match after owned cleanup; an unreadable/missing/oversized fixture must return
 incomplete, never clean. Valid: collect the complete declared Q1 lifecycle before,
@@ -1095,6 +1207,7 @@ valid gateway proof without its lease payload.
 ```sh
 set -eu
 /opt/swarma/lab/bin/swarma-lab-qualify q4 --case current-control
+/opt/swarma/lab/bin/swarma-lab-qualify q4 --case fixture-slow-current-check
 /opt/swarma/lab/bin/swarma-lab-qualify q4 --case fixture-unavailable
 /opt/swarma/lab/bin/swarma-lab-qualify q4 --case fixture-delayed-check
 /opt/swarma/lab/bin/swarma-lab-qualify q4 --case arm-live-observer
@@ -1106,7 +1219,12 @@ set -eu
 ```
 
 Valid: current poll is `not_revoked` and a bounded affected use/connection is
-observable. Negatives: durable root service.unbind, synthetic unavailable and
+observable. `fixture-slow-current-check` schedules 250 ms cadence and a slow
+190 ms successful response under the 200 ms RPC timeout: its next success is
+within 450 ms plus less than 50 ms qualified scheduling margin, so the 500 ms
+watchdog must not fire or close a valid stream. G1 owns
+`TestLabWatchdogSlowCurrentCheck` and B4 observes the same valid control.
+Negatives: durable root service.unbind, synthetic unavailable and
 missed-check controls. Require all affected key use/in-flight streams and old
 broker/downstream connections/listener closed within **1 s** of durable removal
 for the poll path. For unavailable/delayed-check paths require watchdog firing
@@ -1156,6 +1274,14 @@ set -eu
 /opt/swarma/lab/bin/swarma-lab-qualify q5 --case hold-ack-loss
 /opt/swarma/lab/bin/swarma-lab-qualify q5 --case held-redial-and-restart
 /opt/swarma/lab/bin/swarma-lab-qualify q5 --case nonowner-lift
+```
+
+After the current hold and its exact ID are committed and read back, B5
+generates `hold-lift-q5.json`; the owner approves that nonsecret envelope
+off-VM before the following act. No future hold ID is guessed:
+
+```sh
+set -eu
 /opt/swarma/lab/bin/swarma-credential-broker-lab hold-lift --account lab/anthropic --hold-file /etc/swarma/lab/current-hold.json --operation-from /etc/swarma/lab/operations/hold-lift-q5.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from /etc/swarma/lab/operations/hold-lift-q5.json
 /opt/swarma/lab/bin/swarma-lab-qualify q5 --case owner-lift-readback
@@ -1214,7 +1340,7 @@ cached use. Replay and lost replies neither extend the recorded deadline nor
 mint duplicate effects. Paired valid fixtures select 900 and a smaller lifetime,
 exercise issue **and** renew through the real lab constructor, with the earliest
 caller/binding/qualification/vendor bound. Run actual short-lifetime expiry on
-an isolated native monotonic clock, never change colony1's clock. Valid live
+an isolated native monotonic clock, never change the dedicated lab VM's clock. Valid live
 control observes issue/renew metadata inside gateway custody, with duration at
 most 900 and no later than every current authority bound. This is not vendor
 key refresh. Fixtures with injected time are separately labeled and cannot
@@ -1233,6 +1359,14 @@ set -eu
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from /etc/swarma/lab/operations/quiesce.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup stop-worker --plan /etc/swarma/lab/stop-plan.json
 systemctl stop credential-gateway-lab.service
+```
+
+After committed quiescence and manager stop readback, B5 generates `seal-stop.json`
+from the exact final heads; the owner approves it and the off-VM stop acknowledgment
+before invocation:
+
+```sh
+set -eu
 /opt/swarma/lab/bin/swarma-credential-broker-lab seal-stop --off-vm-receipt /etc/swarma/lab/stop-ack.json --operation-from /etc/swarma/lab/operations/seal-stop.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from /etc/swarma/lab/operations/seal-stop.json
 systemctl stop swarma-credential-broker-lab.service
@@ -1246,7 +1380,7 @@ no remaining material use; active/exited service status alone proves none of
 these. Export schema-validated metadata, release/approval/config/source pins,
 real exits, timing/load bounds, completeness and SHA256SUMS; never raw logs or
 secret verifiers. The owner stores and reviews it off-VM. The owner vendor-revokes the API
-key in his own account; Infra retires the installation and rebuilds or destroys
+key in the owner's own account; Infra retires the installation and rebuilds or destroys
 the lab under its own approved procedure. **There is no snapshot restore command.**
 Independent record review and a second evidence read remain required; no
 self-review or local wire fixture substitutes for those execution gates.

@@ -24,7 +24,7 @@ Seccomp runs before exec, closes inherited descriptors and forbids non-Unix
 sockets and io_uring. Its valid Unix socket control and AF_INET/EPERM negative
 both passed (exit 0). The exact-client probe exited 0 with synthetic `ok`;
 strace records syscall metadata, not request buffers. No real key, login,
-external request, broker or colony1 action occurred.
+external request, broker or the dedicated lab VM action occurred.
 
 ## 2. Measured requests
 
@@ -87,3 +87,15 @@ that every beta/body combination is vendor-valid, or that a changed model,
 executor, tool configuration or later client preserves this profile. Freeze and
 measure the final approved bounded invocation before release; real vendor API
 compatibility remains an owner-run Q1 gate. Preserve genuine vendor errors.
+
+## 5. Repository reproduction boundary
+
+**This wire profile cannot be reproduced from this repository.** The original
+`REPORT.md` and the digest-pinned `probe.py`/`socket_only.py` are externally held
+artifacts, not files published here; their line references name that external
+report. Digests bind identities, not availability or an executable reproduction.
+The structural observations above are retained evidence, not a repository-owned
+probe suite. C0 must publish reviewed exact-client harness/fixtures and a
+reproducible bounded invocation before freezing the release profile; absent
+those artifacts, the release gate stays closed. No new probe or upstream API
+qualification is claimed by this clarification.

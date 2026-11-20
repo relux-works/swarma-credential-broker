@@ -1736,8 +1736,6 @@ Basis: `spec/secret-free-service-v0.md:3`, `spec/secret-free-mode.md:433`,
 
 ## 9. Owner decisions (2026-11-19)
 
-The separate [proposed lab profile](../docs/lab-profile-v0.md) records a dated lab direction and C opening prerequisites; it does not accept the C amendment or open production activation.
-
 This is the repository owner's decision record: the keeper, owner of S3a,
 selects the options below with their stated conditions. Curator Core reviews
 these decisions as specification acceptor on its return; that acceptance is
@@ -1761,3 +1759,5 @@ In particular, this record does not accept C's live whole-VM rollback residual,
 replacement-history exception, qualification revision or expiry. Those need
 the repository, time-contract and user-manager owners' explicit C decision and
 all other qualification gates. No C result is promoted to production.
+
+The separate [proposed lab profile](../docs/lab-profile-v0.md) records a dated lab direction and C opening prerequisites; it does not accept the C amendment or open production activation.

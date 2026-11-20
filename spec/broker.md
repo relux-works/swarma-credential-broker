@@ -879,8 +879,6 @@ Every refusal is a typed error `{ code, message, details }`; codes are listed in
 
 ## 14. Command line
 
-The separate [proposed lab profile](../docs/lab-profile-v0.md) declares a lab-only conflict with this ceremony; it does not change production commands or activation authority.
-
 > **Proposed secret-free mode (inactive):** Enrollment/status must distinguish mode, holder, account hold, per-service closure and vendor validity. Operator authentication/confirmation and observer custody remain. For the v0 scope, [secret-free service v0](secret-free-service-v0.md) adds three operator acts through this operator command — `service.bind` and `account.hold.lift` as widening acts and `service.unbind` as a narrowing act (§4 there); it assigns no new command-line spelling beyond this command.
 > See [the separate contract](secret-free-mode.md#11-operator-and-installation-boundaries).
 
@@ -1133,3 +1131,5 @@ PlantUML sources describe draft contracts, not runtime qualification. Each modul
 | M-CB4 — storage layout | [storage-layout.puml](../diagrams/storage-layout.puml) | §5.3, §12.3–§12.4, §15 |
 
 Main sequences: [enrolment](../diagrams/enrol.puml), [agent registration](../diagrams/agent-registration.puml), [lease at launch](../diagrams/lease-at-launch.puml), [Codex renewal](../diagrams/codex-renewal.puml), [binding replacement](../diagrams/binding-replacement.puml), and [revocation/unbind](../diagrams/revoke-and-unbind.puml). Launch, renewal and revocation link to M-CB2 for refusal/recovery detail.
+
+The separate [proposed lab profile](../docs/lab-profile-v0.md) declares a lab-only conflict with this ceremony; it does not change production commands or activation authority.
