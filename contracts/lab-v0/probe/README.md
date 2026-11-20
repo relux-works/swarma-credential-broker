@@ -1,6 +1,7 @@
 # Exact-client synthetic probe
 
-Linux x86_64/glibc only. No real key, login, installed credential, vendor call or
+Linux x86_64/glibc only; /usr/bin/env, /usr/bin/timeout, /usr/bin/strace
+and /usr/bin/python3 plus libseccomp.so.2 are required. No real key, login, installed credential, vendor call or
 product acceptance. `socket_only.py` uses libseccomp.so.2 **before exec**, closes
 inherited descriptors above stderr and denies every non-Unix socket and io_uring.
 `probe.py` starts a local stub, never a forwarder, in a new empty absolute
@@ -112,3 +113,8 @@ profile drift, not silently broaden the eleven-token/body contract to make an
 error fallback succeed. This observation qualifies neither a fallback body nor
 vendor retry behavior; live Q1 must tolerate genuine errors under the closed
 profile. The successful synthetic control remains exactly GET then POST.
+
+Revision 2 validates extra credential arguments before creating a run directory;
+rejected headers produce no request record. Guard tests use public invalid
+markers only. This ordering-only harness change is re-pinned; historical probe
+observations are unchanged, not presented as a new exact-client run.

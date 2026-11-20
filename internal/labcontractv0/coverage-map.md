@@ -50,3 +50,33 @@ none survived. This is a bounded mutation set, not an exhaustive mutation score.
 No runtime, native Q, vendor compatibility, privileged fixture or production
 acceptance row is treated as covered by these constructor/metadata controls.
 That exclusion follows the C0-only scope in lab profile section 5.1.
+
+## Revision 2 refusal controls
+
+Every one of the 24 rows above additionally runs
+`TestLabNestedClosurePairs` (all instantiated types per surface, including array
+elements), `TestLabFieldGrammarPairs` (each primitive field), and
+`TestLabPayloadLimitPairs` (at-limit preflight and size-specific over-limit).
+Activation has no nested fields; its primitive/size controls still run.
+`TestLabExactLimitRecordPairs` adds full grammar-valid frame/file boundary
+controls; `TestLabArrayLimitPairs` admits 256 and refuses 257 account versions.
+Fixed-field records cannot fill their transport ceiling with grammar-valid bytes;
+preflight acceptance is not mislabeled schema acceptance.
+
+| Contract | Named paired test | Narrowing mutant |
+| --- | --- | --- |
+| Recursive closure, all nested types | TestLabNestedClosurePairs | nested-closure-skip |
+| Required coupled body fields | TestLabAPIKeyWireFixturePairs/body-strip-diagnostics | wire-body-subset |
+| Measured body values and POST user agent | TestLabAPIKeyWireFixturePairs/body-value-model; /body-value-cache-scope; /post-user-agent | wire-body-values-unchecked; wire-cache-values-unchecked; wire-ua-unchecked |
+| Every payload ceiling | TestLabPayloadLimitPairs | size-limit-off |
+| 256-member bound | TestLabArrayLimitPairs | array-limit-off |
+| Primitive field grammar | TestLabFieldGrammarPairs | time-noncanonical; enum-any-string; digest-uppercase; id-any-length; lifetime-1000; poll-any; material-limit-off; root-any; capture-timeout-any; exit-any; alignment-any; operation-short; uuid-uppercase; commit-uppercase; numeric-minimum-off; boolean-any |
+| Principal tuple separation | TestLabPrincipalDisjointPairs | principal-generation-shared |
+| Header credential guard, no request export | ProbeTests.test_header_credential_guards | header-credential-guard-off |
+| Credential argument guard, no run directory | ProbeTests.test_extra_environment_credential_guards | argument-credential-guard-off |
+
+Each mutant is applied only in the isolated candidate copy. Its handoff log
+must name the failing test and intended assertion; a crash or unrelated setup
+failure is not a killed control. Foreign-format, duplicate-beta and
+missing-owner-role controls from revision 1 remain required. No native
+B/G/M qualification or production reader acceptance is inferred.

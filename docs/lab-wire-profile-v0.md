@@ -70,7 +70,7 @@ requires preserving its own beta/body coupling, not treating it as this row.
 
 | Probe component | SHA-256 |
 | --- | --- |
-| `probe.py` | `c709761ab7c7ef8a106cc8cd0e9a06779a0434560bfcb046128ab2d74487d7fe` |
+| `probe.py` | `216393c5178b81a901ce7167dc31ce02a12ebea5d3898b4b1df63192deacb3ca` |
 | `socket_only.py` | `1b9d051798e12b8562aa14db5f46aca66d53ea23a44d07d9b9fd11d092632776` |
 
 The harness is derived from the original Unix-only recorder. Its only protocol

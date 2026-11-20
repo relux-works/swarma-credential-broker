@@ -190,6 +190,18 @@ class RecordingHandler(http.server.BaseHTTPRequestHandler):
         self.close_connection = True
 
 
+def synthetic_extra_environment(assignments):
+    result = {}
+    for assignment in assignments:
+        name, value = assignment.split("=", 1)
+        if name not in {"ANTHROPIC_BASE_URL", "API_TIMEOUT_MS", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}:
+            raise ValueError("extra environment variable is not allowlisted")
+        if name in {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"} and value not in {"ssh-placeholder", "another-placeholder", "placeholder", "swarma-ph-test1"}:
+            raise ValueError("only explicitly synthetic credential placeholders are admitted")
+        result[name] = value
+    return result
+
+
 def run_probe(arguments):
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,60}", arguments.name):
         raise ValueError("run name must be a bounded lowercase slug")
@@ -200,6 +212,7 @@ def run_probe(arguments):
     if not scratch.is_absolute():
         raise ValueError("scratch must be absolute")
     scratch = scratch.resolve(strict=True)
+    extra_environment = synthetic_extra_environment(arguments.extra_env)
     run_directory = scratch / arguments.name
     run_directory.mkdir(parents=True, exist_ok=False)
     for directory in ("home", "work", "tmp", "cache", "config", "state", "managed"):
@@ -227,13 +240,7 @@ def run_probe(arguments):
     }
     if arguments.tls_cert:
         environment["NODE_EXTRA_CA_CERTS"] = str(Path(arguments.tls_cert).resolve())
-    for assignment in arguments.extra_env:
-        name, value = assignment.split("=", 1)
-        if name not in {"ANTHROPIC_BASE_URL", "API_TIMEOUT_MS", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}:
-            raise ValueError("extra environment variable is not allowlisted")
-        if name in {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"} and value not in {"ssh-placeholder", "another-placeholder", "placeholder", "swarma-ph-test1"}:
-            raise ValueError("only explicitly synthetic credential placeholders are admitted")
-        environment[name] = value
+    environment.update(extra_environment)
     command = [
         "/usr/bin/env", "-i", *[f"{name}={value}" for name, value in environment.items()],
         "/usr/bin/timeout", "--signal=TERM", "--kill-after=5s", f"{arguments.timeout}s",

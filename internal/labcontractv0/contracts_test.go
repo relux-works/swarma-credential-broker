@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "9016f8076e25bfa6a33976984578f3a1913a56c47f3aef660782c950b0512b8b"
+const indexSHA256 = "3a16491d6e2790f157439db12fee4760f5f07d2ef231c94a70a1993ddaaf635a"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -35,10 +35,11 @@ type contractSet struct {
 }
 
 type contractCase struct {
-	Surface        string         `json:"surface"`
-	Valid          map[string]any `json:"valid"`
-	Negative       map[string]any `json:"negative"`
-	NegativeReason string         `json:"negative_reason"`
+	Surface         string           `json:"surface"`
+	Valid           map[string]any   `json:"valid"`
+	Negative        map[string]any   `json:"negative"`
+	NegativeReason  string           `json:"negative_reason"`
+	NestedNegatives []nestedNegative `json:"nested_negatives"`
 }
 
 func readContract(test *testing.T, name string) []byte {
@@ -186,9 +187,16 @@ func checkValue(value any, fieldType string, set contractSet) error {
 	return nil
 }
 
-func checkRecord(data []byte, shape recordShape, set contractSet) error {
-	if len(data) > shape.MaxBytes {
+func checkPayloadSize(data []byte, maxBytes int) error {
+	if len(data) > maxBytes {
 		return fmt.Errorf("size")
+	}
+	return nil
+}
+
+func checkRecord(data []byte, shape recordShape, set contractSet) error {
+	if err := checkPayloadSize(data, shape.MaxBytes); err != nil {
+		return err
 	}
 	object, err := wire.Parse(data)
 	if err != nil {
@@ -208,7 +216,34 @@ func loadContracts(test *testing.T) (contractSet, []contractCase) {
 	return set, fixtures.Cases
 }
 
-// Claim: every sealed artifact matches its bytes; changing an artifact without resealing is detected beside the valid seal.
+func contentPinValid(data []byte, expected string) bool {
+	return hashContract(data) == expected
+}
+
+// Claim: a valid artifact pin admits its file bytes while an unresealed changed temporary copy fails the same verifier used for the inventory.
+func TestLabContentPinChangedCopy(test *testing.T) {
+	original := readContract(test, "surfaces.json")
+	expected := hashContract(original)
+	path := filepath.Join(test.TempDir(), "surfaces.json")
+	for _, change := range []bool{false, true} {
+		data := bytes.Clone(original)
+		if change {
+			data = append(data, '\n')
+		}
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			test.Fatal(err)
+		}
+		stored, err := os.ReadFile(path)
+		if err != nil {
+			test.Fatal(err)
+		}
+		if contentPinValid(stored, expected) == change {
+			test.Fatal("pin verifier wrong verdict")
+		}
+	}
+}
+
+// Claim: every sealed artifact/source matches its frozen digest and the index contains no commit locator; changed-copy controls exercise the same pin verifier.
 func TestLabContractContentPins(test *testing.T) {
 	index := readContract(test, "index.json")
 	if hashContract(index) != indexSHA256 {
@@ -226,12 +261,8 @@ func TestLabContractContentPins(test *testing.T) {
 	}
 	for name, expected := range entries.Files {
 		data := readContract(test, name)
-		if hashContract(data) != expected {
+		if !contentPinValid(data, expected) {
 			test.Fatalf("content pin: %s", name)
-		}
-		changed := append(bytes.Clone(data), '\n')
-		if hashContract(changed) == expected {
-			test.Fatalf("changed bytes admitted: %s", name)
 		}
 	}
 	if len(entries.Sources) != 6 {
@@ -242,11 +273,8 @@ func TestLabContractContentPins(test *testing.T) {
 		if err != nil {
 			test.Fatal(err)
 		}
-		if hashContract(data) != expected {
+		if !contentPinValid(data, expected) {
 			test.Fatalf("source content pin: %s", name)
-		}
-		if hashContract(append(bytes.Clone(data), '\n')) == expected {
-			test.Fatal("changed source admitted")
 		}
 	}
 	if bytes.Contains(index, []byte("spec_commit")) {
@@ -339,7 +367,17 @@ func TestLabClosedSurfacePairs(test *testing.T) {
 			if checkRecord(append(bytes.Clone(valid), '\n'), shape, set) == nil {
 				test.Fatal("trailing newline admitted")
 			}
-			duplicate := append([]byte(`{"format":"duplicate",`), valid[1:]...)
+			keys := make([]string, 0, len(shape.Fields))
+			for name := range shape.Fields {
+				keys = append(keys, name)
+			}
+			slices.Sort(keys)
+			first := canonicalObject(test, map[string]any{keys[0]: fixture.Valid[keys[0]]})
+			duplicate := append(bytes.Clone(first[:len(first)-1]), ',')
+			duplicate = append(duplicate, valid[1:]...)
+			if !json.Valid(duplicate) {
+				test.Fatal("duplicate control is not valid JSON")
+			}
 			if checkRecord(duplicate, shape, set) == nil {
 				test.Fatal("duplicate member admitted")
 			}
@@ -436,9 +474,6 @@ func TestLabCOpeningContentAndDecision(test *testing.T) {
 		if decisions[key] != "sha256:"+hashContract(content) {
 			test.Fatalf("decision text pin: %s", name)
 		}
-		if decisions[key] == "sha256:"+hashContract(append(bytes.Clone(content), '\n')) {
-			test.Fatal("changed amendment admitted")
-		}
 	}
 	if decisions["owner_acceptance"] != "not_recorded" || decisions["live_construction"] != "closed" || decisions["enrollment"] != "closed" || decisions["production_acceptance"] != false {
 		test.Fatal("fixture asserted owner or production acceptance")
@@ -447,7 +482,7 @@ func TestLabCOpeningContentAndDecision(test *testing.T) {
 
 func rootOutcomeValid(object map[string]any) bool {
 	state := object["state"].(string)
-	exits := map[string]int64{"committed": 0, "refused": 1, "not_committed:enrol_no_forward": 1, "unknown": 2, "attempted": 2, "not_started": 2, "syntax": 64, "closed": 69}
+	exits := map[string]int64{"committed": 0, "refused": 1, "not_committed:enrol_no_forward": 1, "unknown": 2, "attempted": 2, "not_started": 2, "incomplete": 2, "syntax": 64, "closed": 69}
 	expected, exists := exits[state]
 	return exists && object["exit_code"] == expected && (object["phase"] == "result" || state == "not_started")
 }
@@ -466,7 +501,7 @@ func TestLabOperationOutcomePairs(test *testing.T) {
 		if !rootOutcomeValid(valid) {
 			test.Fatal("valid result refused")
 		}
-		for state, exit := range map[string]int64{"committed": 0, "refused": 1, "not_committed:enrol_no_forward": 1, "unknown": 2, "attempted": 2, "not_started": 2, "syntax": 64, "closed": 69} {
+		for state, exit := range map[string]int64{"committed": 0, "refused": 1, "not_committed:enrol_no_forward": 1, "unknown": 2, "attempted": 2, "not_started": 2, "incomplete": 2, "syntax": 64, "closed": 69} {
 			valid["state"], valid["exit_code"] = state, exit
 			if !rootOutcomeValid(valid) {
 				test.Fatalf("valid state refused: %s", state)
@@ -574,20 +609,52 @@ func wireAdmitted(fixture wireFixture, beta string, allowedPaths map[string]bool
 			return false
 		}
 	}
-	for _, name := range []string{"system", "messages"} {
-		for _, item := range body[name].([]any) {
-			object := item.(map[string]any)
-			if name == "messages" {
-				for _, content := range object["content"].([]any) {
-					if content.(map[string]any)["cache_control"].(map[string]any)["type"] != "ephemeral" {
-						return false
-					}
-				}
-			} else if object["cache_control"].(map[string]any)["type"] != "ephemeral" {
-				return false
-			}
-		}
+	systems, ok := body["system"].([]any)
+	if !ok || len(systems) != 2 {
+		return false
 	}
+	caches := []string{}
+	for _, item := range systems {
+		object, ok := item.(map[string]any)
+		if !ok || len(object) != 3 || object["type"] != "text" {
+			return false
+		}
+		if _, ok := object["text"].(string); !ok {
+			return false
+		}
+		cache, _ := json.Marshal(object["cache_control"])
+		caches = append(caches, string(cache))
+	}
+	messages, ok := body["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		return false
+	}
+	message, ok := messages[0].(map[string]any)
+	if !ok || len(message) != 3 || message["role"] != "user" {
+		return false
+	}
+	output, _ := json.Marshal(message["output_config"])
+	if string(output) != `{"effort":"medium"}` {
+		return false
+	}
+	contents, ok := message["content"].([]any)
+	if !ok || len(contents) != 1 {
+		return false
+	}
+	content, ok := contents[0].(map[string]any)
+	if !ok || len(content) != 3 || content["type"] != "text" {
+		return false
+	}
+	if _, ok := content["text"].(string); !ok {
+		return false
+	}
+	cache, _ := json.Marshal(content["cache_control"])
+	caches = append(caches, string(cache))
+	slices.Sort(caches)
+	if !slices.Equal(caches, []string{`{"scope":"global","type":"ephemeral"}`, `{"type":"ephemeral"}`, `{"type":"ephemeral"}`}) {
+		return false
+	}
+
 	return true
 }
 
@@ -632,7 +699,7 @@ func TestLabAPIKeyWireFixturePairs(test *testing.T) {
 			refusedCount++
 		}
 	}
-	if validCount != 2 || refusedCount != 17 {
+	if validCount != 2 || refusedCount != 66 {
 		test.Fatal("missing wire controls")
 	}
 }
@@ -828,25 +895,39 @@ func TestLabMatcherSummaryPairs(test *testing.T) {
 	test.Fatal("missing matcher fixture")
 }
 
-// Claim: every embedded synthetic approval hashes an acyclic complete target image, and changing an approved input invalidates that digest.
+func approvalTargetValid(object map[string]any) bool {
+	for _, name := range []string{"approval", "owner_approval"} {
+		approval, exists := object[name].(map[string]any)
+		if !exists {
+			continue
+		}
+		record := map[string]any{}
+		for key, value := range object {
+			if key != name {
+				record[key] = value
+			}
+		}
+		encoded, err := wire.Encode(map[string]any{"domain": "swarma-broker-lab-approval-target/1", "record": record})
+		return err == nil && approval["approved_sha256"] == "sha256:"+hashContract(encoded)
+	}
+	return false
+}
+
+// Claim: the same approval-target verifier accepts each sealed subject and refuses a changed subject retaining the old approval; no live approval is claimed.
 func TestLabApprovalTargetPairs(test *testing.T) {
 	_, fixtures := loadContracts(test)
 	checked := 0
 	for _, fixture := range fixtures {
 		for _, name := range []string{"approval", "owner_approval"} {
-			approval, present := fixture.Valid[name].(map[string]any)
-			if !present {
+			if _, present := fixture.Valid[name]; !present {
 				continue
 			}
-			record := cloneObject(test, fixture.Valid)
-			delete(record, name)
-			target := map[string]any{"domain": "swarma-broker-lab-approval-target/1", "record": record}
-			expected := "sha256:" + hashContract(canonicalObject(test, target))
-			if approval["approved_sha256"] != expected {
+			if !approvalTargetValid(fixture.Valid) {
 				test.Fatalf("approval target mismatch: %s", fixture.Surface)
 			}
-			record["format"] = "unapproved-input"
-			if approval["approved_sha256"] == "sha256:"+hashContract(canonicalObject(test, target)) {
+			changed := cloneObject(test, fixture.Valid)
+			changed["format"] = "unapproved-input"
+			if approvalTargetValid(changed) {
 				test.Fatal("changed approval subject admitted")
 			}
 			checked++
@@ -857,7 +938,19 @@ func TestLabApprovalTargetPairs(test *testing.T) {
 	}
 }
 
-// Claim: the lab journal head binds its complete metadata snapshot without self-reference; changing a lease/tombstone without a new head is detected.
+func journalHeadValid(object map[string]any) bool {
+	head := object["head"].(map[string]any)
+	record := map[string]any{}
+	for key, value := range object {
+		if key != "head" {
+			record[key] = value
+		}
+	}
+	encoded, err := wire.Encode(map[string]any{"domain": "swarma-broker-lab-journal-head/1", "record": record})
+	return err == nil && head["sequence"] == int64(len(record["entries"].([]any))) && head["sha256"] == "sha256:"+hashContract(encoded)
+}
+
+// Claim: the same journal verifier accepts the complete sealed snapshot and refuses a changed lease retaining its old head, without a self-referential hash.
 func TestLabJournalHeadPairs(test *testing.T) {
 	_, fixtures := loadContracts(test)
 	for _, fixture := range fixtures {
@@ -868,17 +961,413 @@ func TestLabJournalHeadPairs(test *testing.T) {
 		if err != nil {
 			test.Fatal(err)
 		}
-		head := record["head"].(map[string]any)
-		delete(record, "head")
-		target := map[string]any{"domain": "swarma-broker-lab-journal-head/1", "record": record}
-		if head["sequence"] != int64(len(record["entries"].([]any))) || head["sha256"] != "sha256:"+hashContract(canonicalObject(test, target)) {
+		if !journalHeadValid(record) {
 			test.Fatal("valid snapshot head refused")
 		}
 		record["leases"].([]any)[0].(map[string]any)["status"] = "revoked"
-		if head["sha256"] == "sha256:"+hashContract(canonicalObject(test, target)) {
+		if journalHeadValid(record) {
 			test.Fatal("unsealed changed lease admitted")
 		}
 		return
 	}
 	test.Fatal("missing journal fixture")
+}
+
+type nestedNegative struct {
+	Path      []any          `json:"path"`
+	Structure string         `json:"structure"`
+	Field     string         `json:"field"`
+	Mutation  string         `json:"mutation"`
+	Record    map[string]any `json:"record"`
+}
+
+type fieldVisit struct {
+	Path  []any
+	Type  string
+	Value any
+}
+
+func pathValue(object any, path []any) any {
+	for _, part := range path {
+		switch key := part.(type) {
+		case string:
+			object = object.(map[string]any)[key]
+		case int:
+			object = object.([]any)[key]
+		case float64:
+			object = object.([]any)[int(key)]
+		}
+	}
+	return object
+}
+
+func putPath(object map[string]any, path []any, value any) {
+	parent := pathValue(object, path[:len(path)-1])
+	switch key := path[len(path)-1].(type) {
+	case string:
+		parent.(map[string]any)[key] = value
+	case int:
+		parent.([]any)[key] = value
+	}
+}
+
+func visitFields(object any, kind string, path []any, set contractSet, visits *[]fieldVisit) {
+	*visits = append(*visits, fieldVisit{path, kind, object})
+	if strings.HasPrefix(kind, "[]") {
+		for index, value := range object.([]any) {
+			visitFields(value, kind[2:], append(slices.Clone(path), index), set, visits)
+		}
+	} else if strings.HasPrefix(kind, "@") {
+		for name, fieldType := range set.Structures[kind[1:]].Fields {
+			visitFields(object.(map[string]any)[name], fieldType, append(slices.Clone(path), name), set, visits)
+		}
+	}
+}
+
+func fixtureFields(object map[string]any, shape recordShape, set contractSet) []fieldVisit {
+	var visits []fieldVisit
+	for name, kind := range shape.Fields {
+		visitFields(object[name], kind, []any{name}, set, &visits)
+	}
+	return visits
+}
+
+// Claim: every instantiated nested type per surface rejects unknown, missing and null members, including array elements, beside the same complete valid record.
+func TestLabNestedClosurePairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	covered := map[string]bool{}
+	for position, shape := range set.Surfaces {
+		fixture := fixtures[position]
+		wanted := map[string]bool{}
+		typesAtPath := map[string]string{}
+		for _, field := range fixtureFields(fixture.Valid, shape, set) {
+			if strings.HasPrefix(field.Type, "@") {
+				wanted[field.Type[1:]] = true
+				path, _ := json.Marshal(field.Path)
+				typesAtPath[string(path)] = field.Type
+			}
+		}
+		seen := map[string]bool{}
+		for _, negative := range fixture.NestedNegatives {
+			name := shape.Format + "/" + negative.Structure + "/" + negative.Mutation
+			test.Run(name, func(test *testing.T) {
+				if err := checkRecord(canonicalObject(test, fixture.Valid), shape, set); err != nil {
+					test.Fatal(err)
+				}
+				path, _ := json.Marshal(negative.Path)
+				if !wanted[negative.Structure] || typesAtPath[string(path)] != "@"+negative.Structure {
+					test.Fatal("uninstantiated negative or wrong nested path")
+				}
+				key := negative.Structure + "/" + negative.Mutation
+				if seen[key] {
+					test.Fatal("duplicate nested control")
+				}
+				seen[key] = true
+				changed := cloneObject(test, fixture.Valid)
+				target := pathValue(changed, negative.Path).(map[string]any)
+				if _, required := set.Structures[negative.Structure].Fields[negative.Field]; !required {
+					test.Fatal("not a required member")
+				}
+				switch negative.Mutation {
+				case "unknown":
+					target["unexpected_field"] = "PUBLIC-UNKNOWN"
+				case "missing":
+					delete(target, negative.Field)
+				case "null":
+					target[negative.Field] = nil
+				default:
+					test.Fatal("unknown mutation")
+				}
+				if !bytes.Equal(canonicalObject(test, changed), canonicalObject(test, negative.Record)) {
+					test.Fatal("nested vector changed")
+				}
+				if err := checkRecord(canonicalObject(test, negative.Record), shape, set); err == nil || !strings.Contains(err.Error(), "field_set") {
+					test.Fatalf("nested closure admitted or wrong refusal: %v", err)
+				}
+				covered[negative.Structure] = true
+			})
+		}
+		if len(seen) != 3*len(wanted) {
+			test.Fatalf("incomplete nested controls: %s", shape.Format)
+		}
+	}
+	if len(covered) != len(set.Structures) {
+		test.Fatalf("unexercised nested type: %d/%d", len(covered), len(set.Structures))
+	}
+}
+
+type grammarPair struct {
+	Name    string
+	Valid   []any
+	Invalid []any
+}
+
+func stringValues(values []string) []any {
+	result := make([]any, len(values))
+	for index, value := range values {
+		result[index] = value
+	}
+	return result
+}
+
+func grammarValues(kind string) grammarPair {
+	if strings.HasPrefix(kind, "=") {
+		return grammarPair{"singleton", []any{kind[1:]}, []any{"PUBLIC-OTHER-SINGLETON", false}}
+	}
+	if strings.Contains(kind, "|") {
+		return grammarPair{"enum", stringValues(strings.Split(kind, "|")), []any{"PUBLIC-OUT-OF-ENUM", false}}
+	}
+	maximum := int64(9007199254740991)
+	pairs := map[string]grammarPair{
+		"id":              {"id", []any{"x", strings.Repeat("x", 128)}, []any{"", strings.Repeat("x", 129), "with space", "line\nfeed"}},
+		"digest":          {"digest", []any{"sha256:" + strings.Repeat("a", 64)}, []any{"sha256:" + strings.Repeat("A", 64), "sha256:" + strings.Repeat("a", 63)}},
+		"operation":       {"operation", []any{strings.Repeat("a", 32)}, []any{strings.Repeat("a", 31), strings.Repeat("A", 32)}},
+		"uuid":            {"uuid", []any{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}, []any{"AAAAAAAA-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+		"commit":          {"commit", []any{strings.Repeat("a", 40)}, []any{strings.Repeat("A", 40), strings.Repeat("a", 39)}},
+		"material":        {"material", []any{"PUBLIC-SYNTHETIC", strings.Repeat("x", 4096)}, []any{"", strings.Repeat("x", 4097), "with space", "line\nfeed"}},
+		"time":            {"time", []any{"2027-01-01T00:00:00Z", "2027-01-01T00:00:00.000000001Z"}, []any{"2027-01-01T00:00:00+00:00", "2027-01-01T00:00:00.000Z", "1970-01-01T00:00:00Z", "not-time", false}},
+		"bool":            {"boolean", []any{true, false}, []any{"true", int64(1)}},
+		"uint":            {"range: uint", []any{int64(0), maximum}, []any{int64(-1), "0"}},
+		"positive":        {"range: positive", []any{int64(1), maximum}, []any{int64(0), int64(-1), "1"}},
+		"root":            {"range: root", []any{int64(0)}, []any{int64(1), int64(-1), "0"}},
+		"lifetime":        {"range: lifetime", []any{int64(1), int64(900)}, []any{int64(0), int64(901), "900"}},
+		"alignment":       {"range: alignment", []any{int64(0), int64(2)}, []any{int64(-1), int64(3), "0"}},
+		"exit":            {"range: exit", []any{int64(0), int64(255)}, []any{int64(-1), int64(256), "0"}},
+		"poll":            {"range: poll", []any{int64(250)}, []any{int64(249), int64(251), "250"}},
+		"capture-timeout": {"range: capture-timeout", []any{int64(300)}, []any{int64(299), int64(301), "300"}},
+	}
+	return pairs[kind]
+}
+
+// Claim: each primitive field uses the frozen grammar at valid boundaries and refuses wrong values/types through its full record, not a parallel validator.
+func TestLabFieldGrammarPairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		fixture := fixtures[position]
+		for _, field := range fixtureFields(fixture.Valid, shape, set) {
+			if strings.HasPrefix(field.Type, "@") || strings.HasPrefix(field.Type, "[]") {
+				continue
+			}
+			test.Run(fmt.Sprint(shape.Format, "/", field.Path), func(test *testing.T) {
+				pair := grammarValues(field.Type)
+				if len(pair.Valid) == 0 || len(pair.Invalid) == 0 {
+					test.Fatalf("uncovered grammar: %s", field.Type)
+				}
+				for _, value := range pair.Valid {
+					changed := cloneObject(test, fixture.Valid)
+					putPath(changed, field.Path, value)
+					if err := checkRecord(canonicalObject(test, changed), shape, set); err != nil {
+						test.Fatalf("valid boundary refused: %v", err)
+					}
+				}
+				if field.Type == "uint" || field.Type == "positive" {
+					changed := cloneObject(test, fixture.Valid)
+					putPath(changed, field.Path, int64(9007199254740992))
+					raw, err := json.Marshal(changed)
+					if err != nil {
+						test.Fatal(err)
+					}
+					if err = checkRecord(raw, shape, set); err == nil || err.Error() != "canonical" {
+						test.Fatalf("unsafe integer wrong refusal: %v", err)
+					}
+				}
+				for index, value := range pair.Invalid {
+					test.Run(fmt.Sprint("invalid-", index), func(test *testing.T) {
+						changed := cloneObject(test, fixture.Valid)
+						putPath(changed, field.Path, value)
+						err := checkRecord(canonicalObject(test, changed), shape, set)
+						if err == nil {
+							test.Fatalf("invalid %s admitted", field.Type)
+						}
+						expected := pair.Name
+						if strings.HasPrefix(expected, "range:") {
+							expected = field.Type
+						}
+						if !strings.Contains(err.Error(), expected) {
+							test.Fatalf("wrong grammar refusal for %s: %v", field.Type, err)
+						}
+					})
+				}
+			})
+		}
+	}
+}
+
+// Claim: every frozen payload ceiling permits the exact-size preflight and refuses one byte over specifically for size; canonical full-record controls remain separate.
+func TestLabPayloadLimitPairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		test.Run(shape.Format, func(test *testing.T) {
+			valid := canonicalObject(test, fixtures[position].Valid)
+			if err := checkRecord(valid, shape, set); err != nil {
+				test.Fatal(err)
+			}
+			atLimit := append(bytes.Clone(valid), bytes.Repeat([]byte(" "), shape.MaxBytes-len(valid))...)
+			if err := checkPayloadSize(atLimit, shape.MaxBytes); err != nil {
+				test.Fatalf("exact-size preflight refused: %v", err)
+			}
+			if err := checkPayloadSize(append(bytes.Clone(atLimit), ' '), shape.MaxBytes); err == nil || err.Error() != "size" {
+				test.Fatalf("over-limit wrong refusal: %v", err)
+			}
+			if err := checkRecord(atLimit, shape, set); err == nil || err.Error() != "canonical" {
+				test.Fatalf("exact-size preflight changed: %v", err)
+			}
+			if err := checkRecord(append(atLimit, ' '), shape, set); err == nil || err.Error() != "size" {
+				test.Fatalf("over-limit wrong refusal: %v", err)
+			}
+		})
+	}
+}
+
+func exactLimitFixture(test *testing.T, fixture map[string]any, shape recordShape, set contractSet) map[string]any {
+	test.Helper()
+	record := cloneObject(test, fixture)
+	if strings.HasSuffix(shape.Format, "account/1") {
+		for _, name := range []string{"hold_ids", "issued_versions"} {
+			record[name] = []any{}
+			for len(record[name].([]any)) < 256 && len(canonicalObject(test, record)) < shape.MaxBytes {
+				record[name] = append(record[name].([]any), strings.Repeat("x", 128))
+			}
+		}
+	} else {
+		asset := cloneObject(test, record["assets"].([]any)[0].(map[string]any))
+		member := cloneObject(test, asset["members"].([]any)[0].(map[string]any))
+		member["path"] = strings.Repeat("x", 128)
+		record["assets"] = []any{}
+		for len(canonicalObject(test, record)) < shape.MaxBytes {
+			item := cloneObject(test, asset)
+			item["members"] = []any{}
+			record["assets"] = append(record["assets"].([]any), item)
+			for len(item["members"].([]any)) < 256 && len(canonicalObject(test, record)) < shape.MaxBytes {
+				item["members"] = append(item["members"].([]any), cloneObject(test, member))
+			}
+		}
+	}
+	excess := len(canonicalObject(test, record)) - shape.MaxBytes
+	if excess < 0 {
+		test.Fatal("fixture cannot reach limit")
+	}
+	for _, field := range fixtureFields(record, shape, set) {
+		if field.Type != "id" {
+			continue
+		}
+		value := field.Value.(string)
+		removed := min(excess, len(value)-1)
+		putPath(record, field.Path, value[:len(value)-removed])
+		excess -= removed
+		if excess == 0 {
+			break
+		}
+	}
+	if len(canonicalObject(test, record)) != shape.MaxBytes {
+		test.Fatal("boundary construction failed")
+	}
+	return record
+}
+
+// Claim: expandable frame/file records admit grammar-valid exact 65536/262144-byte controls and refuse one extra byte without relaxing any field or array bound.
+func TestLabExactLimitRecordPairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		if shape.Format != "swarma-broker-lab-account/1" && shape.Format != "swarma-lab-release-set/1" {
+			continue
+		}
+		test.Run(shape.Format, func(test *testing.T) {
+			data := canonicalObject(test, exactLimitFixture(test, fixtures[position].Valid, shape, set))
+			if err := checkRecord(data, shape, set); err != nil {
+				test.Fatalf("exact-limit valid record refused: %v", err)
+			}
+			if err := checkRecord(append(data, ' '), shape, set); err == nil || err.Error() != "size" {
+				test.Fatalf("one byte over admitted: %v", err)
+			}
+		})
+	}
+}
+
+// Claim: a full record admits 256 array members and refuses 257 specifically for the array bound, beside a wrong-container-type refusal.
+func TestLabArrayLimitPairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		if shape.Format != "swarma-broker-lab-account/1" {
+			continue
+		}
+		record := cloneObject(test, fixtures[position].Valid)
+		items := make([]any, 256)
+		for index := range items {
+			items[index] = "public-id"
+		}
+		record["issued_versions"] = items
+		if err := checkRecord(canonicalObject(test, record), shape, set); err != nil {
+			test.Fatal(err)
+		}
+		for _, invalid := range []any{append(items, "public-id"), "not-array"} {
+			record["issued_versions"] = invalid
+			if err := checkRecord(canonicalObject(test, record), shape, set); err == nil || !strings.Contains(err.Error(), "array") {
+				test.Fatalf("array bound/type wrong refusal: %v", err)
+			}
+		}
+		return
+	}
+	test.Fatal("missing account")
+}
+
+func principalsDisjoint(gateway, caller map[string]any) bool {
+	return gateway["uid"] != caller["uid"] && gateway["generation"] != caller["generation"] && gateway["execution_id"] != caller["execution_id"] && gateway["kind"] == "service" && caller["kind"] == "worker"
+}
+
+// Claim: authority, lease and journal fixtures have disjoint gateway/caller UIDs, generations and executions; equality of each tuple component refuses beside that valid pair.
+func TestLabPrincipalDisjointPairs(test *testing.T) {
+	_, fixtures := loadContracts(test)
+	count := 0
+	for _, fixture := range fixtures {
+		records := []map[string]any{fixture.Valid}
+		if fixture.Surface == "swarma-broker-lab-service-journal/1" {
+			records = append(records, fixture.Valid["bindings"].([]any)[0].(map[string]any))
+		}
+		for _, record := range records {
+			gateway, exists := record["gateway"].(map[string]any)
+			if !exists {
+				continue
+			}
+			caller, exists := record["caller"].(map[string]any)
+			if !exists {
+				caller = record["worker"].(map[string]any)
+			}
+			test.Run(fixture.Surface, func(test *testing.T) {
+				if !principalsDisjoint(gateway, caller) {
+					test.Fatal("valid principal pair refused")
+				}
+				for _, name := range []string{"uid", "generation", "execution_id"} {
+					changed := cloneObject(test, caller)
+					changed[name] = gateway[name]
+					if principalsDisjoint(gateway, changed) {
+						test.Fatalf("shared %s admitted", name)
+					}
+				}
+			})
+			count++
+		}
+	}
+	if count != 3 {
+		test.Fatal("principal pair inventory")
+	}
+}
+
+func timingTextAgrees(profile, contract string) bool {
+	return strings.Contains(profile, "250 ms cadence + **200 ms RPC timeout**") && strings.Contains(contract, "every 250 ms use a 200 ms RPC")
+}
+
+// Claim: C0's frozen cadence/RPC text agrees with the design's 190 ms valid-control budget; the old 100 ms contradiction refuses, without claiming native timing qualification.
+func TestLabTimingContractPairs(test *testing.T) {
+	profile, err := os.ReadFile("../../docs/lab-profile-v0.md")
+	if err != nil {
+		test.Fatal(err)
+	}
+	contract := string(readContract(test, "README.md"))
+	if !timingTextAgrees(string(profile), contract) {
+		test.Fatal("design/C0 timeout mismatch")
+	}
+	if timingTextAgrees(string(profile), strings.Replace(contract, "200 ms RPC", "100 ms RPC", 1)) {
+		test.Fatal("old timeout contradiction admitted")
+	}
 }

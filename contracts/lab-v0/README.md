@@ -1,21 +1,23 @@
-# Lab contract C0, revision 1
+# Lab contract C0, revision 2
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
 This is the closed byte inventory of [lab profile §5.2](../../docs/lab-profile-v0.md#52-c0s-closed-byte-inventory-and-consumer-joins).
 The 24 entries in `surfaces.json` are authoritative together with this document;
 `fixtures.json` pairs every own-format valid record with an unknown-field
-negative. The acceptance allocations are construction obligations, not claims
+negative. Nested negatives carry a complete mutated record, path (array indices
+are integers), structure, field and mutation; each is paired with that surface's
+valid record. The acceptance allocations are construction obligations, not claims
 that these fixtures implement A01–A12. B1–B5/G1/M1 must exercise their actual
 readers and effects against these bytes. No runtime code or constructors ship here.
 
 ## Encoding and field grammar
 
-Every record is CCJ-1, exactly as `internal/wire/canonical.go:15`: UTF-8, sorted
+Every record is CCJ-1, exactly as `internal/wire/canonical.go:17`: UTF-8, sorted
 object keys, minimal escaping, integers only in the signed safe-integer range,
 no duplicate members, null, missing or extra fields, no trailing newline. All
 listed fields are required recursively. Arrays preserve order and have at most
-256 members; identifiers are printable ASCII, 1..128 bytes. No unlisted extension
+256 members; identifiers use ASCII 0x21..0x7e, 1..128 bytes. No unlisted extension
 member or alternate format spelling exists. Nested structures are closed too.
 The `format` member is the domain/version discriminator; a record digest is
 `sha256:` followed by lowercase hex of **complete canonical bytes**, not a secret
@@ -36,7 +38,7 @@ whole metadata snapshot and entries, including binding/lease/tombstone state.
 Manager prefix heads retain the existing manager-owned hash algorithm rather
 than being re-encoded as lab heads. Root/control and lease
 frames use a 4-byte unsigned big-endian nonzero payload length then those bytes,
-maximum 65536, as `internal/wire/frame.go:19`. Larger Q/release files (maximum
+maximum 65536, as `internal/wire/frame.go:14`. Larger Q/release files (maximum
 262144) are file records, never oversized socket frames. Activation is 16384 max.
 
 In the machine-readable field grammar: `@Name` references a closed structure,
@@ -45,12 +47,12 @@ In the machine-readable field grammar: `@Name` references a closed structure,
 `operation` is 32 lowercase hex digits from a fresh 128-bit identifier;
 `uuid` is lowercase 8-4-4-4-12 hex; `commit` is 40 lowercase hex. `bool` is a
 JSON Boolean; `uint` is 0..9007199254740991; `positive` starts at 1; `time` is
-canonical UTC RFC3339Nano, with a Z suffix and no redundant fractional zeros
+canonical UTC RFC3339Nano after the Unix epoch, with a Z suffix and no redundant fractional zeros
 (`time.Parse` followed by `UTC().Format(time.RFC3339Nano)` must reproduce it);
 no subsecond precision is discarded from a bound or watermark; `root` is integer 0;
 `lifetime` is 1..900; `alignment` is 0..2; `poll` is integer 250;
 `capture-timeout` is integer 300; `exit` is 0..255. `material` is a nonempty
-ASCII string up to 4096 bytes, carried **only in protected broker custody or the gateway lease
+ASCII 0x21..0x7e string up to 4096 bytes, carried **only in protected broker custody or the gateway lease
 response**, erased from transient holder buffers on terminal paths and never
 persisted in a fixture/evidence export with real contents. The published value is a public synthetic marker.
 Lease requests use the existing service dialect; this record is its lab material
@@ -155,8 +157,9 @@ Result heads are authoritative only at committed; UNKNOWN heads grant nothing.
 Hold uses leak_match/account/caller/operation ID, is durable before acknowledgment,
 and an unknown result never reopens. Hold-lift binds the exact current hold in a
 nonsecret input pin; it cannot revive a removed lease. Finite capacity reserves
-narrowing before further widening. Current checks every 250 ms use a 100 ms RPC
-timeout plus at most 500 ms closure; independent 500 ms watchdog plus 500 ms
+narrowing before further widening. Current checks every 250 ms use a 200 ms RPC
+timeout (as `docs/lab-profile-v0.md:401`; its 190 ms valid control is at
+`:1266`) plus at most 500 ms closure; independent 500 ms watchdog plus 500 ms
 closure bounds teardown to 1 s. These timing/effect obligations belong to G1/B4,
 not to schema tests.
 
@@ -164,14 +167,16 @@ The root-only matcher accepts a protected collection ID and full issued-version
 inventory, **never caller-supplied needle bytes or partial needles**. It emits
 only clean/match/incomplete, no offsets/snippets/hashes of material. Nonzero
 issued versions and complete encodings are required for clean: raw, JSON,
-percent hex variants, standard/URL-safe base64 padded/unpadded at all three
+percent hex variants (one initialized percent row attests both uppercase and
+lowercase hex matching, never just one spelling), standard/URL-safe base64 padded/unpadded at all three
 alignments (0/1/2). A match durably holds before acknowledgment; an unknown hold
 cannot report clean. Partial coverage, malformed inputs and inaccessible surfaces
 are incomplete/exit 2. Q evidence includes real case exits, effect/completeness
 and encoding bounds, all six Q groups and valid/negative/plant roles; complete
 metadata is not a successful native Q. Export omits raw payloads and fingerprints.
 Release assets bind signed tags, exact source commits, asset digests/modes and exact regular-file archive member paths/modes/digests
-(relative paths, no dot-dot, absolute path, link or special member),
+(relative paths, no dot-dot, absolute path, link or special member; these path/type
+checks belong to the RB/B5 archive verifier, beyond the Member.path id grammar),
 independent second-build equality and the closed contract-index digest. No lab
 asset is acceptable to a production release reader.
 
@@ -189,14 +194,23 @@ these bytes/fields requires a reviewed new profile revision and probe, never
 silent fixture normalization. G1 forwards admitted body bytes unchanged and all
 eleven measured non-OAuth flags; it rejects OAuth, unknown/missing/duplicate/
 case-variant flags, duplicate beta fields, TTL 1h, system clear_at or tools outside
-this frozen empty-tool invocation. It never strips body fields to fit API-key
-mode. Policy GET receives no injected credential and preserves real errors.
+this frozen empty-tool invocation. Measured enums/cache values, model, max_tokens
+and stream are checked separately from paths; stripping any required field
+refuses. Per-message effort=medium is a reconstructed fixture constraint, not
+an additional measured value. It never strips body fields to fit API-key
+mode. Policy GET receives no injected credential and preserves real errors;
+fake policy success is a response-side G1/B4 native obligation, not proven by
+these request fixtures.
 
 `index.json` seals every contract, probe source and fixture with SHA-256, plus
 the complete profile/wire/specification/time-contract/API source bytes; its own
 hash is frozen in the test. No PR commit locator is used: unchanged bytes survive
 signed rebases. Changing a frozen byte is a contract revision with a new index
-and consumer review, not an automatic golden update. The existing production
+and consumer review, not an automatic golden update. Complete production source
+pins are intentional tripwires: even an unrelated spec edit requires a scoped
+source-diff review, confirmation that the lab amendment/joins are unchanged,
+resealing the affected source digest and index/test digest, rerunning both
+contract and assembly suites, and consumer review before adoption. The existing production
 sealed-index tests and source pins are untouched.
 
 Run `go test -count=1 -v ./internal/labcontractv0 ./internal/assemblyv0` in an
@@ -235,3 +249,26 @@ profile drift, not silently broaden the eleven-token/body contract to make an
 error fallback succeed. This observation qualifies neither a fallback body nor
 vendor retry behavior; live Q1 must tolerate genuine errors under the closed
 profile. The successful synthetic control remains exactly GET then POST.
+
+## Refusal coverage and limits
+
+Fixtures are per-surface shape controls, not a mutually joined installation:
+heads in different cases are not asserted equal. Principal tuples within each
+case are disjoint; service-journal and approval self-target hashes are checked.
+Cross-record joins remain native consumer obligations. Tests traverse every
+instantiated nested type per surface (including array elements) and every
+primitive field, alongside own-format valid controls.
+
+Each max_bytes preflight is tested at its exact limit and one byte over with
+the specific size refusal, separately from canonical/shape validity. Compact
+fixed-field records cannot reach their large transport ceiling under the frozen
+grammar; an at-limit noncanonical payload is therefore only a preflight control,
+not a claimed admitted record. Grammar-valid exact-limit records are also
+exercised for expandable frame and release-file surfaces. Arrays admit 256 and
+refuse 257 members. No payload or array limit is enlarged for a test.
+
+Q-row result/effect semantics, raw-export prohibitions and release/tag/build
+semantics remain B4/RB implementation pairs; C0 does not claim those native
+behaviors from schema success. The probe trace audit covers traced socket
+creation/connect and io_uring only, not sendto or every possible syscall.
+Unfinished/resumed lines fail closed and may require a new clean observation.

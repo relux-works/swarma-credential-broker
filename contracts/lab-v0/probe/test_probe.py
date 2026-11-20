@@ -1,3 +1,8 @@
+import hashlib
+import io
+from email.message import Message
+from types import SimpleNamespace
+from unittest.mock import patch
 import importlib.util
 import json
 import os
@@ -59,7 +64,7 @@ print('unix valid; network and io_uring refused')
 
     # Claim: a filtered local Unix HTTP request gets SSE without prompt content in recorder output, while the error control remains HTTP 400.
     def test_local_http_and_error_pair(self):
-        with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as scratch:
+        with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as scratch:
             scratch = Path(scratch)
             for mode, status in (("sse", 200), ("error", 400)):
                 with probe.RecordingServer(str(scratch / (mode + ".sock")), probe.RecordingHandler) as server:
@@ -103,7 +108,7 @@ with socket.socket(socket.AF_UNIX) as client:
     # Claim: the evidence checker distinguishes an exact valid profile from unqualified error retries, and refuses changed authentication on the initial model attempt.
     def test_evidence_profile_pairs(self):
         import hashlib
-        with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as scratch:
+        with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as scratch:
             scratch = Path(scratch)
             observed = json.loads((ROOT / "observed.json").read_text())["requests"]
             metadata = {"exit_code": 0, "row": "apikey-ssh", "initial_home_entries": [],
@@ -127,11 +132,55 @@ with socket.socket(socket.AF_UNIX) as client:
     # Claim: the recorder refuses a wrong executable digest before creating any run directory, beside the fixed approved digest declaration.
     def test_wrong_binary_refused(self):
         self.assertEqual(probe.EXPECTED_BINARY, json.loads((ROOT / "client.json").read_text())["binary_sha256"])
-        with tempfile.TemporaryDirectory(dir=os.environ["TMPDIR"]) as scratch:
+        with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as scratch:
             arguments = type("Arguments", (), {"name": "negative", "binary": sys.executable, "scratch": scratch})()
             with self.assertRaisesRegex(ValueError, "unapproved executable digest"):
                 probe.run_probe(arguments)
             self.assertEqual(list(Path(scratch).iterdir()), [])
+
+
+    # Claim: rejected public header markers never create a request log; each refusal is beside an admitted placeholder on the same recorder path.
+    def test_header_credential_guards(self):
+        with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as directory:
+            log = Path(directory) / "requests.jsonl"
+            for header, valid, invalid in (("x-api-key", "ssh-placeholder", "PUBLIC-NOT-PLACEHOLDER"), ("authorization", "Bearer ssh-placeholder", "Bearer PUBLIC-NOT-PLACEHOLDER")):
+                for value, admitted in ((valid, True), (invalid, False)):
+                    with self.subTest(header=header, admitted=admitted):
+                        log.unlink(missing_ok=True)
+                        handler = object.__new__(probe.RecordingHandler)
+                        handler.headers = Message()
+                        handler.headers[header] = value
+                        handler.rfile = io.BytesIO()
+                        handler.wfile = io.BytesIO()
+                        handler.command, handler.path = "GET", "/api/claude_code/policy_limits"
+                        handler.request_version, handler.requestline = "HTTP/1.1", "GET /api/claude_code/policy_limits HTTP/1.1"
+                        handler.server = SimpleNamespace(configuration={"policy": {"restrictions": {}}, "request_id": False}, log_path=log, log_lock=threading.Lock(), started=probe.time.monotonic())
+                        if admitted:
+                            handler.respond()
+                            self.assertEqual(json.loads(log.read_text())["headers"][header], valid)
+                            self.assertIn(b"200", handler.wfile.getvalue())
+                        else:
+                            with self.assertRaisesRegex(ValueError, "non-synthetic header refused"):
+                                handler.respond()
+                            self.assertFalse(log.exists())
+                            self.assertEqual(handler.wfile.getvalue(), b"")
+
+    # Claim: invalid credential arguments fail before any directory or command log; placeholder values and allowed noncredential variables remain admitted.
+    def test_extra_environment_credential_guards(self):
+        digest = hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest()
+        with tempfile.TemporaryDirectory(dir=tempfile.gettempdir()) as directory, patch.object(probe, "EXPECTED_BINARY", digest):
+            for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+                with self.subTest(name=name):
+                    self.assertEqual(probe.synthetic_extra_environment([name+"=ssh-placeholder"]), {name: "ssh-placeholder"})
+                    with self.assertRaisesRegex(ValueError, "only explicitly synthetic credential placeholders"):
+                        probe.synthetic_extra_environment([name+"=PUBLIC-NOT-PLACEHOLDER"])
+                    arguments = SimpleNamespace(name="negative", binary=sys.executable, scratch=directory, extra_env=[name+"=PUBLIC-NOT-PLACEHOLDER"])
+                    with self.assertRaisesRegex(ValueError, "only explicitly synthetic credential placeholders"):
+                        probe.run_probe(arguments)
+                    self.assertEqual(list(Path(directory).iterdir()), [])
+            self.assertEqual(probe.synthetic_extra_environment(["API_TIMEOUT_MS=6000"]), {"API_TIMEOUT_MS": "6000"})
+            with self.assertRaisesRegex(ValueError, "not allowlisted"):
+                probe.synthetic_extra_environment(["PUBLIC_UNKNOWN=public"])
 
 
 if __name__ == "__main__":
