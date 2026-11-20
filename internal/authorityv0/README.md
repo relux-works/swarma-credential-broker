@@ -19,8 +19,16 @@ its delegation maps synthetic IDs to the real unprivileged fixture owner.
 Every delegated read, directory check and lock uses the real protected
 reader. `TestNewBindsProductionSeam` separately asserts that `New` installs
 exactly `protectedio.Reader{}` and `protectedio.NewConfigGate`, not policy-
-rewriting adapters. These witnesses prove wiring and call-site bindings, not
-privileged provisioning. A nil, zero-value or incompletely initialized reader
+rewriting adapters. Without changing any constructed field,
+`TestNewProductionPolicies` compares all seven production source paths,
+owner IDs, modes, link counts, size bounds and ancestor owners to the literal
+spec 4.1/4.3 table, with a configured broker UID distinct from the non-root
+process. `TestNewPreservesConfiguration` pins configuration preservation and
+the operational duplicate-field copies; `TestNewInitialState` pins process
+and root IDs, the zero mutex and the initially absent lazy gate. Together
+these assertions cover the current constructor fields and the separately
+recorded call-site policies, not privileged provisioning or arbitrary later
+rebinding inside a window. A nil, zero-value or incompletely initialized reader
 refuses every public window without invoking its callback or returning pins.
 The `/etc/group` protection extends the spec 4.1 passwd row by analogy;
 it is not presented as an additional normative source row.

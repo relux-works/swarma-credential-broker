@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -105 +105 @@
+-	return &Reader{config: config, files: protectedio.Reader{}, newGate: protectedio.NewConfigGate, brokerUID: uint32(os.Geteuid()), brokerGID: uint32(os.Getegid()), paths: paths{
++	return &Reader{config: config, rootGID: uint32(os.Getegid()), files: protectedio.Reader{}, newGate: protectedio.NewConfigGate, brokerUID: uint32(os.Geteuid()), brokerGID: uint32(os.Getegid()), paths: paths{

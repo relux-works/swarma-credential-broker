@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -106 +106 @@
+-		authority: AuthorityPath, lock: LockPath, passwd: "/etc/passwd", group: "/etc/group",
++		authority: DataRoot + "/authority-v0.json", lock: LockPath, passwd: "/etc/passwd", group: "/etc/group",
