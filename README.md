@@ -179,6 +179,17 @@ immutable units. It grants no production currentness or durable recovery authori
 
 ## Tools
 
+The [protected-reader mutation driver](internal/protectedio/testdata/mutation/README.md)
+replays ordinary decision mutations with `go run ./internal/protectedio/testdata/mutation`
+(the linked instructions specify mandatory scratch/output flags). Its separate
+`privileged-protectedio` PR CI job uses `sudo -- unshare --mount --propagation private`
+and tagged Linux/amd64 test-only tmpfs/chroot and syscall-fault fixtures to replay
+exactly the 18 residual rows of PR #75. `go test -count=1 ./internal/protectedio/testdata/mutation` checks the evidence classifier and audit
+export with positive and negative controls. Receipts, command exit codes and the
+evidence-gated `results.tsv` export go to the `protectedio-privileged-residual`
+CI artifact; local logs remain under task-owned `.temp/`. Neither root privileges
+nor fixture code is added to production binaries or the ordinary test job.
+
 The owner-close timeout fixture uses a test-only Go overlay to acknowledge a
 post-startup supervisor pause before exercising the real two-second timeout.
 Run `GO="$(command -v go)" go test -race -count=1 -run "^TestOwnerCloseTimeoutSnapshot" ./internal/qualify`

@@ -42,7 +42,7 @@ func must(err error) {
 	}
 }
 
-func inventory(root string) []mutant {
+func inventory(root string, brokerUID, brokerGID int) []mutant {
 	var mutations []mutant
 	seen := map[string]bool{}
 	for _, path := range []string{"internal/protectedio/read_linux.go", "internal/authorityv0/reader_linux.go"} {
@@ -65,9 +65,9 @@ func inventory(root string) []mutant {
 		}
 		values := func(node ast.Node, field string) {
 			add(node, "policy-"+field+"-zero", "0")
-			broker := os.Geteuid()
+			broker := brokerUID
 			if strings.Contains(strings.ToLower(field), "gid") {
-				broker = os.Getegid()
+				broker = brokerGID
 			}
 			add(node, "policy-"+field+"-broker", strconv.Itoa(broker))
 		}
@@ -192,7 +192,7 @@ func copySource(root, scratch string) {
 	}))
 }
 
-func run(scratch, log string, selection ...string) (int, int, float64) {
+func run(scratch, log string, privileged bool, selection ...string) (int, int, float64) {
 	load := 100.0
 	for load >= 10 {
 		contents, err := os.ReadFile("/proc/loadavg")
@@ -209,6 +209,12 @@ func run(scratch, log string, selection ...string) (int, int, float64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	arguments := []string{"test", "-count=1"}
+	if privileged {
+		arguments = append(arguments, "-tags=privileged")
+		if len(selection) == 0 {
+			arguments = append(arguments, "-run", privilegedSelection)
+		}
+	}
 	if len(selection) > 0 {
 		arguments = append(arguments, "-run", "^"+regexp.QuoteMeta(selection[0])+"$")
 	}
@@ -235,13 +241,32 @@ func main() {
 	scratch := flag.String("scratch", "", "new, task-owned scratch directory")
 	output := flag.String("output", "", "JSONL receipt path")
 	only := flag.String("only", "", "optional comma-separated mutant IDs")
+	privileged := flag.Bool("privileged", false, "replay exactly the 18 audited residuals under the privileged tag")
+	auditOutput := flag.String("audit-output", "", "export results.tsv only after all 18 privileged assertion kills")
 	list := flag.Bool("list", false, "enumerate without running")
 	flag.Parse()
 	syscall.Umask(0022)
 	absolute, err := filepath.Abs(*root)
 	must(err)
 	*root = absolute
-	mutations := inventory(*root)
+	brokerUID, brokerGID := os.Geteuid(), os.Getegid()
+	var auditRows [][]string
+	if *privileged {
+		if os.Geteuid() != 0 || *only != "" {
+			panic("privileged replay requires actual root and forbids partial selection")
+		}
+		auditRows, err = readAudit(filepath.Join(*root, "internal/protectedio/testdata/mutation/results.tsv"))
+		must(err)
+		brokerUID, brokerGID, err = auditBrokerIdentity(auditRows)
+		must(err)
+	} else if *auditOutput != "" {
+		panic("audit export requires privileged replay")
+	}
+	mutations := inventory(*root, brokerUID, brokerGID)
+	if *privileged {
+		mutations, err = residualInventory(mutations, auditRows)
+		must(err)
+	}
 	if *list {
 		encoder := json.NewEncoder(os.Stdout)
 		for _, mutation := range mutations {
@@ -287,13 +312,24 @@ func main() {
 		return nil
 	}))
 	must(encoder.Encode(map[string]any{"go_source_sha256": manifest}))
-	baseline, process, load := run(*scratch, *output+".control.log")
-	must(encoder.Encode(map[string]any{"control_exit": baseline, "pid": process, "load": load, "umask": "022", "broker_uid": os.Geteuid(), "broker_gid": os.Getegid(), "command": "go test -count=1 ./internal/protectedio ./internal/authorityv0"}))
+	if *privileged {
+		audit, err := os.ReadFile(filepath.Join(*root, "internal/protectedio/testdata/mutation/results.tsv"))
+		must(err)
+		hash := sha256.Sum256(audit)
+		must(encoder.Encode(map[string]string{"audit_sha256": hex.EncodeToString(hash[:])}))
+	}
+	baseline, process, load := run(*scratch, *output+".control.log", *privileged)
+	controlCommand := "go test -count=1 ./internal/protectedio ./internal/authorityv0"
+	if *privileged {
+		controlCommand = "go test -count=1 -tags=privileged -run '" + privilegedSelection + "' ./internal/protectedio ./internal/authorityv0"
+	}
+	must(encoder.Encode(map[string]any{"control_exit": baseline, "pid": process, "load": load, "umask": "022", "broker_uid": os.Geteuid(), "broker_gid": os.Getegid(), "inventory_broker_uid": brokerUID, "inventory_broker_gid": brokerGID, "command": controlCommand}))
 	if baseline != 0 {
 		panic("valid control failed")
 	}
 	failures := regexp.MustCompile(`--- FAIL: ([^\s]+)`)
 	unresolved := 0
+	var results []result
 	for _, mutation := range mutations {
 		if *only != "" && !strings.Contains(","+*only+",", ","+mutation.ID+",") {
 			continue
@@ -303,7 +339,11 @@ func main() {
 		changed := append(append(append([]byte{}, original[:mutation.Start]...), []byte(mutation.After)...), original[mutation.End:]...)
 		must(os.WriteFile(filepath.Join(*scratch, mutation.File), changed, 0600))
 		log := *output + "." + mutation.ID + ".log"
-		exit, pid, load := run(*scratch, log)
+		var selection []string
+		if *privileged {
+			selection = []string{privilegedWitnesses[mutation.ID].Test}
+		}
+		exit, pid, load := run(*scratch, log, *privileged, selection...)
 		must(os.WriteFile(filepath.Join(*scratch, mutation.File), original, 0600))
 		contents, err := os.ReadFile(log)
 		must(err)
@@ -322,7 +362,7 @@ func main() {
 			status = "EQUIVALENT-SYNTACTIC"
 		}
 		entry := result{mutant: mutation, Status: status, Tests: strings.Join(tests, ","), Exit: exit, PID: pid, Load: load, Log: filepath.Base(log), ProofExit: -1}
-		if status == "ERROR" && bytes.Contains(contents, []byte("panic:")) {
+		if !*privileged && status == "ERROR" && bytes.Contains(contents, []byte("panic:")) {
 			for _, test := range tests {
 				name := strings.Split(test, "/")[0]
 				if !strings.HasPrefix(name, "TestMechanical") {
@@ -330,7 +370,7 @@ func main() {
 				}
 				must(os.WriteFile(filepath.Join(*scratch, mutation.File), changed, 0600))
 				proof := log + ".assertion.log"
-				proofExit, proofPID, _ := run(*scratch, proof, name)
+				proofExit, proofPID, _ := run(*scratch, proof, false, name)
 				must(os.WriteFile(filepath.Join(*scratch, mutation.File), original, 0600))
 				proofContents, err := os.ReadFile(proof)
 				must(err)
@@ -342,6 +382,15 @@ func main() {
 				break
 			}
 		}
+		if *privileged {
+			entry.Status = "ERROR"
+			if exit == 0 {
+				entry.Status = "SURVIVED"
+			} else if privilegedKill(exit, contents, privilegedWitnesses[mutation.ID]) {
+				entry.Status, entry.Tests = "KILLED", privilegedWitnesses[mutation.ID].Test
+			}
+		}
+		results = append(results, entry)
 		if entry.Status == "SURVIVED" || entry.Status == "ERROR" {
 			unresolved++
 		}
@@ -354,6 +403,9 @@ func main() {
 		must(err)
 		hash := sha256.Sum256(contents)
 		must(encoder.Encode(map[string]string{"source": path, "sha256": hex.EncodeToString(hash[:])}))
+	}
+	if unresolved == 0 && *privileged && *auditOutput != "" {
+		must(writePrivilegedAudit(*auditOutput, auditRows, results))
 	}
 	if unresolved > 0 {
 		fmt.Fprintf(os.Stderr, "unresolved mutations: %d\n", unresolved)
