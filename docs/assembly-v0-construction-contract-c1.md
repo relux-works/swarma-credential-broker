@@ -91,7 +91,7 @@ and the historical C0 construction scope do not change.
 | `spec/broker.md` | `e069ccf61e89b2f6efa27227eb80349f5379181f64b6ce46d960a64a609a6834` | `616d58599f78d4ef0e69920198a179d104313299c2cb4d66138e0ff1becc259a` | DN-05 publication |
 | `spec/operator-and-activation-v0.md` | `d242db6d897ffe7a6fc662df9c47f9d67a035ddcbaffbcc245b87b13ad9d7c79` | `c3d3bdfa9a12fe6e7fbc459474259f1f3a8f34600b46dc8b6a6e0ac85b1ec47d` | DN-05 publication |
 
-The index's `spec_commit` is now the DN-05 publishing commit
+The DN-05 revision set the index's `spec_commit` to publishing commit
 `a864e2665a15a22b59964633d6691b86e5737c00`; both new digests exist at that
 commit. The old digests and the historical C0/applicability S and broker line
 references resolve only at `e295b4c7c0dc397ecdaa89e73c057d53d2e3f533`.
@@ -150,3 +150,25 @@ The Go suite is a no-production-code-change control, not U02 implementation
 evidence or specification acceptance. Publication review is limited to exact
 amendment bytes, conditional applicability, links, sealed citations and these
 C1 boundaries.
+
+## Non-semantic lab cross-reference source pins
+
+The lab cross-reference revision of 2026-11-20 places each pointer after all
+pre-existing specification text. Every original line and sealed excerpt is
+byte-identical to the DN-05 source above; no existing citation moves. The
+whole-file digests necessarily change, so the test constants and index metadata
+select the following exact source revision instead of accepting
+unsealed source changes:
+
+| Source | Source commit | SHA-256 | Change |
+| --- | --- | --- | --- |
+| `spec/broker.md` | `ca520990ff4a390864a8d8f2155e6a0eff9f1d8f` | `e45be31c8b3701806b628d9fe6ca011c8a55e17969892a2e2f95b29bdeeeea87` | Non-normative lab link at EOF only |
+| `spec/operator-and-activation-v0.md` | `ca520990ff4a390864a8d8f2155e6a0eff9f1d8f` | `feacdfe6e6cb551b9f175800ccd45eb8e09b299533bfad86e2607dace2834eb4` | Non-normative lab link at EOF of section 9 only |
+
+The current index's `spec_commit` names that revision. Only
+`baseline_spec_sha256`, `spec_commit` and `spec_sha256` change in the index; all
+vector payloads, source spans and excerpt seals remain unchanged. The literal
+whole-file comparisons in `TestConstructionVectors`, and the valid and
+line-shift refusal controls in `TestConstructionSourceCitations` and
+`TestConstructionSourceCitationLineShift`, remain enforced. This metadata
+revision neither amends the production grammar nor accepts the lab exception.

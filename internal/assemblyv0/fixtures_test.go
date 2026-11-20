@@ -23,8 +23,8 @@ var updateVectors = flag.Bool("update-assembly-vectors", false, "rewrite synthet
 const (
 	vectorDirectory     = "testdata/construction-v0"
 	specificationPath   = "spec/operator-and-activation-v0.md"
-	specificationCommit = "a864e2665a15a22b59964633d6691b86e5737c00"
-	specificationSHA256 = "c3d3bdfa9a12fe6e7fbc459474259f1f3a8f34600b46dc8b6a6e0ac85b1ec47d"
+	specificationCommit = "ca520990ff4a390864a8d8f2155e6a0eff9f1d8f"
+	specificationSHA256 = "feacdfe6e6cb551b9f175800ccd45eb8e09b299533bfad86e2607dace2834eb4"
 	fixtureInstallation = "fixture-installation-v0"
 	fixtureAccount      = "fixture/claude/subscription"
 	fixtureOperation    = OperationID("00112233445566778899aabbccddeeff")
@@ -32,7 +32,7 @@ const (
 	fixtureToken        = "SYNTHETIC-ONLY-NOT-A-VENDOR-TOKEN"
 )
 
-const baselineSpecificationSHA256 = "616d58599f78d4ef0e69920198a179d104313299c2cb4d66138e0ff1becc259a"
+const baselineSpecificationSHA256 = "e45be31c8b3701806b628d9fe6ca011c8a55e17969892a2e2f95b29bdeeeea87"
 
 type sourceReference struct {
 	Path          string `json:"path"`
