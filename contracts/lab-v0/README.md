@@ -1,9 +1,9 @@
-# Lab contract C0 with C0b addendum, revision 6
+# Lab contract C0 with C0b/C0c addenda, revision 7
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
 This is the closed byte inventory of [lab profile §5.2](../../docs/lab-profile-v0.md#52-c0s-closed-byte-inventory-and-consumer-joins).
-The 25 entries in `surfaces.json` (24 base plus C0b) are authoritative together with this document;
+The 27 entries in `surfaces.json` (24 base plus C0b and two C0c frames) are authoritative together with this document;
 `fixtures.json` pairs every own-format valid record with an unknown-field
 negative. Nested negatives carry a complete mutated record, path (array indices
 are integers), structure, field and mutation; each is paired with that surface's
@@ -281,7 +281,7 @@ Unfinished/resumed lines fail closed and may require a new clean observation.
 
 ## Normative negative operator catalogue
 
-Revision 6 freezes the following **finite operator catalogue**, not a claim to
+Revision 7 retains the following **finite operator catalogue**, not a claim to
 exhaust all possible adversaries. `literalMutations`, `separatorMutations`,
 `scalarMutations`, `labelCases` and `headerNameCases` in `internal/labcontractv0` implement it.
 Traversal applies every applicable operator to every grammar node, enum member,
@@ -338,3 +338,29 @@ publishes synthetic admitted and intended-step refused joins. The original 24
 surface fixtures and all probe/wire bytes remain unchanged. Native enforcement,
 durable reservations, owner provenance and actual executor controls remain M1,
 B5 and B4 release/qualification obligations, not C0b implementation evidence.
+
+## C0c manager-owned lab observation
+
+[observation.md](observation.md) defines the tagged M1 → B1 observation
+capability, narrow request, complete native join and fresh final-publication
+rule. `observation-fixtures.json` is inert reference evidence, not a native
+receipt or proof of kernel authentication, locking or installed currentness.
+`native-executor` is 1..32 ASCII lowercase alphanumeric-first, then lowercase
+alphanumeric/hyphen, matching native executor/profile IDs. `native-id` preserves the native manager grammar: ASCII alphanumeric first,
+then ASCII alphanumeric, period, underscore or hyphen, 1..64 bytes. Generation
+uses the existing 32-lowercase-hex `operation` grammar, not a display name.
+
+Catalogue application: every new label, discriminator, nested field, integer,
+array and digest uses the existing complete operator catalogue. The native-id
+projection additionally varies all 256 byte values at first/interior/last
+positions, both length bounds, fixed separators, Unicode confusables, and all
+wrong JSON types. Valid native letters of either ASCII case remain valid.
+Paired roles vary client/server individually and together; root is valid as
+the manager server, never as a client. Join operators change every native
+incarnation field independently; partial, absent, duplicate, stale or reordered
+observations fail the intended UNKNOWN gate beside a complete fresh control.
+Transport boundary operators vary each size/deadline side, every peer role,
+one versus zero/multiple frames, and lock/completeness provenance separately.
+Run the existing Go contract/assembly and Python probe commands in the
+fixture/reproduction section; C0c
+reference checks are test-only, not an observation server or client.

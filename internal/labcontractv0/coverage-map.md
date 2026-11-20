@@ -1,6 +1,6 @@
 # C0 construction coverage map
 
-Scope: the 25 byte formats (24 base plus C0b) in lab profile section 5.2, not runtime A01–A12 acceptance.
+Scope: the 27 byte formats (24 base plus C0b and two C0c frames) in lab profile section 5.2, not runtime A01–A12 acceptance.
 No separate attack-surface catalog was supplied; the profile inventory is the
 bounded construction surface. Own-format controls are canonical public fixtures.
 The source overlay mutant `foreign-format` disables string-singleton checking;
@@ -211,6 +211,8 @@ remain test-local parser evidence, not end-to-end wire-reader acceptance.
 | Surface / rule | Cases and adjacent valid control | Intended gate / test | Source-overlay control |
 | --- | --- | --- | --- |
 | `swarma-broker-lab-bounded-invocation/1`, B5 → M1/B4 | Every required root/Context member; catalogue labels, missing/extra/alias/null/wrong kind, duplicate and wrong nesting; foreign format; 65536/65537-byte preflight | `TestLabClosedSurfacePairs`, `TestLabGeneratedClosedFieldPairs`, `TestLabGeneratedObjectBytePairs`, `TestLabPayloadLimitPairs` | `c0b-discriminator`, `c0b-closure`, `c0b-payload-limit` |
+| `swarma-broker-lab-observation-request/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-observation-request/1`; adjacent canonical valid fixture | `c0c-request-discriminator`, `c0c-request-closure`, `c0c-request-payload` |
+| `swarma-broker-lab-observation-response/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-observation-response/1`; adjacent canonical valid fixture | `c0c-response-discriminator`, `c0c-response-closure`, `c0c-response-payload` |
 | All 15 field grammars | Existing catalogue traversal includes each new field and Context; new count 1..256, output 1..128000 and wall 1..900000 endpoints and neighbors, number-lexeme operators | `TestLabFieldGrammarPairs`, `TestLabGeneratedGrammarPairs`, `TestLabGeneratedNumberLexemePairs` | `c0b-count-range`, `c0b-output-range`, `c0b-wall-range` |
 | Positive canonical USD | Independent big-integer/byte oracle; min-1/min/min+1/max-1/max/max+1, every literal and decimal-separator operator, both leading/redundant-zero sides, scale, sign, exponent, non-ASCII, null/all wrong kinds | `TestLabBoundedUSDPairs`, `TestLabGeneratedGrammarPairs`, intended `usd` grammar gate | `c0b-usd-zero`, `c0b-usd-upper`, `c0b-usd-scale`, `c0b-usd-leading-zero` |
 | No default approval; exact owner target/full digest | Published 22-case corpus; false/unverified/revoked/expired and mismatch witnesses; every mutable plan bound/pin/context/operation/generation retaining original approval | `TestLabBoundedAdmissionPairs`, `TestLabBoundedJoinPairs` | `c0b-approval-flag`, `c0b-owner`, `c0b-revocation`, `c0b-approval-digest`, `c0b-approval-seal`, `c0b-target`, `c0b-full-plan` |
@@ -226,3 +228,40 @@ ledgers, process-tree teardown and authenticated off-VM observation remain M1,
 B5 and B4 obligations. No live budget, production or native acceptance is claimed.
 The handoff records actual overlay exits and named failing assertions; an overlay
 not killed there is not silently covered by this planned allocation.
+
+## C0c observation construction coverage
+
+The native source/disposition and complete wire/transport contract are in
+`contracts/lab-v0/observation.md`. All functions below are reference-only test
+models. Input booleans stand for independently verified native facts; they are
+not socket fields or installed constructor parameters. No kernel peer, native
+lock/fsync, protected journal currentness or real publication is proved here.
+
+| Rule / operator cases | Named test with adjacent valid control | Narrowing overlays |
+| --- | --- | --- |
+| Exact three-member request; closed response/nested types; every label/null/type/missing/alias/duplicate/wrong nesting | TestLabClosedSurfacePairs; TestLabNestedClosurePairs; TestLabGeneratedClosedFieldPairs; TestLabGeneratedObjectBytePairs | c0c-request-closure; c0c-response-closure |
+| Both lab discriminators, every literal/case/separator; own formats only | TestLabClosedSurfacePairs; TestLabGeneratedGrammarPairs | c0c-request-discriminator; c0c-response-discriminator |
+| Request 4096 / response 65536: at-limit and over-limit; zero/truncated/multiple-frame facts | TestLabPayloadLimitPairs; TestLabObservationTransportPairs | c0c-request-payload; c0c-response-payload; c0c-frame-size; c0c-one-frame |
+| Every receipt/debit/invalidation array 0/1/255/256/257; null and wrong types | TestLabGeneratedGrammarPairs | c0c-array-count |
+| Native request/start/owner/manager IDs: every catalogue operator and all byte positions/classes; 0/1/2/63/64/65 | TestLabGeneratedGrammarPairs | c0c-native-id-first; c0c-native-id-length |
+| Native executor/profile IDs: fixed lowercase/first character, separators and all byte classes; 0/1/2/31/32/33 | TestLabGeneratedGrammarPairs | c0c-native-executor-case; c0c-native-executor-length |
+| Shared native lock provenance, never a second mutex | TestLabObservationLockPair; TestLabObservationTransportPairs | c0c-native-lock; c0c-lock-provenance |
+| Native request/start + protected expected owner/generation/UID/epoch/executor/plan/profile joins | TestLabObservationJoinPairs | c0c-request-join; c0c-start-pins |
+| Manager identity/boot/executable/instance, store generation/head, currentness/completeness | TestLabObservationJoinPairs | c0c-manager-identity; c0c-store-generation; c0c-manager-head; c0c-currentness; c0c-completeness |
+| Exactly one receipt/debit; absent/duplicate/any invalidation; individual and joined incarnation changes | TestLabObservationJoinPairs | c0c-receipts-uniqueness; c0c-debits-uniqueness; c0c-invalidation; c0c-incarnation-pair; c0c-incarnation-target |
+| Native UID/PID/session bounds, debit <= observation, full debit-prefix count | TestLabObservationJoinPairs; TestLabObservationNativeBoundaries | c0c-native-bounds; c0c-debit-time; c0c-debit-prefix |
+| Counter > durable floor; both interval edges and 249/250 deadline | TestLabObservationJoinPairs; TestLabObservationTransportPairs | c0c-observation-high-water; c0c-boot-interval; c0c-deadline |
+| Exact daemon-only peer, root client denied, root server required, path provenance; each/both role swaps | TestLabObservationTransportPairs | c0c-root-client-exception; c0c-daemon-binding; c0c-server-peer |
+| Fresh final observation, same complete snapshot, increasing sequence/floor, no publish on UNKNOWN/CAS/deadline failure | TestLabObservationPublicationPairs | c0c-publication-transport; c0c-publication-observation; c0c-publication-freshness; c0c-publication-sequence; c0c-publication-snapshot; c0c-publication-deadline; c0c-publication-cas |
+| Durable installed counter, no missing-store/restart default, safe-integer exhaustion | TestLabObservationSequencePairs | c0c-counter-installed; c0c-counter-durable; c0c-counter-reset; c0c-counter-exhaustion |
+
+Canonical integer signs/fractions/exponents and zero spelling are inherited
+`TestLabGeneratedNumberLexemePairs`; CCJ-1 duplicates/canonical spelling use
+`TestLabGeneratedObjectBytePairs` and `TestLabGeneratedCanonicalBytePairs`.
+These are construction gates only; native runtime proof remains M1/B1.
+
+Out of contract for this addendum: installed server/client, real SO_PEERCRED
+readback and UID isolation, actual same-inode native locking, ledger decoding
+through the new endpoint, fsync/crash behavior, release installation and live
+Q/production acceptance. They remain required implementation/qualification
+obligations, not exclusions from their A03/A05 acceptance rows.

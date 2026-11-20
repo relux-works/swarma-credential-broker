@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "bcfcd0ada15d9f1e4dd066605419157985e8bfbf0ed58651943c2d7c3cc2e966"
+const indexSHA256 = "5a7866020f27344916b4ccc2ccbc46af33ee3042823e8f570bb7e1be7f117c93"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -155,7 +155,7 @@ func checkValue(value any, fieldType string, set contractSet) error {
 		}
 		return nil
 	}
-	patterns := map[string]string{"id": `^[\x21-\x7e]{1,128}$`, "digest": `^sha256:[0-9a-f]{64}$`, "operation": `^[0-9a-f]{32}$`, "uuid": `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, "commit": `^[0-9a-f]{40}$`, "material": `^[\x21-\x7e]+$`}
+	patterns := map[string]string{"native-executor": `^[a-z0-9][a-z0-9-]{0,31}$`, "native-id": `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`, "id": `^[\x21-\x7e]{1,128}$`, "digest": `^sha256:[0-9a-f]{64}$`, "operation": `^[0-9a-f]{32}$`, "uuid": `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, "commit": `^[0-9a-f]{40}$`, "material": `^[\x21-\x7e]+$`}
 	if pattern, exists := patterns[fieldType]; exists {
 		text, ok := value.(string)
 		if !ok || (fieldType == "material" && len(text) > 4096) || !regexp.MustCompile(pattern).MatchString(text) {
@@ -295,7 +295,7 @@ func TestLabContractContentPins(test *testing.T) {
 }
 
 func checkInventory(wanted map[string]bool, set contractSet, fixtures []contractCase) error {
-	if len(wanted) != 25 || len(set.Surfaces) != len(wanted) || len(fixtures) != len(wanted) {
+	if len(wanted) != 27 || len(set.Surfaces) != len(wanted) || len(fixtures) != len(wanted) {
 		return fmt.Errorf("inventory size")
 	}
 	seen := map[string]bool{}
@@ -1281,6 +1281,8 @@ func grammarValues(kind string) grammarPair {
 	}
 	maximum := int64(9007199254740991)
 	pairs := map[string]grammarPair{
+		"native-executor":  {"native-executor", []any{"a", "0", strings.Repeat("a", 32)}, []any{"", "-a", "A", "a_b", strings.Repeat("a", 33)}},
+		"native-id":        {"native-id", []any{"a", "A", "0", strings.Repeat("a", 64)}, []any{"", "_a", "-a", ".a", strings.Repeat("a", 65), "a/", "é"}},
 		"usd":              {"usd", []any{"0.000001", "0.000002", "1.000000", "9007199254.740990", "9007199254.740991"}, []any{"0.000000", "9007199254.740992", "1", "1.0", "01.000000", "1.0000000", "+1.000000", "1e0", int64(1)}},
 		"invocation-count": {"range: invocation-count", []any{int64(1), int64(256)}, []any{int64(0), int64(257), "1"}},
 		"output-tokens":    {"range: output-tokens", []any{int64(1), int64(128000)}, []any{int64(0), int64(128001), "1"}},

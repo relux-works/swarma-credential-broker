@@ -126,6 +126,9 @@ func hexMutations(kind string) []grammarMutation {
 }
 
 func scalarMutations(kind string) []grammarMutation {
+	if kind == "native-id" || kind == "native-executor" {
+		return nativeTextMutations(kind)
+	}
 	if kind == "usd" {
 		return usdMutations()
 	}

@@ -345,6 +345,8 @@ its manager state and installed lab bytes are never promoted to production.
 
 ### 3.2 Concrete authority instead of permissive fixture facts
 
+[C0c](../contracts/lab-v0/observation.md) defines manager-owned, daemon-only native observation and fresh pre-publication revalidation; no native store permissions are widened.
+
 `/etc/swarma/lab/authority.json` is root:broker 0640, under a root-owned 0750
 directory. It binds one API account, its owner root UID, exact gateway managed
 UID/generation, worker managed UID/generation, execution ID/epoch/plan and
@@ -673,9 +675,9 @@ valid own-format controls; production acceptance is never widened to pass it.
 Existing manager-owned production records are the explicit exception in 3.1.
 
 The C0 freeze is [contracts/lab-v0/README.md](../contracts/lab-v0/README.md), with
-25 closed formats, including C0b's `swarma-broker-lab-bounded-invocation/1` (B5 → M1/B4).
+27 closed formats, including C0b's `swarma-broker-lab-bounded-invocation/1` (B5 → M1/B4).
 The [C0b addendum](../contracts/lab-v0/bounded-invocation.md) freezes owner-set bounds and exact approval/executor joins.
-These are construction bytes, not production acceptance or any owner/native execution gate.
+[C0c](../contracts/lab-v0/observation.md) adds `swarma-broker-lab-observation-request/1` (B1 → M1) and `swarma-broker-lab-observation-response/1` (M1 → B1), with native-lock currentness and final-publication joins. These are construction bytes, not production acceptance or any owner/native execution gate.
 
 | Byte surface / lab format | Writer → readers |
 | --- | --- |
