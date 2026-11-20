@@ -20,9 +20,11 @@ to the real filesystem reader and real configuration gate. The production
 composition starts with New and replaces only its two I/O seams: it records
 every production path, policy and ancestor UID before strict fixture-path
 and owner remapping. Its literal expected trace retains root UID/GID zero;
-all three windows include final rechecks, and authority refusal returns no
-startup output or callback. The first window constructs the lazy gate;
-subsequent windows reuse it. This pins production policy values at every
+all three windows include final rechecks. Exact-policy refusals check the
+complete trace prefix at every source in both passes; first-pass refusals
+invoke no callback, and refused Load never returns partial startup output.
+Final-pass refusal is not callback rollback. The first window constructs the
+lazy gate; subsequent windows reuse it. This pins production policy values at every
 call site through New, not privileged provisioning or arbitrary rebinding.
 
 | Acceptance row | Named executable witnesses | Killed narrowing plant | Bound |
@@ -41,6 +43,10 @@ call site through New, not privileged provisioning or arbitrary rebinding.
 | Production ownership-seam wiring | `TestNewBindsProductionSeam` | PL-SEAM-GATE-WIRING, PL-SEAM-READER-WIRING | Exact concrete reader and gate factory installed by New; a policy-rewriting adapter cannot hide behind a correctly recorded call-site trace. |
 | Composed production constructor contract | `TestNewProductionPolicies`; `TestNewPreservesConfiguration`; `TestNewInitialState` | PL-NEW-ROOT-OWNERS, PL-NEW-ROOT-UID, PL-NEW-ROOT-GID, PL-NEW-AUTHORITY-PATH, PL-NEW-BROKER-CAPTURE | Override-free literal production paths, root/process owners, modes, links, bounds and ancestors with a distinct configured broker UID; all configuration values, duplicate-field slice copies, process/root IDs, zero mutex and initially absent lazy gate are pinned. Concrete seams are covered by the preceding row. |
 | Composed production call-site values | `TestNewComposedProductionCalls` | PL-PRODUCTION-ANCESTOR-DEFAULT, PL-PRODUCTION-LOCK-DEFAULT, PL-PRODUCTION-AUTHORITY-DEFAULT; retained MR1-MR4 | Literal production paths, owners (including root zero), modes, links, size bounds and ancestor owners through New and every public window; strict path remapping happens only after recording. No Reader field except its two I/O seams is replaced. |
+| Exact-policy refusal propagation | `TestNewComposedProductionCalls`; `TestRecordingRefusalPolicyMatch` | PL-PRODUCTION-ANCESTOR-RETRY, PL-PRODUCTION-LOCK-RETRY, PL-PRODUCTION-ACCOUNT-RETRY, PL-PRODUCTION-AUTHORITY-RETRY, PL-RECORDER-PATH-ONLY | Complete trace prefixes after each source refusal in both passes of all windows; fresh lock-factory refusals in Load/WithIdentity. Final-pass callbacks are not rolled back; refused Load returns no partial output. |
+| Production root-zero callee enforcement | `TestRootZeroBoundary` | PL-ROOT-ZERO-DIRECTORY-OWNER, PL-ROOT-ZERO-ANCESTOR, PL-ROOT-ZERO-GROUP, PL-ROOT-ZERO-DIRECTORY-GROUP | Real directory UID/GID, file GID and ancestor-zero refusals beside valid controls. File/lock UID-zero refusal is ancestor-masked; no isolated leaf-UID comparison or privileged provisioning claim. |
+| Policy metadata comparisons | `TestProductionPolicyComparisons` | PL-PROTECTED-MODE, PL-POLICY-FILE-LINKS, PL-POLICY-FILE-SIZE, PL-POLICY-DIRECTORY-MODE | Production 0640/0644, 0750/0700, one link and zero/one-MiB bounds with accepted boundaries and neighboring violations; group and directory-owner mismatches included. |
+| Policy-shape and gate comparisons | `TestPolicyShapeComparisons`; `TestConfigGatePolicyComparisons` | PL-POLICY-SHAPE-MODE, PL-POLICY-SHAPE-LINKS, PL-POLICY-SHAPE-SIZE-LOWER, PL-POLICY-SHAPE-SIZE-UPPER, PL-POLICY-GATE-MODE, PL-POLICY-GATE-SIZE | Missing-leaf controls isolate each early policy comparison; ordinary-read controls isolate the gate's stricter mode/size policy. |
 | Uninitialized reader refusal | `TestUninitializedReaderRefuses` | PL-UNINITIALIZED-READER | Nil, zero-value and missing-seam readers refuse all public windows without panic, callback or startup output beside a valid real-filesystem control. |
 | Fixture root under supported umasks | `TestTempDirUmask022`; `TestTempDirUmask002` | PL-FIXTURE-UMASK, PL-FIXTURE-FRESH-LEAF | Deterministic 0700 fresh leaf and unchanged reader under 022 and 002; widened leaves still refuse without a skip. |
 | Actual fixture temporary ancestry | `TestTempDirUsesGoTempRoot` | PL-FIXTURE-TEMP-ROOT | Preflight checks the actual returned tree, not TMPDIR alone; this separate control is run under 022 and makes no ambient-002 claim. |
@@ -109,12 +115,34 @@ claimed as a kill.
 | `testdata/PL-PRODUCTION-AUTHORITY-DEFAULT.patch` | Z3: root-zero authority UID defaults to the broker UID | `TestNewComposedProductionCalls` | `composed production call binding differs` |
 | `testdata/PL-UNINITIALIZED-READER.patch` | Uninitialized seams bypass the clean public-window refusal | `TestUninitializedReaderRefuses` | `uninitialized reader panicked` |
 | `../testutil/protectedfixture/testdata/PL-FIXTURE-FRESH-LEAF.patch` | Fresh umask-002 leaf is checked before its deterministic chmod | `TestTempDirUmask002` | `protected_fixture_temp_ancestry: unsafe ancestor` |
+| `../protectedio/testdata/PL-ROOT-ZERO-DIRECTORY-OWNER.patch` | P2: zero directory UID becomes a wildcard | `TestRootZeroBoundary` | `root-zero directory-owner admitted` |
+| `../protectedio/testdata/PL-ROOT-ZERO-ANCESTOR.patch` | P3: zero ancestor UID becomes a wildcard | `TestRootZeroBoundary` | `root-zero ancestor-owner admitted` |
+| `../protectedio/testdata/PL-ROOT-ZERO-GROUP.patch` | P4: zero regular-file GID becomes a wildcard | `TestRootZeroBoundary` | `root-zero file-group admitted` |
+| `../protectedio/testdata/PL-ROOT-ZERO-DIRECTORY-GROUP.patch` | Zero directory GID becomes a wildcard | `TestRootZeroBoundary` | `root-zero directory-group admitted` |
+| `../protectedio/testdata/PL-POLICY-FILE-LINKS.patch` | A second hard link is ignored at the regular-file comparison | `TestProductionPolicyComparisons` | `production file comparison admitted` |
+| `../protectedio/testdata/PL-POLICY-FILE-SIZE.patch` | The zero/one-MiB file size upper bound is ignored | `TestProductionPolicyComparisons` | `production file comparison admitted` |
+| `../protectedio/testdata/PL-POLICY-DIRECTORY-MODE.patch` | The exact 0750/0700 directory mode is ignored | `TestProductionPolicyComparisons` | `production directory comparison admitted` |
+| `../protectedio/testdata/PL-POLICY-SHAPE-MODE.patch` | Policy mode bits outside 0777 reach filesystem lookup | `TestPolicyShapeComparisons` | `policy-shape comparison bypassed` |
+| `../protectedio/testdata/PL-POLICY-SHAPE-LINKS.patch` | Policy link counts other than one reach filesystem lookup | `TestPolicyShapeComparisons` | `policy-shape comparison bypassed` |
+| `../protectedio/testdata/PL-POLICY-SHAPE-SIZE-LOWER.patch` | A negative policy bound reaches filesystem lookup | `TestPolicyShapeComparisons` | `policy-shape comparison bypassed` |
+| `../protectedio/testdata/PL-POLICY-SHAPE-SIZE-UPPER.patch` | A policy bound above one MiB reaches filesystem lookup | `TestPolicyShapeComparisons` | `policy-shape comparison bypassed` |
+| `../protectedio/testdata/PL-POLICY-GATE-MODE.patch` | A non-0640 gate policy is accepted beside a valid ordinary read | `TestConfigGatePolicyComparisons` | `gate policy comparison admitted` |
+| `../protectedio/testdata/PL-POLICY-GATE-SIZE.patch` | A nonzero gate size bound is accepted beside a valid ordinary read | `TestConfigGatePolicyComparisons` | `gate policy comparison admitted` |
+| `testdata/PL-PRODUCTION-ANCESTOR-RETRY.patch` | RF1: retry each refused directory with its leaf UID as ancestor | `TestNewComposedProductionCalls` | `production refusal call binding differs` |
+| `testdata/PL-PRODUCTION-LOCK-RETRY.patch` | RF2: retry a refused root lock with broker ownership | `TestNewComposedProductionCalls` | `production refusal call binding differs` |
+| `testdata/PL-PRODUCTION-ACCOUNT-RETRY.patch` | RF3: retry refused passwd/group with broker ownership | `TestNewComposedProductionCalls` | `production refusal call binding differs` |
+| `testdata/PL-PRODUCTION-AUTHORITY-RETRY.patch` | RF4: retry refused authority with broker ownership | `TestNewComposedProductionCalls` | `production refusal call binding differs` |
+| `testdata/PL-RECORDER-PATH-ONLY.patch` | Refusal instrumentation ignores the exact policy and call kind | `TestRecordingRefusalPolicyMatch` | `refusal instrument ignored an exact call field` |
 
 The identity-use mutant tests intentional asymmetry: imposing the use gate on
 the identity-only leg is forbidden over-rejection. The inode mutant replaces
 the lock with another empty 0640 file, not a wrongly chmodded substitute.
-There are no source-mutant survivors in the recorded U02 run; this finite
-plant set is not a completeness proof for every implementation defect.
+All mapped shipped plants must be killed by their named assertions; this
+finite plant set is not a completeness proof for every implementation defect.
+A separate private P1 zero-file-UID plant survives because the earlier
+root-only ancestor rejection masks the leaf comparison. That explicit
+unprivileged-fixture bound is not claimed as an isolated leaf-UID witness or
+as a request for privileged provisioning.
 
 ## Inactivity and unresolved boundaries
 

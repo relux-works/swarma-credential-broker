@@ -21,20 +21,31 @@ reader. `TestNewBindsProductionSeam` separately asserts that `New` installs
 exactly `protectedio.Reader{}` and `protectedio.NewConfigGate`, not policy-
 rewriting adapters. Without changing any constructed field,
 `TestNewProductionPolicies` compares all seven production source paths,
-owner IDs, modes, link counts, size bounds and ancestor owners to the literal
-spec 4.1/4.3 table, with a configured broker UID distinct from the non-root
+owner IDs, modes, link counts, size bounds and ancestor owners to literal
+spec 4.1/4.3 ownership/modes and implementation bounds, with a configured broker UID distinct from the non-root
 process. `TestNewPreservesConfiguration` pins configuration preservation and
 the operational duplicate-field copies; `TestNewInitialState` pins process
 and root IDs, the zero mutex and the initially absent lazy gate.
 `TestNewComposedProductionCalls` pins the production policy values at every
-call site through `New()`, including root UID/GID zero, against the literal
-spec 4.1/4.3 table. It changes only the two I/O seams, records production
+call site through `New()`, including root UID/GID zero, against literal
+spec 4.1/4.3 ownership/modes and the implementation's read bounds. It changes
+only the two I/O seams, records production
 paths and policies before fixture remapping, and runs `Load`, `WithPinned`
-and `WithIdentity`, including their final rechecks and authority refusal.
+and `WithIdentity`, including their final rechecks. Exact-policy refusal at
+each of the six directory/read sources checks the entire trace prefix in
+both passes of every window. Lock-factory refusal is checked on fresh
+`Load` and `WithIdentity` readers; owned `WithPinned` pins already require a
+successful gate. A final-pass refusal can follow a callback but never returns
+partial `Load` output. Each method's fixture and pins are independent.
 The lazy gate is constructed on the first window and reused thereafter.
 This claims production policy-value binding at those call sites, not
-privileged provisioning or arbitrary later rebinding inside a window. A nil, zero-value or incompletely initialized reader
-refuses every public window without invoking its callback or returning pins.
+privileged provisioning or arbitrary later rebinding inside a window.
+`protectedio.TestRootZeroBoundary` separately exercises actual root-zero
+owner/group/ancestor policies against non-root files beside valid controls;
+the regular-file UID-zero comparison remains masked by the prior ancestor
+refusal, an explicit privileged-provisioning limit. A nil, zero-value or
+incompletely initialized reader refuses every public window without invoking
+its callback or returning pins.
 The `/etc/group` protection extends the spec 4.1 passwd row by analogy;
 it is not presented as an additional normative source row.
 

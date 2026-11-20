@@ -1,0 +1,5 @@
+--- a/internal/authorityv0/binding_linux_test.go
++++ b/internal/authorityv0/binding_linux_test.go
+@@ -86 +86 @@
+-	if recorder.refuse == nil || call != *recorder.refuse {
++	if recorder.refuse == nil || call.path != recorder.refuse.path {

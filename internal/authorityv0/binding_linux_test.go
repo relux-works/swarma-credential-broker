@@ -3,6 +3,7 @@ package authorityv0
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strconv"
@@ -74,9 +75,24 @@ type protectedCall struct {
 }
 
 type recordingReader struct {
-	calls  []protectedCall
-	refuse string
-	paths  map[string]string
+	calls    []protectedCall
+	refuse   *protectedCall
+	refuseAt int
+	paths    map[string]string
+}
+
+func (recorder *recordingReader) record(call protectedCall) bool {
+	recorder.calls = append(recorder.calls, call)
+	if recorder.refuse == nil || call != *recorder.refuse {
+		return false
+	}
+	matches := 0
+	for _, recorded := range recorder.calls {
+		if recorded == *recorder.refuse {
+			matches++
+		}
+	}
+	return matches >= recorder.refuseAt
 }
 
 func (recorder *recordingReader) mappedPath(path string) (string, bool) {
@@ -93,52 +109,78 @@ func (recorder *recordingReader) mapped(policy protectedio.FilePolicy) protected
 }
 
 func (recorder *recordingReader) Read(ctx context.Context, path string, policy protectedio.FilePolicy) (protectedio.Identity, []byte, error) {
-	recorder.calls = append(recorder.calls, protectedCall{kind: "read", path: path, policy: policy})
+	refused := recorder.record(protectedCall{kind: "read", path: path, policy: policy})
 	mapped, ok := recorder.mappedPath(path)
-	if !ok || path == recorder.refuse {
+	if !ok || refused {
 		return protectedio.Identity{}, nil, protectedio.ErrProtection
 	}
 	return (protectedio.Reader{}).Read(ctx, mapped, recorder.mapped(policy))
 }
 
 func (recorder *recordingReader) CheckDirectory(ctx context.Context, path string, policy protectedio.FilePolicy, ancestorUID uint32) error {
-	recorder.calls = append(recorder.calls, protectedCall{kind: "directory", path: path, policy: policy, ancestorUID: ancestorUID})
+	refused := recorder.record(protectedCall{kind: "directory", path: path, policy: policy, ancestorUID: ancestorUID})
 	mapped, ok := recorder.mappedPath(path)
-	if !ok || path == recorder.refuse {
+	if !ok || refused {
 		return protectedio.ErrProtection
 	}
 	return (protectedio.Reader{}).CheckDirectory(ctx, mapped, recorder.mapped(policy), uint32(os.Getuid()))
 }
 
 func (recorder *recordingReader) newGate(ctx context.Context, path string, policy protectedio.FilePolicy) (protectedio.ConfigGate, error) {
-	recorder.calls = append(recorder.calls, protectedCall{kind: "lock", path: path, policy: policy})
+	refused := recorder.record(protectedCall{kind: "lock", path: path, policy: policy})
 	mapped, ok := recorder.mappedPath(path)
-	if !ok || path == recorder.refuse {
+	if !ok || refused {
 		return nil, protectedio.ErrProtection
 	}
 	return protectedio.NewConfigGate(ctx, mapped, recorder.mapped(policy))
 }
 
-// Claim: through New and all three public windows, every production call-site path/policy equals the literal spec 4.1/4.3 table, including root zero; only the two I/O seams map to real fixture paths/owners after recording.
-// Lock construction occurs once and subsequent windows reuse that gate. Authority-path refusal yields no startup output or callback beside each valid window; this does not provision privileged owners or rule out arbitrary lazy rebinding.
+// Claim: the refusal instrument matches the complete call and can target either recheck; changing any field still records but does not refuse that different call.
+func TestRecordingRefusalPolicyMatch(test *testing.T) {
+	call := protectedCall{kind: "directory", path: "/synthetic", policy: protectedio.FilePolicy{UID: 0, GID: 3, Mode: 0750, Links: 1, MaxBytes: 7}, ancestorUID: 0}
+	for _, field := range []string{"kind", "path", "uid", "gid", "mode", "links", "size", "ancestor"} {
+		test.Run(field, func(test *testing.T) {
+			changed := call
+			switch field {
+			case "kind":
+				changed.kind = "read"
+			case "path":
+				changed.path += "/other"
+			case "uid":
+				changed.policy.UID++
+			case "gid":
+				changed.policy.GID++
+			case "mode":
+				changed.policy.Mode = 0700
+			case "links":
+				changed.policy.Links++
+			case "size":
+				changed.policy.MaxBytes++
+			case "ancestor":
+				changed.ancestorUID++
+			}
+			recorder := &recordingReader{refuse: &call}
+			if recorder.record(changed) || !recorder.record(call) || !reflect.DeepEqual(recorder.calls, []protectedCall{changed, call}) {
+				test.Fatal("refusal instrument ignored an exact call field")
+			}
+		})
+	}
+	recorder := &recordingReader{refuse: &call, refuseAt: 2}
+	if recorder.record(call) || !recorder.record(call) || !recorder.record(call) {
+		test.Fatal("refusal instrument targeted the wrong recheck")
+	}
+	if (&recordingReader{}).record(call) {
+		test.Fatal("unarmed refusal instrument refused a valid call")
+	}
+}
+
+// Claim: through New and all public windows, every call matches literal production ownership/modes and implementation bounds before fixture remapping; every exact-policy refusal stops at its complete trace prefix in either pass.
+// A final-pass refusal may follow a callback, but Load returns no partial startup output. Lock-factory refusal is reachable only before a gate exists, not through already-owned WithPinned pins. No privileged owner provisioning is claimed.
 func TestNewComposedProductionCalls(test *testing.T) {
-	fixture := newFixture(test)
-	validWindow(test, fixture)
 	uid, gid := uint32(os.Geteuid()), uint32(os.Getegid())
 	if uid == 0 || gid == 0 {
-		test.Fatal("production composition requires distinct non-root process IDs")
+		test.Fatal("production composition requires non-root process IDs")
 	}
-	production := New(fixture.reader.config)
-	recorder := &recordingReader{paths: map[string]string{
-		"/etc/swarma/credential-broker/authority.lock":        fixture.reader.paths.lock,
-		"/etc/swarma/credential-broker":                       fixture.reader.paths.directory,
-		"/opt/swarma/services/swarma-credential-broker":       fixture.reader.paths.data,
-		"/opt/swarma/services/swarma-credential-broker/store": fixture.reader.paths.store,
-		"/etc/swarma/credential-broker/authority-v0.json":     fixture.reader.paths.authority,
-		"/etc/passwd": fixture.reader.paths.passwd,
-		"/etc/group":  fixture.reader.paths.group,
-	}}
-	production.files, production.newGate = recorder, recorder.newGate
 	lock := protectedCall{kind: "lock", path: "/etc/swarma/credential-broker/authority.lock", policy: protectedio.FilePolicy{UID: 0, GID: gid, Mode: 0640, Links: 1}}
 	current := []protectedCall{
 		{kind: "directory", path: "/etc/swarma/credential-broker", policy: protectedio.FilePolicy{UID: 0, GID: gid, Mode: 0750}, ancestorUID: 0},
@@ -148,10 +190,40 @@ func TestNewComposedProductionCalls(test *testing.T) {
 		{kind: "read", path: "/etc/passwd", policy: protectedio.FilePolicy{UID: 0, GID: 0, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
 		{kind: "read", path: "/etc/group", policy: protectedio.FilePolicy{UID: 0, GID: 0, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
 	}
-	var pins StartupPins
 	for _, method := range []string{"Load", "WithPinned", "WithIdentity"} {
 		test.Run(method, func(test *testing.T) {
-			invoke := func() (bool, error) {
+			fixture := newFixture(test)
+			validWindow(test, fixture)
+			fresh := func() (*Reader, *recordingReader) {
+				production := New(fixture.reader.config)
+				recorder := &recordingReader{paths: map[string]string{
+					"/etc/swarma/credential-broker/authority.lock":        fixture.reader.paths.lock,
+					"/etc/swarma/credential-broker":                       fixture.reader.paths.directory,
+					"/opt/swarma/services/swarma-credential-broker":       fixture.reader.paths.data,
+					"/opt/swarma/services/swarma-credential-broker/store": fixture.reader.paths.store,
+					"/etc/swarma/credential-broker/authority-v0.json":     fixture.reader.paths.authority,
+					"/etc/passwd": fixture.reader.paths.passwd,
+					"/etc/group":  fixture.reader.paths.group,
+				}}
+				production.files, production.newGate = recorder, recorder.newGate
+				return production, recorder
+			}
+			load := func(test *testing.T, production *Reader, recorder *recordingReader) StartupPins {
+				test.Helper()
+				_, pins, err := production.Load(context.Background())
+				expected := append([]protectedCall{lock}, current...)
+				expected = append(expected, current...)
+				if !reflect.DeepEqual(recorder.calls, expected) {
+					test.Fatalf("composed production call binding differs: got %+v want %+v", recorder.calls, expected)
+				}
+				if err != nil || pins.owner != production {
+					test.Fatalf("production startup control refused: %v", err)
+				}
+				recorder.calls = nil
+				return pins
+			}
+			invoke := func(test *testing.T, production *Reader, pins *StartupPins) (bool, error) {
+				test.Helper()
 				called := false
 				switch method {
 				case "Load":
@@ -160,21 +232,25 @@ func TestNewComposedProductionCalls(test *testing.T) {
 						test.Fatal("refused production startup leaked a result")
 					}
 					if err == nil {
-						pins, called = loaded, true
+						*pins, called = loaded, true
 					}
 					return called, err
 				case "WithPinned":
-					err := production.WithPinned(context.Background(), pins, func(context.Context, assemblyv0.AuthorityDocument) error { called = true; return nil })
+					err := production.WithPinned(context.Background(), *pins, func(context.Context, assemblyv0.AuthorityDocument) error { called = true; return nil })
 					return called, err
 				default:
 					err := production.WithIdentity(context.Background(), func(context.Context, assemblyv0.AuthorityDocument) error { called = true; return nil })
 					return called, err
 				}
 			}
-			recorder.calls = nil
-			called, err := invoke()
+			production, recorder := fresh()
+			var pins StartupPins
+			if method == "WithPinned" {
+				pins = load(test, production, recorder)
+			}
+			called, err := invoke(test, production, &pins)
 			var expected []protectedCall
-			if method == "Load" {
+			if method != "WithPinned" {
 				expected = append(expected, lock)
 			}
 			expected = append(expected, current...)
@@ -185,14 +261,51 @@ func TestNewComposedProductionCalls(test *testing.T) {
 			if err != nil || !called {
 				test.Fatalf("valid production composition refused: %v result=%v", err, called)
 			}
-			recorder.calls, recorder.refuse = nil, "/etc/swarma/credential-broker/authority-v0.json"
-			if called, err := invoke(); !errors.Is(err, ErrIdentityChanged) || called {
-				test.Fatalf("production source refusal escaped composed window: %v result=%v", err, called)
+			recorder.calls = nil
+			called, err = invoke(test, production, &pins)
+			expected = append(append([]protectedCall{}, current...), current...)
+			if !reflect.DeepEqual(recorder.calls, expected) {
+				test.Fatalf("composed production call binding differs: got %+v want %+v", recorder.calls, expected)
 			}
-			if !reflect.DeepEqual(recorder.calls, current[:4]) {
-				test.Fatalf("production refusal call binding differs: got %+v want %+v", recorder.calls, current[:4])
+			if err != nil || !called {
+				test.Fatalf("cached production composition refused: %v result=%v", err, called)
 			}
-			recorder.refuse = ""
+			if method != "WithPinned" {
+				test.Run("lock", func(test *testing.T) {
+					production, recorder := fresh()
+					recorder.refuse = &lock
+					var pins StartupPins
+					called, err := invoke(test, production, &pins)
+					if !reflect.DeepEqual(recorder.calls, []protectedCall{lock}) {
+						test.Fatalf("production refusal call binding differs: got %+v want %+v", recorder.calls, []protectedCall{lock})
+					}
+					if !errors.Is(err, ErrIdentityChanged) || called {
+						test.Fatalf("production lock refusal escaped composed window: %v result=%v", err, called)
+					}
+				})
+			}
+			for index, refused := range current {
+				for pass := 1; pass <= 2; pass++ {
+					test.Run(fmt.Sprintf("source-%d/pass-%d", index, pass), func(test *testing.T) {
+						production, recorder := fresh()
+						pins := load(test, production, recorder)
+						recorder.refuse, recorder.refuseAt = &refused, pass
+						called, err := invoke(test, production, &pins)
+						var expected []protectedCall
+						if pass == 2 {
+							expected = append(expected, current...)
+						}
+						expected = append(expected, current[:index+1]...)
+						if !reflect.DeepEqual(recorder.calls, expected) {
+							test.Fatalf("production refusal call binding differs: got %+v want %+v", recorder.calls, expected)
+						}
+						wantCallback := pass == 2 && method != "Load"
+						if !errors.Is(err, ErrIdentityChanged) || called != wantCallback {
+							test.Fatalf("production source refusal escaped composed window: %v result=%v want=%v", err, called, wantCallback)
+						}
+					})
+				}
+			}
 		})
 	}
 }
@@ -230,7 +343,10 @@ func TestSourcePolicyCallSites(test *testing.T) {
 		{kind: "read", path: path.passwd, policy: protectedio.FilePolicy{UID: 100, GID: 200, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
 		{kind: "read", path: path.group, policy: protectedio.FilePolicy{UID: 100, GID: 200, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
 	}
-	var pins StartupPins
+	_, pins, err := reader.Load(context.Background())
+	if err != nil {
+		test.Fatalf("synthetic startup control refused: %v", err)
+	}
 	for _, method := range []string{"Load", "WithPinned", "WithIdentity"} {
 		test.Run(method, func(test *testing.T) {
 			invoke := func() (bool, error) {
@@ -262,13 +378,18 @@ func TestSourcePolicyCallSites(test *testing.T) {
 			if !reflect.DeepEqual(recorder.calls, expected) {
 				test.Fatalf("composed source policy binding differs: got %+v want %+v", recorder.calls, expected)
 			}
-			for _, refused := range append([]protectedCall{lock}, current...) {
-				recorder.refuse, reader.gate = refused.path, nil
-				if called, err := invoke(); !errors.Is(err, ErrIdentityChanged) || called {
+			for index, refused := range append([]protectedCall{lock}, current...) {
+				recorder.calls, recorder.refuse, reader.gate = nil, &refused, nil
+				called, err := invoke()
+				expected := append([]protectedCall{lock}, current[:index]...)
+				if !reflect.DeepEqual(recorder.calls, expected) {
+					test.Fatalf("synthetic refusal call binding differs: got %+v want %+v", recorder.calls, expected)
+				}
+				if !errors.Is(err, ErrIdentityChanged) || called {
 					test.Fatalf("source refusal escaped composed window: %s %v result=%v", refused.path, err, called)
 				}
 			}
-			recorder.refuse = ""
+			recorder.refuse = nil
 		})
 	}
 }

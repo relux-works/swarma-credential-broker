@@ -1,0 +1,5 @@
+--- a/internal/protectedio/read_linux.go
++++ b/internal/protectedio/read_linux.go
+@@ -140 +140 @@
+-		if !last && (stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Mode&07022 != 0 || stat.Uid != 0 && stat.Uid != owner) {
++		if !last && (stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Mode&07022 != 0 || owner != 0 && stat.Uid != 0 && stat.Uid != owner) {

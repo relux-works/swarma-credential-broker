@@ -1,0 +1,5 @@
+--- a/internal/protectedio/read_linux.go
++++ b/internal/protectedio/read_linux.go
+@@ -207 +207 @@
+-	if policy.Mode != 0640 || policy.MaxBytes != 0 {
++	if policy.Mode != 0640 {

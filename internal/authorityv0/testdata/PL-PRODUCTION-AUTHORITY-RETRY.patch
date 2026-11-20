@@ -1,0 +1,9 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -158 +158,5 @@
+-		return snapshot{}, ErrIdentityChanged
++		policies.authority.file.UID = reader.brokerUID
++		_, result.authority, err = reader.files.Read(ctx, policies.authority.path, policies.authority.file)
++		if err != nil {
++			return snapshot{}, ErrIdentityChanged
++		}

@@ -1,0 +1,7 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -138 +138,3 @@
+-			return ErrIdentityChanged
++			if reader.files.CheckDirectory(ctx, entry.path, entry.file, entry.file.UID) != nil {
++				return ErrIdentityChanged
++			}

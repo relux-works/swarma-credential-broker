@@ -1,0 +1,5 @@
+--- a/internal/protectedio/read_linux.go
++++ b/internal/protectedio/read_linux.go
+@@ -154 +154 @@
+-	if policy.Mode&^fs.FileMode(0777) != 0 || policy.Links != 1 || policy.MaxBytes < 0 || policy.MaxBytes > MaxBytes {
++	if policy.Mode&^fs.FileMode(0777) != 0 || policy.Links != 1 || policy.MaxBytes < 0 {

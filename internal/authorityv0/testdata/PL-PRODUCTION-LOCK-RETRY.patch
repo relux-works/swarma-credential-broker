@@ -1,0 +1,9 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -123 +123,5 @@
+-			return nil, ErrIdentityChanged
++			lock.file.UID = reader.brokerUID
++			gate, err = reader.newGate(ctx, lock.path, lock.file)
++			if err != nil {
++				return nil, ErrIdentityChanged
++			}

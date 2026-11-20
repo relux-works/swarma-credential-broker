@@ -21,6 +21,21 @@ the permitted root/ancestor-owner set. The authority consumer uses it to
 enforce root configuration 0750, broker data/store 0700 and their distinct
 root versus broker ancestor boundaries.
 
+`TestRootZeroBoundary` passes literal root UID/GID/ancestor zero into the
+real reader and lock factory beside valid non-root controls. It isolates
+directory UID/GID, regular-file GID and ancestor-zero enforcement. Its file
+and lock UID-zero refusals also encounter the root-only ancestor rule;
+isolating the regular-file UID comparison requires privileged provisioning
+and is not claimed. The corresponding private P1 plant survives for that
+stated reason, not as evidence of a product defect.
+`TestProductionPolicyComparisons` exercises 0640/0644 file modes, 0750/0700
+directory modes, single links and exact zero/one-MiB bounds, with accepted
+boundary controls and one-step violations. `TestPolicyShapeComparisons`
+uses a missing leaf to distinguish early policy validation from later file
+metadata checks. `TestConfigGatePolicyComparisons` distinguishes the gate's
+0640/zero-bound requirements from otherwise valid ordinary reads. Directory
+link and size fields are unused, not additional enforced directory policy.
+
 `NewConfigGate` opens an existing 0640, single-link, zero-byte lock and pins
 its device/inode and metadata; it never creates or replaces it. Its immediate
 directory must match root/broker 0750 policy. `WithRead` reacquires that same

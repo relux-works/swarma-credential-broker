@@ -1,0 +1,5 @@
+--- a/internal/protectedio/read_linux.go
++++ b/internal/protectedio/read_linux.go
+@@ -163 +163 @@
+-	if stat.Mode&unix.S_IFMT != unix.S_IFREG || metadata.UID != policy.UID || metadata.GID != policy.GID || metadata.Mode != policy.Mode || metadata.Links != policy.Links || metadata.Size < 0 || metadata.Size > policy.MaxBytes {
++	if stat.Mode&unix.S_IFMT != unix.S_IFREG || metadata.UID != policy.UID || (policy.GID != 0 && metadata.GID != policy.GID) || metadata.Mode != policy.Mode || metadata.Links != policy.Links || metadata.Size < 0 || metadata.Size > policy.MaxBytes {
