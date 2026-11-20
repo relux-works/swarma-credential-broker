@@ -51,9 +51,24 @@ continued = 'internal/labv0/continued_linux.go'
 add('publication-fence-overwrite', '^TestReviewFenceDuringPublishIsSticky$/during-publish$', continued,
     'if use.epoch != publicationEpoch {', 'if false && use.epoch != publicationEpoch {')
 add('observation-clears-engine-unknown', '^TestReviewProbeObservationCommitClearsEngineUnknown$', continued,
-    'if use.account.unknown {', 'if use.account.unknown && false {')
+    'if use.account.unknown {\n\t\treturn ErrUnknown\n\t}', 'if use.account.unknown {\n\t\tuse.account.unknown = false\n\t}')
 add('publication-clears-engine-unknown', '^TestReviewProbePublicationCommitClearsEngineUnknown$', continued,
-    'if use.account.unknown {', 'if use.account.unknown && false {')
+    'if use.account.unknown {\n\t\treturn ErrUnknown\n\t}', 'if use.account.unknown {\n\t\tuse.account.unknown = false\n\t}')
+
+add('observation-never-reconciles', '^TestReviewD1NewPairReconcilesObservationUncertainty$', continued,
+    'use.account.observationUncertain && !admittedPair', 'use.account.observationUncertain')
+add('observation-single-reconciles', '^TestReviewD1NonPairCannotReconcile$/single-cas$', continued,
+    'use.account.observationUncertain && !admittedPair', 'use.account.observationUncertain && false')
+add('observation-cache-reconciles', '^TestReviewD1NonPairCannotReconcile$/cached-cas$', continued,
+    'use.account.observationUncertain && !admittedPair', 'use.account.observationUncertain && false')
+add('observation-engine-clears-own', '^TestReviewD1EngineUncertaintyAfterObservation$/engine-confirmation$',
+    'internal/labv0/account_linux.go',
+    'if account.records.Put(stateName, account.revision, envelope) != nil {\n\t\treturn ErrUnknown\n\t}\n\taccount.unknown = false',
+    'if account.records.Put(stateName, account.revision, envelope) != nil {\n\t\treturn ErrUnknown\n\t}\n\taccount.unknown = false\n\taccount.observationUncertain = false')
+add('observation-engine-takeover-ignored', '^TestReviewD1EngineUncertaintyAfterObservation$/engine-rename$', continued,
+    'if use.account.unknown {\n\t\treturn ErrUnknown\n\t}', 'if use.account.unknown {\n\t\tuse.account.unknown = false\n\t}')
+add('observation-restart-clears-own', '^TestReviewD1RestartRequiresPair$', continued,
+    '\t\taccount.observationUncertain = true', '\t\taccount.observationUncertain = false')
 
 add('publication-pre-cas-epoch', '^TestLabReviewFenceBeforeObservationCAS$', continued,
     'unchanged := use.epoch == publicationEpoch', 'unchanged := true || use.epoch == publicationEpoch')
@@ -72,15 +87,15 @@ inside_lock = 'if !use.account.mu.TryLock() {\n\t\treturn ErrUnknown\n\t}\n\tdef
 add('containment-callback-under-lock', '^TestLabReviewContainmentCallbackLockOrder$', continued,
     outside_lock, inside_lock)
 before_deadline = 'for _, deadline := range deadlines {\n\t\tif now >= deadline {\n\t\t\treturn ErrUnknown\n\t\t}\n\t}'
-for phase, suffix in [('before-cas', '\n\trevision :='), ('after-cas', '\n\tuse.account.unknown = false')]:
+for phase, suffix in [('before-cas', '\n\trevision :='), ('after-cas', '\n\tuse.account.observationUncertain = false')]:
     for boundary, position in [('connection', 0), ('pair-budget', 1), ('native-age', 1)]:
         replacement = 'for position, deadline := range deadlines {\n\t\tif position != '+str(position)+' && now >= deadline {\n\t\t\treturn ErrUnknown\n\t\t}\n\t}'
         add('deadline-'+phase+'-'+boundary, '^TestLabReviewObservationCommitDeadlines$/'+boundary+'/', continued,
             before_deadline+suffix, replacement+suffix)
 add('late-cas-publishes', '^TestLabReviewPublicationDeadlines$/late-cas$', continued,
-    before_deadline+'\n\tuse.account.unknown = false', before_deadline.replace('if now >= deadline {', 'if now >= deadline && false {')+'\n\tuse.account.unknown = false')
+    before_deadline+'\n\tuse.account.observationUncertain = false', before_deadline.replace('if now >= deadline {', 'if now >= deadline && false {')+'\n\tuse.account.observationUncertain = false')
 add('late-single-cas', '^TestLabReviewPeriodicLateCAS$', continued,
-    before_deadline+'\n\tuse.account.unknown = false', before_deadline.replace('if now >= deadline {', 'if now >= deadline && false {')+'\n\tuse.account.unknown = false')
+    before_deadline+'\n\tuse.account.observationUncertain = false', before_deadline.replace('if now >= deadline {', 'if now >= deadline && false {')+'\n\tuse.account.observationUncertain = false')
 add('late-publication-reopens', '^TestLabReviewPublicationDeadlines$/late-publish$', continued,
     'now >= final.deadline', 'now >= final.deadline && false')
 
@@ -96,6 +111,12 @@ add('future-periodic-two-layer', '^TestLabObservationPeriodicAdversarialPairs$/f
     [(continued, 'record["observed_monotonic_ms"].(int64) <= record["receipt_monotonic_ms"].(int64)', 'true')])
 
 expected_failures = {
+    'observation-never-reconciles': 'new admitted pair could not reconcile observation uncertainty',
+    'observation-single-reconciles': 'non-pair reconciled observation uncertainty',
+    'observation-cache-reconciles': 'non-pair reconciled observation uncertainty',
+    'observation-engine-clears-own': 'UNKNOWN projection reopened',
+    'observation-engine-takeover-ignored': 'pair cleared subsequent engine uncertainty',
+    'observation-restart-clears-own': 'restart confirmation cleared observation reconciliation fence',
     'publication-fence-overwrite': 'publication overwrote sticky fence',
     'observation-clears-engine-unknown': 'observation acknowledged engine uncertainty',
     'publication-clears-engine-unknown': 'observation acknowledged engine uncertainty',

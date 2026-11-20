@@ -71,6 +71,7 @@ func newContinuedUse(account *Account, client *observationClient, closeUse func(
 		if use.record["store_generation"] != client.pins.storeGeneration {
 			return nil, ErrUnknown
 		}
+		account.observationUncertain = true
 	}
 	return use, nil
 }
@@ -162,7 +163,7 @@ func (use *continuedUse) publicationFor(ctx context.Context, purpose observation
 	}
 	result := map[string]any{"kind": kind, "operation_id": use.client.pins.start["operation_id"], "start_id": use.client.pins.start["start_id"], "effect_id": purpose.effectID}
 	updated := map[string]any{"store_generation": use.client.pins.storeGeneration, "floor": final.record["sequence"], "seen": final.record["sequence"], "baseline": final.record, "observed_monotonic_ms": final.record["observed_monotonic_ms"], "receipt_monotonic_ms": final.after / int64(time.Millisecond), "publication": kind, "result_sha256": digest(result)}
-	if err := use.commit(ctx, envelope, updated, final.deadline, entered+int64(pairBudget)); err != nil {
+	if err := use.commitObservation(ctx, envelope, updated, true, final.deadline, entered+int64(pairBudget)); err != nil {
 		return ErrUnknown
 	}
 	use.mu.Lock()
@@ -252,7 +253,14 @@ func (use *continuedUse) guard(epoch uint64) {
 }
 
 func (use *continuedUse) commit(ctx context.Context, envelope, updated map[string]any, deadlines ...int64) error {
+	return use.commitObservation(ctx, envelope, updated, false, deadlines...)
+}
+
+func (use *continuedUse) commitObservation(ctx context.Context, envelope, updated map[string]any, admittedPair bool, deadlines ...int64) error {
 	if use.account.unknown {
+		return ErrUnknown
+	}
+	if use.account.observationUncertain && !admittedPair {
 		return ErrUnknown
 	}
 	now, err := bootNanos()
@@ -278,7 +286,7 @@ func (use *continuedUse) commit(ctx context.Context, envelope, updated map[strin
 	if _, _, err := readRecovery(raw, use.account.installation); err != nil {
 		return ErrUnknown
 	}
-	use.account.unknown = true
+	use.account.observationUncertain = true
 	if use.account.records.Put(stateName, uint64(revision), envelope) != nil {
 		return ErrUnknown
 	}
@@ -291,7 +299,7 @@ func (use *continuedUse) commit(ctx context.Context, envelope, updated map[strin
 			return ErrUnknown
 		}
 	}
-	use.account.unknown = false
+	use.account.observationUncertain = false
 	return nil
 }
 

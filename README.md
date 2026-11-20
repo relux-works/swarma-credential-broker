@@ -25,8 +25,12 @@ the accepting daemon remains blocked on the
 No real-key enrollment, vendor call, native qualification or production
 activation follows from these construction tests.
 
-PR #83 B1a fix round 1 keeps an independent publication fence and prior engine
-UNKNOWN sticky. Paired regressions cover the delivered timing, recovery joins,
+PR #83 B1a keeps an independent publication fence and prior engine UNKNOWN
+sticky. Fix round 2 separates observation-owned uncertainty: only a new,
+non-reused admitted pair reconciles it, never a single, cached CAS or engine
+confirmation. Both uncertainty reasons independently close projection/material.
+Recovering a nonempty observation record reinstates its pair-only fence.
+Paired regressions cover reconciliation, the delivered timing, recovery joins,
 response IDs and observed-time upper bound. The prior untagged service/store
 parameterization is still present; only its production-default behavior is
 claimed unchanged, not that every file in the original PR has a lab tag.

@@ -21,14 +21,15 @@ var ErrReserve = errors.New("lab narrowing reserve exhausted")
 const accountLabel = "lab/anthropic"
 
 type Account struct {
-	mu           sync.Mutex
-	records      *store.Account
-	installation string
-	context      map[string]any
-	project      func(wire.ServiceState, map[string]any) (map[string]any, error)
-	unknown      bool
-	revision     uint64
-	observation  []any
+	mu                   sync.Mutex
+	records              *store.Account
+	installation         string
+	context              map[string]any
+	project              func(wire.ServiceState, map[string]any) (map[string]any, error)
+	unknown              bool
+	observationUncertain bool
+	revision             uint64
+	observation          []any
 }
 
 func newAccount(records *store.Account, approvedContext map[string]any, project func(wire.ServiceState, map[string]any) (map[string]any, error)) (*Account, error) {
@@ -246,7 +247,7 @@ func (account *Account) Snapshot() ([]byte, error) {
 	}
 	account.mu.Lock()
 	defer account.mu.Unlock()
-	if account.unknown {
+	if account.unknown || account.observationUncertain {
 		return nil, ErrUnknown
 	}
 	_, external, err := account.load()
@@ -269,7 +270,7 @@ func (account *Account) ServiceAccount() (wire.ServiceAccount, error) {
 	}
 	account.mu.Lock()
 	defer account.mu.Unlock()
-	if account.unknown {
+	if account.unknown || account.observationUncertain {
 		return wire.ServiceAccount{}, ErrUnknown
 	}
 	_, _, err := account.load()
@@ -285,7 +286,7 @@ func (account *Account) Publish(ctx context.Context, until time.Time, trustedNow
 	}
 	account.mu.Lock()
 	defer account.mu.Unlock()
-	if account.unknown || ctx.Err() != nil || !trustedNow().Before(until) {
+	if account.unknown || account.observationUncertain || ctx.Err() != nil || !trustedNow().Before(until) {
 		return ErrUnknown
 	}
 	_, external, err := account.load()

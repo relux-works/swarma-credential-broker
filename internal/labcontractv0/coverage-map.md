@@ -577,6 +577,16 @@ named test. This enforces the existing frozen array bound, not a new surface.
 
 ## B1a PR #83 fix-round runtime witnesses
 
+D1 round 2 changes no C0 surface or frozen fixture. Observation uncertainty is
+independent of engine UNKNOWN, and only the admitted-pair CAS can reconcile it.
+
+| D1 gate (A09, with A05/A08) | Paired tests | Narrowing mutants / named failure |
+| --- | --- | --- |
+| Accept a new pair after own uncertain/late CAS | `TestReviewD1NewPairReconcilesObservationUncertainty` | `observation-never-reconciles`; same test / rename-uncertain and late-cas |
+| Refuse a fresh single or cached CAS while uncertain | `TestReviewD1NonPairCannotReconcile` | `observation-single-reconciles`, `observation-cache-reconciles`; same test / single-cas and cached-cas |
+| Engine writes cannot substitute for pair reconciliation; subsequent engine UNKNOWN still wins | `TestReviewD1EngineUncertaintyAfterObservation` | `observation-engine-clears-own`, `observation-engine-takeover-ignored`; same test / engine-confirmation and engine-rename |
+| Restart plus engine confirmation cannot adopt a cached observation | `TestReviewD1RestartRequiresPair` | `observation-restart-clears-own`; same test |
+
 These supplement the unchanged C0 operator catalogue and reference fixtures;
 no byte surface, reader/writer, native binding or production default changes.
 `tests/lab-b1/mutants.py` replays each source overlay after a green unmutated
@@ -593,8 +603,10 @@ control and requires its named assertion, not merely any nonzero exit.
 | s F4 observed upper bound | `TestLabReviewObservationResponseJoins`, `TestLabObservationPeriodicAdversarialPairs` | `future-observation`; first test / future-observation; `future-periodic-two-layer` additionally removes the independent private receipt-time check and fails the periodic test |
 | r N7 close callback lock order | `TestLabReviewContainmentCallbackLockOrder` | `containment-callback-under-lock`; same named test |
 
-The direct CAS deadline tests isolate each passed deadline independently; full
-pair/single tests additionally exercise successful-but-late store durability.
+The direct CAS deadline tests isolate two argument slots; pair-budget and
+native-age labels share slot one and duplicate their source plants, not
+independent caller-wiring coverage. Full pair/single tests additionally exercise
+successful-but-late store durability.
 The first-read window test uses the actual Unix reader without relying on OS
 scheduling to induce lateness. These bounded witnesses do not qualify an
 installed transport or make any whole-B1 acceptance row complete.

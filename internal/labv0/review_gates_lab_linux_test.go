@@ -72,7 +72,7 @@ func TestLabReviewCurrentAgePredicate(test *testing.T) {
 	}
 }
 
-// Claim: every passed CAS deadline is independently enforced before and after successful durability; late writes remain UNKNOWN and early refusals leave the complete joined record unchanged, beside timely commits.
+// Claim: both passed CAS deadline slots are checked before and after durability; pair-budget/native-age labels share slot 1 and do not isolate caller wiring. Late writes stay UNKNOWN and early refusals preserve the join, beside timely commits.
 func TestLabReviewObservationCommitDeadlines(test *testing.T) {
 	for _, boundary := range []string{"connection", "pair-budget", "native-age"} {
 		for _, phase := range []string{"valid", "before-cas", "after-cas"} {

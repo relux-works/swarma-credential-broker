@@ -11,13 +11,50 @@ receipt, second lease engine, accepting factory or B1 attempt counter exists.
 
 ## Acceptance allocation
 
+### PR #83 D1: observation-owned uncertainty
+
+Round 2 distinguishes engine UNKNOWN from observation-owned uncertainty.
+Both independently close `Snapshot`, `ServiceAccount` and `Publish`. An
+observation CAS changes only its own reason; engine confirmation changes only
+the engine reason. A recovered nonempty observation record reinstates the
+observation fence, so restart plus engine confirmation cannot substitute for
+the required pair. No new durable field or contract surface is introduced.
+
+`publicationFor` alone passes the pair admission marker to the CAS helper, after its
+two fresh, non-reused C0c reads, full proof comparison, protected envelope read
+and epoch check. The ordinary `commit` path has no such marker. A timely
+successful pair CAS reconciles observation uncertainty; it never clears engine
+UNKNOWN. Existing pre/post-CAS, deadline and final reopening guards remain.
+The basis is `observation.md` C0d (a new admitted pair reconciles durable state)
+and `recovery.md` C0d/Atomic join (a new non-reused pair, protected complete read
+and CAS durability confirmation). These refine implementation, not contracts.
+
+| D1 direction / bound | Paired regression | Narrowing mutant / named failure |
+| --- | --- | --- |
+| A new pair reconciles own rename uncertainty or late CAS, commits F=S above recovered S and preserves the exact engine/external join | `TestReviewD1NewPairReconcilesObservationUncertainty` (control, rename-uncertain, late-cas); also restores projection/account and placeholder-only material | `observation-never-reconciles`; same test / rename-uncertain and late-cas |
+| A fresh single or cached value cannot clear uncertainty or mutate the durable join | `TestReviewD1NonPairCannotReconcile` (valid single/pair beside single-cas, cached-cas, periodic, replayed-pair, partial-pair, restart refusals) | `observation-single-reconciles`, `observation-cache-reconciles`; same test / single-cas and cached-cas |
+| Engine confirmation cannot clear the observation reason, and a later uncertain/rejected engine write blocks even a new pair | `TestReviewD1EngineUncertaintyAfterObservation` (engine-confirmation, engine-rename, engine-rejected; engine confirmation then a fresh pair is the positive recovery) | `observation-engine-clears-own`, `observation-engine-takeover-ignored`; same test / engine-confirmation and engine-rename |
+| A recovered record plus engine confirmation still needs a new admitted pair | `TestReviewD1RestartRequiresPair` (control, rename-uncertain, late-cas, each followed by a valid non-reused pair) | `observation-restart-clears-own`; same test |
+
+The prior two engine-UNKNOWN overlay names are retained. Their plants now
+explicitly clear the engine reason at the observation guard, rather than only
+skip it: observation CAS no longer owns or clears that flag on its normal path.
+The original named engine-UNKNOWN and fence regressions remain in the catalogue.
+Exact execution receipts and overlay exits belong in the current handoff.
+
+Round-1 timing labels are bounded below: pair-budget/native-age direct tests
+share one argument slot, not independent caller-wiring coverage. The review's
+native-age caller-wiring mutant is an acknowledged non-blocking survivor from
+that review, not a newly executed/covered gate here. The current-during-publish
+ordering note is deferred to B1b; no runtime rule is invented for it here.
+
 PR #83 B1a fix round 1 retains the whole-B1 non-acceptance boundary above.
 The two reproduced bypasses are fixed before adding the missing-gate witnesses:
 
 | Finding | Fix and paired regression | Source-overlay mutant | Test exit |
 | --- | --- | --- | --- |
 | r F1 sticky fence overwrite | Compare the pair epoch again under the reopening lock; `TestReviewFenceDuringPublishIsSticky` includes an unfenced publication and fences during CAS/publication | `publication-fence-overwrite`; `TestReviewFenceDuringPublishIsSticky/during-publish` | 1, named intended failure |
-| s F1 observation clears engine UNKNOWN | Refuse observation-only CAS on an already UNKNOWN account; `TestReviewProbeObservationCommitClearsEngineUnknown` and `TestReviewProbePublicationCommitClearsEngineUnknown` use an actual rename-uncertain lease write after a valid single/projection | `observation-clears-engine-unknown`, `publication-clears-engine-unknown`; respectively the two named probes | 1 each, named intended failures |
+| s F1 observation clears engine UNKNOWN | Refuse observation-only CAS on engine-owned UNKNOWN; `TestReviewProbeObservationCommitClearsEngineUnknown` and `TestReviewProbePublicationCommitClearsEngineUnknown` use an actual rename-uncertain lease write after a valid single/projection | `observation-clears-engine-unknown`, `publication-clears-engine-unknown`; respectively the two named probes | 1 each, named intended failures |
 
 The unmutated three-test regression command exits 0. These controls establish
 the tagged adapter interaction, not installed transport publication or native
@@ -166,10 +203,13 @@ not 28 green tests. No new survivor is claimed as coverage.
 The corrected full catalogue replay exits 0, including its unmutated control;
 that orchestration success is distinct from each expected-red Go test exit 1.
 
-The complete per-overlay map follows. `deadline-*` tests exercise each passed
-absolute deadline independently: connection at slot zero; pair budget or prior
-native-age ceiling at slot one. Full pair/single late-durability tests separately
-exercise the real store hook, original connection deadline and fenced result.
+The complete round-1 per-overlay map follows. `deadline-*` tests exercise two
+deadline slots: connection at slot zero; pair-budget/native-age labels both
+use slot one and duplicate the same two source plants. These labels do not
+independently isolate caller-side budget/native-age wiring. Thus the original
+28 overlays represent 24 distinct source plants, not 28 distinct gates.
+Full pair/single late-durability tests separately exercise the real store hook,
+original connection deadline and fenced result.
 
 | Mutant | What it narrows the gate to | Named failing test selection | Exit |
 | --- | --- | --- | --- |
