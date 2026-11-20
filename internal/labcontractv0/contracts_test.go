@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "fe6fb25f7a2e13fed826cb9709535e6e9a4e5ea2b20229f4f90639e8da945446"
+const indexSHA256 = "532a985d4ef047bb4a87710c069f88826614a2c16f986bb2981d969f88afa19d"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -555,121 +555,131 @@ func structuralPaths(value any, prefix string, paths map[string]bool) {
 }
 
 func wireAdmitted(fixture wireFixture, beta string, allowedPaths map[string]bool) bool {
+	return wireRefusal(fixture, beta, allowedPaths) == ""
+}
+
+func wireRefusal(fixture wireFixture, beta string, allowedPaths map[string]bool) string {
 	request := fixture.Request
 	if request.SourceScheme != "api-key" {
-		return false
+		return "source_scheme"
 	}
 	headers := map[string]string{}
 	for _, header := range request.Headers {
 		name := strings.ToLower(header[0])
 		if _, exists := headers[name]; exists {
-			return false
+			return "envelope"
 		}
 		if !slices.Contains([]string{"x-api-key", "anthropic-beta", "anthropic-version", "user-agent"}, name) {
-			return false
+			return "envelope"
 		}
 		headers[name] = header[1]
 	}
 	if request.Method == "GET" {
-		return request.Path == "/api/claude_code/policy_limits" && len(request.Body) == 0 && len(headers) == 1 && headers["user-agent"] == "claude-code/2.1.328"
+		if request.Path == "/api/claude_code/policy_limits" && len(request.Body) == 0 && len(headers) == 1 && headers["user-agent"] == "claude-code/2.1.328" {
+			return ""
+		}
+		return "envelope"
 	}
 	if request.Method != "POST" || request.Path != "/v1/messages?beta=true" || len(headers) != 4 || headers["x-api-key"] != "ssh-placeholder" || headers["anthropic-version"] != "2023-06-01" || headers["user-agent"] != "claude-cli/2.1.328 (external, sdk-cli)" {
-		return false
+		return "envelope"
 	}
 	wanted := strings.Split(beta, ",")
 	seen := map[string]bool{}
 	for _, token := range strings.Split(headers["anthropic-beta"], ",") {
 		token = strings.Trim(token, " \t\r\n")
 		if seen[token] || !slices.Contains(wanted, token) {
-			return false
+			return "beta"
 		}
 		seen[token] = true
 	}
 	if len(seen) != len(wanted) {
-		return false
+		return "beta"
+	}
+	if err := wireBodyClosure(request.Body, "", allowedPaths); err != nil {
+		return "body_fields"
 	}
 	paths := map[string]bool{}
 	structuralPaths(request.Body, "", paths)
 	if len(paths) != len(allowedPaths) {
-		return false
+		return "body_fields"
 	}
 	for path := range paths {
 		if !allowedPaths[path] {
-			return false
+			return "body_fields"
 		}
 	}
 	body := request.Body
 	tools, ok := body["tools"].([]any)
 	if !ok || len(tools) != 0 {
-		return false
+		return "body_value"
 	}
 	for _, member := range []string{"metadata", "diagnostics"} {
 		object, ok := body[member].(map[string]any)
 		if !ok {
-			return false
+			return "body_value"
 		}
 		name := map[string]string{"metadata": "user_id", "diagnostics": "previous_message_id"}[member]
 		if _, ok := object[name].(string); !ok {
-			return false
+			return "body_value"
 		}
 	}
 	if body["stream"] != true || body["model"] != "claude-opus-5-5" || body["max_tokens"] != float64(128000) {
-		return false
+		return "body_value"
 	}
 	for _, name := range []string{"thinking", "output_config", "context_management"} {
 		encoded, _ := json.Marshal(body[name])
 		wanted := map[string]string{"thinking": `{"display":"omitted","type":"adaptive"}`, "output_config": `{"effort":"medium"}`, "context_management": `{"edits":[{"keep":"all","type":"clear_thinking_20251015"}]}`}
 		if string(encoded) != wanted[name] {
-			return false
+			return "body_value"
 		}
 	}
 	systems, ok := body["system"].([]any)
 	if !ok || len(systems) != 2 {
-		return false
+		return "body_value"
 	}
 	caches := []string{}
 	for _, item := range systems {
 		object, ok := item.(map[string]any)
 		if !ok || len(object) != 3 || object["type"] != "text" {
-			return false
+			return "body_value"
 		}
 		if _, ok := object["text"].(string); !ok {
-			return false
+			return "body_value"
 		}
 		cache, _ := json.Marshal(object["cache_control"])
 		caches = append(caches, string(cache))
 	}
 	messages, ok := body["messages"].([]any)
 	if !ok || len(messages) != 1 {
-		return false
+		return "body_value"
 	}
 	message, ok := messages[0].(map[string]any)
 	if !ok || len(message) != 3 || message["role"] != "user" {
-		return false
+		return "body_value"
 	}
 	output, _ := json.Marshal(message["output_config"])
 	if string(output) != `{"effort":"medium"}` {
-		return false
+		return "body_value"
 	}
 	contents, ok := message["content"].([]any)
 	if !ok || len(contents) != 1 {
-		return false
+		return "body_value"
 	}
 	content, ok := contents[0].(map[string]any)
 	if !ok || len(content) != 3 || content["type"] != "text" {
-		return false
+		return "body_value"
 	}
 	if _, ok := content["text"].(string); !ok {
-		return false
+		return "body_value"
 	}
 	cache, _ := json.Marshal(content["cache_control"])
 	caches = append(caches, string(cache))
 	slices.Sort(caches)
 	if !slices.Equal(caches, []string{`{"scope":"global","type":"ephemeral"}`, `{"type":"ephemeral"}`, `{"type":"ephemeral"}`}) {
-		return false
+		return "body_value"
 	}
 
-	return true
+	return ""
 }
 
 // Claim: the reconstructed API-key request matches measured field paths and all eleven flags; OAuth, duplicated/missing flags, forbidden bodies and credentialed GET refuse beside valid POST/GET.
@@ -713,7 +723,7 @@ func TestLabAPIKeyWireFixturePairs(test *testing.T) {
 			refusedCount++
 		}
 	}
-	if validCount != 2 || refusedCount != 73 {
+	if validCount != 2 || refusedCount != 74 {
 		test.Fatal("missing wire controls")
 	}
 	test.Run("cache-placement-multiset", func(test *testing.T) {

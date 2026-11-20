@@ -103,7 +103,7 @@ minus/plus one, enum/singleton exact spelling, canonical post-epoch and four-dig
 year bounds, and each integer lower/upper bound. The safe-integer upper refusal
 is at the shared canonical gate, not mislabeled as a field range refusal.
 
-The wire-body-subset mutant is equivalent under the unchanged value readers:
+The wire-body-subset mutant is equivalent under recursive closure and value readers:
 each measured body path is independently required by its typed/value check.
 It is reported as a survivor, never counted as a killed mutant. Removing both the path-presence and sentinel-reader gates
 (wire-body-subset-sentinel-unchecked) fails the required-field negative; the
@@ -138,7 +138,7 @@ also move at constant total length. There is no case operation on a digit.
 | Composed approval/journal seals | closed stale-seal record refuses approval_seal/journal_seal beside original record; TestLabComposedSealPairs | composed-approval-seal-off; composed-journal-seal-off |
 
 The three exported null-leaf wire fixtures preserve the other 72 cases and bring
-the corpus to 75 cases (2 admitted, 73 refused). Sentinel/prompt string contents
+the corpus to 75 cases (2 admitted, 73 refused) in revision 3; revision 4 adds one alias refusal. Sentinel/prompt string contents
 were not retained by the measurement: they are type-checked, not frozen to the
 public reconstructed strings. There is no negative array count in JSON; zero is
 the lower count control. Fixed-length hex groups have one accepted length, so
@@ -152,3 +152,43 @@ no seal gate. Both admitted HTTP profiles run the envelope/header matrix, not
 only POST. Header names retain their case-insensitive valid controls; JSON
 member names remain case-sensitive. Reconstructed open string fields admit
 empty, changed and non-ASCII strings, rather than freezing the public markers.
+
+## Revision 4: exact members and explicit operators
+
+The normative finite operator list is now **README.md, Normative negative
+operator catalogue**. It replaces the narrower earlier per-byte-only description.
+The same literal operators run on digest labels, entire fixed hex values, enum
+members, both HTTP envelopes, beta tokens, and all record/body member names.
+Unicode label aliases, leading insertions and single-/double-sided wrappers are
+included. Significant time-fraction leading zeros remain admitted controls;
+redundant all-zero and nonzero trailing-zero forms refuse. CCJ lexical controls
+cover zero and nonzero seeds as well as both accepted range endpoints.
+
+| Rule / former gap | Paired named test and intended refusal | Narrowing source overlay |
+| --- | --- | --- |
+| Exact recursive body closure, including dotted path aliases | `TestLabGeneratedWireClosurePairs`, `body_fields`; exported `body-extra-path-alias` | `wire-dotted-paths-only` |
+| Every body member's literal/case/Unicode aliases | `TestLabGeneratedWireClosurePairs`, `body_fields` | `wire-body-keys-caseless` |
+| Whole digest label, start/end anchoring | `TestLabGeneratedGrammarPairs`, digest node | `digest-label-upper-alternative`, `digest-unanchored-start`, `digest-unanchored-end` |
+| Whole UUID case, braces, URN, quotes, brackets, whitespace | `TestLabGeneratedGrammarPairs`, UUID node | `uuid-all-upper-alternative`, `uuid-braces-accepted`, `uuid-urn-prefix-accepted`, `uuid-quoted-accepted`, `uuid-bracketed-accepted`, `uuid-whitespace-wrapped` |
+| Every beta separator; reversed order remains valid | `TestLabGeneratedBetaSeparatorPairs`, `beta` | `beta-separator-semicolon`, `beta-separator-space` |
+| Redundant nonzero fraction and date/time separator | `TestLabGeneratedGrammarPairs`, time node | `time-trailing-zero-fraction-admitted`, `time-space-separator-admitted` |
+| Every owner's role accepted, independent residual consent | `TestLabGeneratedOwnerSetPairs`, semantic owner-set check | `owner-accepted-first-role-only`, `owner-residual-unchecked` |
+| Every member's duplicate bytes before map projection | `TestLabGeneratedObjectBytePairs`, duplicate parser gate | `wire-duplicate-member-guard-off`; `ccj-duplicate-and-canonical-guards-off` removes both redundant CCJ guards |
+| Canonical object bytes, distinct from equivalent decoded values | `TestLabGeneratedCanonicalBytePairs`, canonical round trip | `ccj-canonical-byte-guard-off` |
+| Zero/nonzero numeric canonical spelling, each lexical operator | `TestLabGeneratedNumberLexemePairs`, canonical parser or negative range | `ccj-leading-zero`, `ccj-redundant-zero`, `ccj-all-zero-leading`, `ccj-all-zero-redundant`, `ccj-plus-sign`, `ccj-minus-sign`, `ccj-negative-zero`, `ccj-fraction`, `ccj-exponent`, `ccj-plus-exponent`, `ccj-minus-exponent` |
+| Raw envelope/body-root/header-cell JSON kinds | `TestLabGeneratedWireJSONTypePairs`, typed decode or envelope/member refusal | Existing source-scheme, method, header and body-closure overlays; null is never projected into an admitted empty default. |
+
+The wire corpus is now **76 cases, 2 admitted and 74 refused**; the original 75
+are unchanged. The reference now exposes `wireRefusal`: closure is checked before
+value gates, generated label/alias cases require `body_fields`, and beta-list
+cases require `beta`. Generated body-value cases also pin their expected stage.
+A duplicate-body test uses raw JSON before map projection; fixture maps cannot
+represent duplicate members. GET's absent-body versus `{}` representation is
+still outside this map-based fixture model, not claimed to be distinguished.
+
+`TestLabIndependentAdversarialPairs` retains twelve separately enumerated
+interaction attacks, outside the unary generator. None is an allowed widening;
+the handoff records each actual result. The earlier equivalent `wire-body-subset`
+overlay remains explicitly bounded: recursive closure and typed readers enforce
+the same required paths; it is not counted as killed. Production readers, native
+qualification and the owner-only admission gates remain outside C0 acceptance.

@@ -18,24 +18,50 @@ type grammarMutation struct {
 }
 
 func literalMutations(text string) []grammarMutation {
-	result := []grammarMutation{{"literal-valid", text, true}, {"literal-empty", "", false}, {"literal-suffix", text + "x", false}}
+	result := []grammarMutation{{"literal-valid", text, true}, {"literal-empty", "", false}, {"literal-suffix", text + "x", false}, {"literal-prefix", "x" + text, false}}
+	for name, changed := range map[string]string{"whole-upper": strings.ToUpper(text), "whole-lower": strings.ToLower(text), "whole-flip": flipASCII(text)} {
+		if changed != text {
+			result = append(result, grammarMutation{name, changed, false})
+		}
+	}
+	for index, pair := range [][2]string{{"\"", "\""}, {"[", "]"}, {"{", "}"}, {"(", ")"}, {" ", " "}, {"\t", "\t"}, {"\r\n", "\r\n"}, {"'", "'"}, {"\v", "\v"}, {"\f", "\f"}} {
+		result = append(result, grammarMutation{fmt.Sprintf("wrapper-%d", index), pair[0] + text + pair[1], false})
+		result = append(result, grammarMutation{fmt.Sprintf("leading-wrapper-%d", index), pair[0] + text, false}, grammarMutation{fmt.Sprintf("trailing-wrapper-%d", index), text + pair[1], false})
+	}
 	for offset, char := range []byte(text) {
 		replacement := byte('x')
 		if char == replacement {
 			replacement = 'y'
 		}
-		result = append(result,
-			grammarMutation{fmt.Sprintf("literal-%d-altered", offset), text[:offset] + string(replacement) + text[offset+1:], false},
-			grammarMutation{fmt.Sprintf("literal-%d-removed", offset), text[:offset] + text[offset+1:], false})
+		result = append(result, grammarMutation{fmt.Sprintf("literal-%d-altered", offset), text[:offset] + string(replacement) + text[offset+1:], false}, grammarMutation{fmt.Sprintf("literal-%d-removed", offset), text[:offset] + text[offset+1:], false})
 		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' {
 			result = append(result, grammarMutation{fmt.Sprintf("case-%d", offset), text[:offset] + string(char^32) + text[offset+1:], false})
 		}
-		if char < '0' || char > '9' && char < 'A' || char > 'Z' && char < 'a' || char > 'z' {
-			for _, separator := range []byte{'_', '.', '-', ':', '/', ' '} {
-				if separator != char {
-					result = append(result, grammarMutation{fmt.Sprintf("separator-%d-%d", offset, separator), text[:offset] + string(separator) + text[offset+1:], false})
-				}
-			}
+		if strings.ContainsRune(separatorAlphabet, rune(char)) {
+			result = append(result, separatorMutations(text, offset)...)
+		}
+	}
+	return result
+}
+
+const separatorAlphabet = "TZ_,.-:/;= ?&()[]{}\\\"\t\r\n"
+
+func flipASCII(text string) string {
+	result := []byte(text)
+	for index, char := range result {
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' {
+			result[index] = char ^ 32
+		}
+	}
+	return string(result)
+}
+
+func separatorMutations(text string, offset int) []grammarMutation {
+	char := text[offset : offset+1]
+	result := []grammarMutation{}
+	for index, replacement := range append([]string{"", char + char, " " + char + " ", "\t" + char + "\t", "\r\n" + char + "\r\n"}, strings.Split(separatorAlphabet, "")...) {
+		if replacement != char {
+			result = append(result, grammarMutation{fmt.Sprintf("separator-%d-op-%d", offset, index), text[:offset] + replacement + text[offset+1:], false})
 		}
 	}
 	return result
@@ -57,6 +83,14 @@ func hexMutations(kind string) []grammarMutation {
 	}
 	valid := prefix + strings.Join(parts, "-")
 	result := []grammarMutation{{"hex-valid", valid, true}}
+	for _, mutation := range literalMutations(valid) {
+		if !mutation.Admit {
+			result = append(result, mutation)
+		}
+	}
+	if kind == "uuid" {
+		result = append(result, grammarMutation{"uuid-urn-prefix", "urn:uuid:" + valid, false})
+	}
 	if prefix != "" {
 		for _, mutation := range literalMutations(prefix) {
 			if !mutation.Admit {
@@ -137,11 +171,14 @@ func scalarMutations(kind string) []grammarMutation {
 	}
 	if kind == "time" {
 		result := []grammarMutation{{"epoch-minus-one-ns", "1969-12-31T23:59:59.999999999Z", false}, {"epoch", "1970-01-01T00:00:00Z", false}, {"epoch-plus-one-ns", "1970-01-01T00:00:00.000000001Z", true}, {"epoch-plus-two-ns", "1970-01-01T00:00:00.000000002Z", true}, {"maximum-minus-one-ns", "9999-12-31T23:59:59.999999998Z", true}, {"maximum", "9999-12-31T23:59:59.999999999Z", true}, {"maximum-plus-one-ns", "10000-01-01T00:00:00Z", false}, {"offset", "2027-01-01T00:00:00+00:00", false}, {"redundant-fraction", "2027-01-01T00:00:00.000Z", false}}
+		for _, mutation := range timeCanonicalMutations() {
+			result = append(result, mutation)
+		}
 		text := "2027-01-01T00:00:00.123456789Z"
 		result = append(result, grammarMutation{"time-valid", text, true})
 		for _, mutation := range literalMutations(text) {
 			name := mutation.Name
-			if strings.HasPrefix(name, "separator-") || strings.HasPrefix(name, "case-") || strings.HasPrefix(name, "literal-") && (strings.Contains(name, "removed") || strings.Contains(name, "altered")) && strings.ContainsAny(string(textOffset(text, name)), "-T:.Z") {
+			if strings.HasPrefix(name, "separator-") || strings.HasPrefix(name, "case-") || strings.HasPrefix(name, "whole-") || strings.Contains(name, "wrapper-") || name == "literal-prefix" || name == "literal-suffix" || strings.HasPrefix(name, "literal-") && (strings.Contains(name, "removed") || strings.Contains(name, "altered")) && strings.ContainsAny(string(textOffset(text, name)), "-T:.Z") {
 				result = append(result, mutation)
 			}
 		}
@@ -367,8 +404,13 @@ func TestLabGeneratedWirePairs(test *testing.T) {
 				}
 				changed := cloneWire(test, valid)
 				putPath(changed.Request.Body, field.Path, mutation.Value)
-				if wireAdmitted(changed, beta, paths) != mutation.Admit {
-					test.Fatalf("generated wire verdict: admit=%v", mutation.Admit)
+				reason := wireRefusal(changed, beta, paths)
+				expected := ""
+				if !mutation.Admit {
+					expected = wireValueRefusal(field.Value, mutation.Value, field.Path)
+				}
+				if reason != expected {
+					test.Fatalf("generated wire verdict: admit=%v reason=%s want=%s", mutation.Admit, reason, expected)
 				}
 			})
 		}
@@ -454,8 +496,12 @@ func TestLabGeneratedWireEnvelopePairs(test *testing.T) {
 							items := slices.Clone(members)
 							items[member] = mutation.Value.(string)
 							changed.Request.Headers[index][1] = strings.Join(items, ",")
-							if wireAdmitted(changed, beta, paths) != mutation.Admit {
-								test.Fatalf("generated header verdict: admit=%v", mutation.Admit)
+							admit := mutation.Admit
+							if header[0] == "anthropic-beta" {
+								admit = strings.Trim(mutation.Value.(string), " \t\r\n") == value
+							}
+							if wireAdmitted(changed, beta, paths) != admit {
+								test.Fatalf("generated header verdict: admit=%v", admit)
 							}
 						})
 					}
@@ -576,7 +622,7 @@ func TestLabGeneratedClosedFieldPairs(test *testing.T) {
 				}
 			})
 			for field := range shape.Fields {
-				mutations := literalMutations(field)
+				mutations := labelCases(field)
 				mutations = append(mutations, grammarMutation{"missing", nil, false}, grammarMutation{"null", nil, false})
 				for _, mutation := range mutations {
 					test.Run(field+"/"+mutation.Name, func(test *testing.T) {
