@@ -182,6 +182,6 @@ All other unresolved points and applicability are in
 or checked-in pin selects an installed SSH stack, private key, identity backend
 or custody. [The vector index](../internal/assemblyv0/testdata/construction-v0/index.json)
 binds each exact file/preimage to source lines and a byte digest.
-Its executable source commit, whole-file pins and sealed excerpt hashes now
-resolve against the published DN-05 bytes, as recorded in
-[C1's source rebase](assembly-v0-construction-contract-c1.md#source-pin-revision-for-dn-05-publication).
+Its whole-file content pins and sealed excerpt hashes are recorded in C1:
+[DN-05 source pins (historical)](assembly-v0-construction-contract-c1.md#source-pin-revision-for-dn-05-publication),
+[lab cross-reference content pins (current; no commit locator)](assembly-v0-construction-contract-c1.md#non-semantic-lab-cross-reference-source-pins).

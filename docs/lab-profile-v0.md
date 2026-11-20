@@ -111,9 +111,10 @@ sections, approved by the owner rather than inferred from guest UID checks:
   one-time display to the authenticated no-echo prompt is allowed. Clear the
   clipboard and close the one-time display immediately after input or abort.
   A key exposed to, displayed in or reachable from an agent context is
-  **ineligible and vendor-revoked**, never admitted after cleanup. After enrollment,
+  **ineligible and vendor-revoked**, never admitted after cleanup. Throughout key life,
   each root session remains inside this trusted boundary; re-attest it before
-  activation, each Q group and every later widening act. The production
+  creation/enrollment, bind, activation, each Q group and every later widening
+  act (hold-lift and each `prepare-next` transition). The production
   endpoint exclusion and ineligible-credential rules remain the basis:
   `B:spec/operator-and-activation-v0.md:304` and
   `B:spec/operator-and-activation-v0.md:621`.
@@ -122,10 +123,12 @@ sections, approved by the owner rather than inferred from guest UID checks:
   workspace, its enforcing cap/limit, or its keys, including create, re-scope,
   disable and limit-change rights. No agent identity, agent-controlled session
   or agent-held admin key is allowed, even behind a human principal's name.
-  Read back the complete roster and cap **before creation and before each Q
-  group**; compare with the owner-approved roster, workspace and limit. Any
-  change invalidates admission and quiesces use. Missing visibility or doubt
-  means no creation/use, or revoke and recreate after exclusion is re-established.
+  Read back the complete roster and cap **before creation/enrollment, bind,
+  activation, each Q group and every widening act (hold-lift and each
+  `prepare-next` transition)**; compare with the owner-approved roster,
+  workspace and limit. Any change invalidates admission and quiesces use.
+  Missing visibility or doubt means no creation/use, or revoke and recreate
+  after exclusion is re-established.
   The owner freezes changes and reviews the vendor organisation's audit log
   off-VM from the approved baseline through revocation, detecting grants or cap
   changes made and reverted between readbacks. A gap in audit coverage is
@@ -139,8 +142,9 @@ key to test a forbidden endpoint. A04 and A12 carry both negatives.
 
 `verify-access` compares all three attested surfaces: native guest/external
 control-plane readback, owner endpoint exclusion, and owner-obtained complete
-vendor roster/cap readback. It runs before creation/enrollment, activation and
-each Q group; the owner performs and approves the off-VM readbacks. A local
+vendor roster/cap readback. It runs before creation/enrollment, bind, activation,
+each Q group and every widening act (hold-lift and each `prepare-next`
+transition); the owner performs and approves the off-VM readbacks. A local
 Boolean cannot substitute for those observations or remotely prove endpoint
 cleanliness. Its metadata records their scope, digest, freshness and window.
 Missing external visibility is incomplete, not absence of access. Freeze access
@@ -1284,6 +1288,7 @@ transition off-VM and executes:
 
 ```sh
 set -eu
+/opt/swarma/lab/bin/swarma-lab-qualify verify-access --attestation /etc/swarma/lab/access-attestation.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup prepare-next --plan /etc/swarma/lab/next-qualification-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup create-identities --plan /etc/swarma/lab/next-qualification-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup verify-identities --plan /etc/swarma/lab/next-qualification-plan.json
@@ -1295,6 +1300,7 @@ Only then run the broker transition; no envelope predates that predecessor:
 
 ```sh
 set -eu
+/opt/swarma/lab/bin/swarma-lab-qualify verify-access --attestation /etc/swarma/lab/access-attestation.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab prepare-next --plan /etc/swarma/lab/next-qualification-plan.json --operation-from /etc/swarma/lab/operations/next-after-q4.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from /etc/swarma/lab/operations/next-after-q4.json
 ```
@@ -1353,6 +1359,7 @@ Before Q6, the owner approves the distinct post-lift transition and runs:
 
 ```sh
 set -eu
+/opt/swarma/lab/bin/swarma-lab-qualify verify-access --attestation /etc/swarma/lab/access-attestation.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup prepare-next --plan /etc/swarma/lab/next-after-q5-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup create-identities --plan /etc/swarma/lab/next-after-q5-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup verify-identities --plan /etc/swarma/lab/next-after-q5-plan.json
@@ -1364,6 +1371,7 @@ Only then run the broker transition; no envelope predates that predecessor:
 
 ```sh
 set -eu
+/opt/swarma/lab/bin/swarma-lab-qualify verify-access --attestation /etc/swarma/lab/access-attestation.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab prepare-next --plan /etc/swarma/lab/next-after-q5-plan.json --operation-from /etc/swarma/lab/operations/next-after-q5.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from /etc/swarma/lab/operations/next-after-q5.json
 ```
