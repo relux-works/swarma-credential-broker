@@ -1,6 +1,6 @@
 # C0 construction coverage map
 
-Scope: the 27 byte formats (24 base plus C0b and two C0c frames) in lab profile section 5.2, not runtime A01–A12 acceptance.
+Scope: the 30 byte formats (24 base, C0b, two C0c frames and three C0e records) in lab profile section 5.2, not runtime A01–A12 acceptance.
 No separate attack-surface catalog was supplied; the profile inventory is the
 bounded construction surface. Own-format controls are canonical public fixtures.
 The source overlay mutant `foreign-format` disables string-singleton checking;
@@ -10,6 +10,9 @@ actual production-reader cross-read integration. Those remain assigned by sectio
 
 | Surface | Named test / own-format control | Killed narrowing mutant |
 | --- | --- | --- |
+| `swarma-broker-lab-model-price/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-model-price/1`; canonical valid fixture | `c0e-format`; `c0e-member-closure` |
+| `swarma-broker-lab-attempt-group/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-attempt-group/1`; canonical valid fixture | `c0e-format`; `c0e-member-closure` |
+| `swarma-broker-lab-attempt-ledger/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-attempt-ledger/1`; canonical valid fixture | `c0e-format`; `c0e-member-closure` |
 | `swarma-broker-lab-activation/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-activation/1`; adjacent canonical valid fixture | `foreign-format` |
 | `swarma-broker-lab-authority/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-authority/1`; adjacent canonical valid fixture | `foreign-format` |
 | `swarma-broker-lab-preparation/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-preparation/1`; adjacent canonical valid fixture | `foreign-format` |
@@ -333,7 +336,7 @@ production acceptance is inferred. The existing out-of-contract list applies.
 
 No field, discriminator, bound in a wire grammar, fixture payload, native lock
 mode/cooldown, or production source is changed. The full existing recursive C0
-catalogue still exercises the unchanged 27 formats. Additional rule operators
+catalogue exercised the unchanged 27 formats at the C0d freeze; C0e below adds three formats without changing those existing wire grammars. Additional rule operators
 below apply at the intended consumption/timing gate, with nearby valid controls.
 All functions are test-only references; installed M1/B1/G1/B4 proof is pending.
 
@@ -351,3 +354,156 @@ All functions are test-only references; installed M1/B1/G1/B4 proof is pending.
 No installed cadence, socket load, atomic publication, failover or closure timing
 is claimed from these integer/reference controls. The C0d design changes the
 lab ceiling explicitly; it does not reopen the pending native/owner gates.
+
+## C0e sole gateway accounting boundary
+
+The complete C0 catalogue runs recursively on all new surfaces, including
+GatewayPrices/GatewayUsage/GatewayAttempt: every literal/member/operator, all
+wrong kinds/null, duplicate/missing/alias/extra/nested members, both count and
+number bounds, canonical spellings and coupled receipt/debit role swaps.
+Shape fixtures are inert: admitted C0b sample plans may be too small for C0e's
+conservative reservation and do not authorize a forward. Separate joined tests
+construct a freshly re-sealed synthetic release/approval/plan; they are not owner
+acts. Native byte ordering, usage provenance, file access, fsync/CAS, clock/timer
+enforcement and actual retry-path exclusion remain G1b/M1/B1/B4/B5 obligations.
+No production or native acceptance is claimed by these test-only references.
+
+| Rule / generated cases | Named tests / adjacent valid controls | Narrowing overlays |
+| --- | --- | --- |
+| Closed record/member/type/label/canonical-number and nested closure catalogue; 65536/262144 preflight bounds, ledger arrays 0/1/255/256/257 | TestLabClosedSurfacePairs; TestLabNestedClosurePairs; TestLabGeneratedGrammarPairs; TestLabGeneratedClosedFieldPairs; TestLabGeneratedObjectBytePairs; TestLabGeneratedCanonicalBytePairs; TestLabPayloadLimitPairs; TestLabGatewayArrayPairs | c0e-format; c0e-member-closure; c0e-null-closure; c0e-array-bound; c0e-byte-bound |
+| Every scalar operator attacks the exact published price identity; every price-member/source/model/tier/ceiling/rate and approved R/A/P/L join | TestLabGatewayPriceCataloguePairs; TestLabGatewayPriceIdentityPairs; TestLabGatewayJoinPairs; TestLabGatewayIndependentPricePairs | c0e-price-identity; c0e-price-member-missing; c0e-price-member-unique; c0e-model; c0e-approval-chain |
+| Each immutable group/ledger/native-incarnation join, either/both receipt-debit retargetings and original group-clock future/expiry boundaries | TestLabGatewayGroupPairs; TestLabGatewayJoinPairs; TestLabGatewayPairedRolePairs | c0e-group-plan_sha256; c0e-group-future; c0e-group-expiry; c0e-group-ledger-digest; c0e-join-start_receipt; c0e-join-start_debit |
+| Five disjoint usage terms, cache-partition total/aggregate ceiling, integer upward rounding and checked overflow | TestLabGatewayPricePairs; TestLabGatewayIndependentPricePairs | c0e-price-term-input_tokens; c0e-price-term-output_tokens; c0e-price-term-cache_creation_5m_input_tokens; c0e-price-term-cache_creation_1h_input_tokens; c0e-price-term-cache_read_input_tokens; c0e-usage-partition; c0e-usage-aggregate; c0e-ceil; c0e-overflow |
+| Before-forward fresh authority/currentness, sole route, qualified ceiling, count/cost/time, single active attempt, durable prefix/CAS/fsync/sequence/ordinal; unchanged accounting plus a closed-use latch after refusal | TestLabGatewayReservationPairs | c0e-reserve-approval; c0e-reserve-current; c0e-reserve-route; c0e-reserve-ceiling; c0e-reserve-count; c0e-reserve-cost; c0e-reserve-wall; c0e-reserve-active; c0e-reserve-head; c0e-reserve-cas; c0e-reserve-durable; c0e-reserve-ordinal |
+| Complete authoritative settlement, reserved/settled/unknown sentinels, timeout/disconnect/partial usage, full-reservation UNKNOWN, no refund/reopen, independent retry ordinal | TestLabGatewaySettlementPairs; TestLabGatewayRecordPairs; TestLabGatewayFixturePairs | c0e-settle-terminal; c0e-settle-tier; c0e-unknown-full-reservation; c0e-unknown-sticky; c0e-retry-ordinal; c0e-record-unknown-charge; c0e-record-settled-digest |
+| Shared first-bound output/cost/per-attempt/total stop, equality and both adjacent sides; independent total-wall witness does not hit the per-attempt bound | TestLabGatewayMonitorPairs; TestLabGatewaySettlementPairs | c0e-monitor-output; c0e-monitor-cost; c0e-monitor-per-wall; c0e-monitor-total-wall; c0e-settle-stop-total-wall |
+| Exact protected accounting head, B4 effect/release joins and fresh C0d pair only for a claimed start-affecting publication; copies/singles never enable it | TestLabGatewayEvidencePairs | c0e-evidence-head; c0e-evidence-effect; c0e-evidence-release; c0e-evidence-publication |
+
+Every overlay below was applied to the final candidate in an isolated checkout,
+ran with real exit 1 at the named intended assertion, and passed a source/witness
+correlation audit. Baseline contract suites exit 0. A failed compile is not a
+kill; earlier diagnostics are listed in the handoff. C0d's 53 unchanged-rule
+overlays were also replayed against this candidate; all fail their named tests.
+
+| Mutant | Gate narrowed | Named failing test |
+| --- | --- | --- |
+| c0e-join-context | Ignore ledger context while retaining all other approval/start joins | TestLabGatewayJoinPairs/context |
+| c0e-join-operation_id | Ignore ledger operation_id while retaining all other approval/start joins | TestLabGatewayJoinPairs/operation_id |
+| c0e-join-plan_sha256 | Ignore ledger plan_sha256 while retaining all other approval/start joins | TestLabGatewayJoinPairs/plan_sha256 |
+| c0e-join-approval_record_sha256 | Ignore ledger approval_record_sha256 while retaining all other approval/start joins | TestLabGatewayJoinPairs/approval_record_sha256 |
+| c0e-join-release_set_sha256 | Ignore ledger release_set_sha256 while retaining all other approval/start joins | TestLabGatewayJoinPairs/release_set_sha256 |
+| c0e-join-model_price_sha256 | Ignore ledger model_price_sha256 while retaining all other approval/start joins | TestLabGatewayJoinPairs/model_price_sha256 |
+| c0e-join-launch_plan_sha256 | Ignore ledger launch_plan_sha256 while retaining all other approval/start joins | TestLabGatewayJoinPairs/launch_plan_sha256 |
+| c0e-join-start_observation_sha256 | Ignore ledger start_observation_sha256 while retaining all other approval/start joins | TestLabGatewayJoinPairs/start_observation_sha256 |
+| c0e-join-start_operation_id | Ignore ledger start_operation_id while retaining all other approval/start joins | TestLabGatewayJoinPairs/start_operation_id |
+| c0e-join-start_id | Ignore ledger start_id while retaining all other approval/start joins | TestLabGatewayJoinPairs/start_id |
+| c0e-join-store_generation | Ignore ledger store_generation while retaining all other approval/start joins | TestLabGatewayJoinPairs/store_generation |
+| c0e-join-manager_instance_id | Ignore ledger manager_instance_id while retaining all other approval/start joins | TestLabGatewayJoinPairs/manager_instance_id |
+| c0e-join-boot_id | Ignore ledger boot_id while retaining all other approval/start joins | TestLabGatewayJoinPairs/boot_id |
+| c0e-join-start_receipt | Ignore ledger start_receipt while retaining all other approval/start joins | TestLabGatewayJoinPairs/start_receipt |
+| c0e-join-start_debit | Ignore ledger start_debit while retaining all other approval/start joins | TestLabGatewayJoinPairs/start_debit |
+| c0e-approval-chain | Omit authenticated C0b chain admission | TestLabGatewayJoinPairs/approval-denied |
+| c0e-admission-pair | Treat an unaccepted/single observation as start admission | TestLabGatewayJoinPairs/publication-not-single |
+| c0e-native-stop | Omit native stop closure | TestLabGatewayJoinPairs/native-stops |
+| c0e-native-invalidation | Omit native invalidation closure | TestLabGatewayJoinPairs/native-invalidations |
+| c0e-native-phase | Omit native phase closure | TestLabGatewayJoinPairs/native-phase |
+| c0e-native-current | Omit native current closure | TestLabGatewayJoinPairs/native-generation_current |
+| c0e-native-complete | Omit native complete closure | TestLabGatewayJoinPairs/native-complete |
+| c0e-price-member-missing | Ignore approved price-member missing requirement | TestLabGatewayJoinPairs/price-missing |
+| c0e-price-member-unique | Ignore approved price-member unique requirement | TestLabGatewayJoinPairs/price-duplicate |
+| c0e-price-member-product | Ignore approved price-member product requirement | TestLabGatewayJoinPairs/price-product |
+| c0e-price-member-mode | Ignore approved price-member mode requirement | TestLabGatewayJoinPairs/price-mode |
+| c0e-price-member-digest | Ignore approved price-member digest requirement | TestLabGatewayJoinPairs/price-digest |
+| c0e-price-identity | Use only model/field count, not the exact published source/rates/ceilings | TestLabGatewayPriceIdentityPairs/[source_sha256] |
+| c0e-model | Ignore the independently supplied approved model | TestLabGatewayIndependentPricePairs/model |
+| c0e-group-context | Ignore protected preauthorization group context | TestLabGatewayGroupPairs/join-context |
+| c0e-group-operation_id | Ignore protected preauthorization group operation_id | TestLabGatewayGroupPairs/join-operation_id |
+| c0e-group-plan_sha256 | Ignore protected preauthorization group plan_sha256 | TestLabGatewayGroupPairs/join-plan_sha256 |
+| c0e-group-approval_record_sha256 | Ignore protected preauthorization group approval_record_sha256 | TestLabGatewayGroupPairs/join-approval_record_sha256 |
+| c0e-group-release_set_sha256 | Ignore protected preauthorization group release_set_sha256 | TestLabGatewayGroupPairs/join-release_set_sha256 |
+| c0e-group-model_price_sha256 | Ignore protected preauthorization group model_price_sha256 | TestLabGatewayGroupPairs/join-model_price_sha256 |
+| c0e-group-launch_plan_sha256 | Ignore protected preauthorization group launch_plan_sha256 | TestLabGatewayGroupPairs/join-launch_plan_sha256 |
+| c0e-group-start_operation_id | Ignore protected preauthorization group start_operation_id | TestLabGatewayGroupPairs/join-start_operation_id |
+| c0e-group-start_id | Ignore protected preauthorization group start_id | TestLabGatewayGroupPairs/join-start_id |
+| c0e-group-boot_id | Ignore protected preauthorization group boot_id | TestLabGatewayGroupPairs/join-boot_id |
+| c0e-group-future | Admit future total-clock boundary | TestLabGatewayGroupPairs/group-clock-future |
+| c0e-group-expiry | Admit expiry total-clock boundary | TestLabGatewayGroupPairs/group-clock-expiry |
+| c0e-group-ledger-digest | Do not bind ledger to protected group digest | TestLabGatewayGroupPairs/ledger-digest |
+| c0e-group-ledger-clock | Do not bind ledger to protected group clock | TestLabGatewayGroupPairs/ledger-clock |
+| c0e-reserve-approval | Permit a forward without approval proof | TestLabGatewayReservationPairs/approval |
+| c0e-reserve-current | Permit a forward without current proof | TestLabGatewayReservationPairs/current |
+| c0e-reserve-ceiling | Permit a forward without ceiling proof | TestLabGatewayReservationPairs/ceiling |
+| c0e-reserve-route | Permit a forward without route proof | TestLabGatewayReservationPairs/route |
+| c0e-reserve-group | Remove or weaken pre-forward group gate | TestLabGatewayReservationPairs/status |
+| c0e-reserve-boot | Remove or weaken pre-forward boot gate | TestLabGatewayReservationPairs/boot |
+| c0e-reserve-clock | Remove or weaken pre-forward clock gate | TestLabGatewayReservationPairs/clock |
+| c0e-reserve-wall | Remove or weaken pre-forward wall gate | TestLabGatewayReservationPairs/wall |
+| c0e-reserve-active | Remove or weaken pre-forward active gate | TestLabGatewayReservationPairs/active |
+| c0e-reserve-count | Remove or weaken pre-forward count gate | TestLabGatewayReservationPairs/count |
+| c0e-reserve-cost | Remove or weaken pre-forward cost gate | TestLabGatewayReservationPairs/cost |
+| c0e-reserve-head | Remove or weaken pre-forward head gate | TestLabGatewayReservationPairs/head |
+| c0e-reserve-cas | Remove or weaken pre-forward cas gate | TestLabGatewayReservationPairs/cas |
+| c0e-reserve-durable | Remove or weaken pre-forward durable gate | TestLabGatewayReservationPairs/durable |
+| c0e-reserve-sequence | Remove or weaken pre-forward sequence gate | TestLabGatewayReservationPairs/sequence |
+| c0e-reserve-ordinal | Remove or weaken pre-forward ordinal gate | TestLabGatewayReservationPairs/ordinal |
+| c0e-prefix-chain | Commit a head without its exact predecessor | TestLabGatewayReservationPairs/valid |
+| c0e-sequence-increment | Reuse the durable sequence | TestLabGatewayReservationPairs/valid |
+| c0e-retry-ordinal | Count every retry as the first forward | TestLabGatewaySettlementPairs/valid |
+| c0e-worst-cache | Reserve only the base input price, not the worst cache write | TestLabGatewayPricePairs |
+| c0e-worst-output | Omit output from worst-case reservation | TestLabGatewayPricePairs |
+| c0e-price-term-input_tokens | Omit the input_tokens billable component | TestLabGatewayPricePairs/input_tokens |
+| c0e-price-term-output_tokens | Omit the output_tokens billable component | TestLabGatewayPricePairs/output_tokens |
+| c0e-price-term-cache_creation_5m_input_tokens | Omit the cache_creation_5m_input_tokens billable component | TestLabGatewayPricePairs/cache_creation_5m_input_tokens |
+| c0e-price-term-cache_creation_1h_input_tokens | Omit the cache_creation_1h_input_tokens billable component | TestLabGatewayPricePairs/cache_creation_1h_input_tokens |
+| c0e-price-term-cache_read_input_tokens | Omit the cache_read_input_tokens billable component | TestLabGatewayPricePairs/cache_read_input_tokens |
+| c0e-ceil | Round fractional micro-USD down | TestLabGatewayPricePairs/cache_read_input_tokens |
+| c0e-overflow | Drop checked safe-integer arithmetic | TestLabGatewayPricePairs |
+| c0e-usage-output | Admit output usage over its reserved ceiling | TestLabGatewayPricePairs/ceiling-output_tokens |
+| c0e-usage-partition | Do not reconcile cache creation total with disjoint TTL counts | TestLabGatewayPricePairs/ceiling-cache_creation_input_tokens |
+| c0e-usage-aggregate | Allow individually valid input/cache terms to exceed their shared ceiling | TestLabGatewayIndependentPricePairs/aggregate-input |
+| c0e-settle-terminal | Settle as authoritative despite missing terminal proof | TestLabGatewaySettlementPairs/timeout |
+| c0e-settle-tier | Settle as authoritative despite missing tier proof | TestLabGatewaySettlementPairs/model-tier |
+| c0e-settle-request | Settle as authoritative despite missing request proof | TestLabGatewaySettlementPairs/request-id |
+| c0e-settle-clock | Settle as authoritative despite missing clock proof | TestLabGatewaySettlementPairs/clock |
+| c0e-unknown-full-reservation | Treat an uncertain response as zero charge | TestLabGatewaySettlementPairs/timeout |
+| c0e-unknown-sticky | Keep the group open after uncertain settlement | TestLabGatewaySettlementPairs/timeout |
+| c0e-settle-stop-output | Remove the shared first-bound output predicate used by settlement and ongoing monitoring | TestLabGatewaySettlementPairs/output |
+| c0e-settle-stop-per-wall | Remove the shared first-bound per-wall predicate used by settlement and ongoing monitoring | TestLabGatewaySettlementPairs/per-wall |
+| c0e-settle-stop-total-wall | Remove the shared first-bound total-wall predicate used by settlement and ongoing monitoring | TestLabGatewaySettlementPairs/total-wall |
+| c0e-settle-stop-count | Do not retain the first reached count bound after settlement | TestLabGatewaySettlementPairs/count |
+| c0e-settle-stop-cost | Remove the shared first-bound cost predicate used by settlement and ongoing monitoring | TestLabGatewayMonitorPairs/cost/0 |
+| c0e-settle-stop-revoked | Do not retain the first reached revoked bound after settlement | TestLabGatewaySettlementPairs/revoked |
+| c0e-settle-stop-current | Do not retain the first reached current bound after settlement | TestLabGatewaySettlementPairs/current |
+| c0e-settle-stop-boot | Do not retain the first reached boot bound after settlement | TestLabGatewaySettlementPairs/boot |
+| c0e-monitor-output | Delay the in-flight output stop past equality | TestLabGatewayMonitorPairs/output/0 |
+| c0e-monitor-cost | Delay the in-flight cost stop past equality | TestLabGatewayMonitorPairs/cost/0 |
+| c0e-monitor-per-wall | Delay the in-flight per-wall stop past equality | TestLabGatewayMonitorPairs/per-wall/0 |
+| c0e-monitor-total-wall | Delay the in-flight total-wall stop past equality | TestLabGatewayMonitorPairs/total-wall/0 |
+| c0e-monitor-partial | Ignore in-flight partial evidence | TestLabGatewayMonitorPairs/partial |
+| c0e-monitor-regression | Ignore in-flight regression evidence | TestLabGatewayMonitorPairs/regression |
+| c0e-monitor-boot | Ignore in-flight boot evidence | TestLabGatewayMonitorPairs/boot |
+| c0e-monitor-negative-output | Ignore in-flight negative-output evidence | TestLabGatewayMonitorPairs/negative-output |
+| c0e-monitor-negative-cost | Ignore in-flight negative-cost evidence | TestLabGatewayMonitorPairs/negative-cost |
+| c0e-monitor-approval | Ignore in-flight approval evidence | TestLabGatewayMonitorPairs/approval |
+| c0e-monitor-current | Ignore in-flight current evidence | TestLabGatewayMonitorPairs/current |
+| c0e-record-usage-complete | Omit state-dependent usage-complete check | TestLabGatewayRecordPairs/reserved/usage_complete |
+| c0e-record-empty-usage | Omit state-dependent empty-usage check | TestLabGatewayRecordPairs/reserved/usage.input_tokens |
+| c0e-record-request-sentinel | Omit state-dependent request-sentinel check | TestLabGatewayRecordPairs/reserved/upstream_request_id |
+| c0e-record-digest-sentinel | Omit state-dependent digest-sentinel check | TestLabGatewayRecordPairs/reserved/usage_sha256 |
+| c0e-record-reserved-cost | Omit state-dependent reserved-cost check | TestLabGatewayRecordPairs/reserved/settled_micro_usd |
+| c0e-record-reserved-time | Omit state-dependent reserved-time check | TestLabGatewayRecordPairs/reserved/settled_monotonic_ms |
+| c0e-record-unknown-charge | Omit state-dependent unknown-charge check | TestLabGatewayRecordPairs/unknown/settled_micro_usd |
+| c0e-record-settled-usage | Omit state-dependent settled-usage check | TestLabGatewayRecordPairs/settled/usage_complete |
+| c0e-record-settled-cost | Omit state-dependent settled-cost check | TestLabGatewayRecordPairs/settled/settled_micro_usd |
+| c0e-record-settled-digest | Omit state-dependent settled-digest check | TestLabGatewayRecordPairs/settled/usage_sha256 |
+| c0e-record-settled-request | Omit state-dependent settled-request check | TestLabGatewayRecordPairs/settled/upstream_request_id |
+| c0e-record-settled-time | Omit state-dependent settled-time check | TestLabGatewayRecordPairs/settled/settled_monotonic_ms |
+| c0e-evidence-head | Allow B4 evidence without exact head join | TestLabGatewayEvidencePairs/head |
+| c0e-evidence-effect | Allow B4 evidence without exact effect join | TestLabGatewayEvidencePairs/effect |
+| c0e-evidence-release | Allow B4 evidence without exact release join | TestLabGatewayEvidencePairs/release |
+| c0e-evidence-publication | Allow B4 evidence without exact publication join | TestLabGatewayEvidencePairs/single |
+| c0e-format | Ignore lab format discriminator | TestLabClosedSurfacePairs/swarma-broker-lab-model-price/1 |
+| c0e-member-closure | Allow extra/aliasing members | TestLabClosedSurfacePairs/swarma-broker-lab-model-price/1 |
+| c0e-null-closure | Delegate null closure to a later grammar check | TestLabNestedClosurePairs/swarma-broker-lab-model-price/1/GatewayPrices/null |
+| c0e-array-bound | Admit 257 attempt members | TestLabGatewayArrayPairs/257 |
+| c0e-byte-bound | Admit one byte above the frozen ceiling | TestLabPayloadLimitPairs/swarma-broker-lab-model-price/1 |

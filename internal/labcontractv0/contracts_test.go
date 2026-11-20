@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "149ab1175692b379fae251388774d54fbeeb5a1758d03fd87af3a6a8abc85823"
+const indexSHA256 = "93c3301da1eab5ff2c3a54af4903c95952f4f69f44f8b55a8707fa655b449925"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -295,7 +295,7 @@ func TestLabContractContentPins(test *testing.T) {
 }
 
 func checkInventory(wanted map[string]bool, set contractSet, fixtures []contractCase) error {
-	if len(wanted) != 27 || len(set.Surfaces) != len(wanted) || len(fixtures) != len(wanted) {
+	if len(wanted) != 30 || len(set.Surfaces) != len(wanted) || len(fixtures) != len(wanted) {
 		return fmt.Errorf("inventory size")
 	}
 	seen := map[string]bool{}

@@ -2,8 +2,8 @@
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Lab-only inert construction; no production
 acceptance, live budget, owner act, executable release or vendor request is
-approved here. B5 writes the owner-approved plan; M1 (including its trusted
-executor) and B4 read it. This refines the lab-only execution obligations of
+approved here. B5 writes the owner-approved plan; M1 (start admission), G1b (the gateway per-attempt gate) and B4 read it.
+[C0e](attempt-accounting.md) owns all billable forwards, not CLI process counts. This refines the lab-only execution obligations of
 [profile sections 5.2 and 6](../../docs/lab-profile-v0.md), not broker section 14
 or the production operator contract. The profile's book dispositions remain:
 **OS user and network**, **Credentials**, and the declared **Operator's phone**
@@ -73,7 +73,7 @@ An input, quote or authoritative charge that cannot be safely bounded is UNKNOWN
    Plan digest D is the digest of **all** canonical P bytes, including that field
    and live_budget_approved. No approval or launch-plan digest is hashed back
    into its own target; timestamps/owner receipts remain in A.
-4. B5 supplies D through its protected approved-plan path. M1 and its executor
+4. B5 supplies D through its protected approved-plan path. M1 at start admission and G1b before forwarding
    independently recompute D, require that exact protected expected digest, and
    compare the complete Context, operation_id and target_generation to the
    existing M1 launch plan L. L has exactly one InputPin for each required name:
@@ -100,7 +100,12 @@ An input, quote or authoritative charge that cannot be safely bounded is UNKNOWN
    inferred from this addendum. Exact argument/environment realization and its
    native refusal evidence belong to the pinned M1 executor release.
 
-## Executor, first-bound stop and UNKNOWN
+## Gateway executor, first-bound stop and UNKNOWN
+
+Here executor means G1b for per-attempt accounting; M1 only checks the approved
+start and serves C0c. C0e defines the sole gateway ledger, approved price pin,
+reservation and authoritative settlement boundary for every Messages forward.
+A native start debit is not a monetary debit. No worker-side retry escapes G1b.
 
 Before effects, the executor verifies **every** shape/approval/client/profile/
 launch/release/access/context join above. It also verifies demonstrable controls
@@ -113,7 +118,7 @@ no initial-check cache or extension is valid. Expiry/revocation is a reached
 bound: stop the group before the next ordinal, with no forwarding or refund.
 During an active attempt schedule expiry/qualification stops at the earliest
 known expiry (converted with qualified monotonic continuity); monitor revocation
-and access/currentness with the existing <=1-second end-to-end removal bound
+and access/currentness with the C0d 3000-ms lab end-to-end removal ceiling
 (profile section 3.2), AND inside every remaining per-attempt/total deadline.
 Whichever arrives first closes use and stops/reaps in those bounds; unknown
 freshness/monitoring is sticky UNKNOWN, not grace or another attempt. Retain
@@ -126,7 +131,7 @@ workspace cap/readback remains required; P's limit cannot exceed that approved
 available cap. No fixture proves that native enforcement capability.
 
 Each potentially billable Messages attempt, including SDK/transport retries,
-consumes one durable ordinal **before** forwarding or publishing a start.
+consumes one durable ordinal **before** forwarding that request; M1 publishes only the distinct native start.
 Autonomous internal retries must be disabled or intercepted by that same gate;
 one CLI process is not proof of one invocation. Credential-free policy GETs
 are not billable invocations. Persist the full-plan digest, operation, ordinals,
@@ -143,9 +148,9 @@ are not actual spend: an attempt whose reservation exactly fits the remaining
 budget may run inside that allocation; no additional attempt may start
 while that reservation is outstanding.
 Settle/release a reservation only against complete authoritative evidence.
-An uncertain response/charge keeps the reservation and consumed ordinal; never
+An uncertain response/charge settles at the FULL reservation, marks sticky UNKNOWN and keeps the consumed ordinal; never
 refund it as zero, retry to discover its outcome, or rely on a soft USD estimate.
-The executor release and B4 native checks must prove the mechanism; this C0b
+The G1b gateway release and B4 native checks must prove the mechanism; this C0b
 reference transition table is not such a mechanism.
 
 Start at count < max_invocations, elapsed_total < total bound and a positive

@@ -653,18 +653,18 @@ coverage or native qualification already exists.
 
 | Row | Required valid and forbidden outcomes | Units |
 | --- | --- | --- |
-| A01 | Tagged lab records/build graph work; production/lab activation, authority, custody, journal, fence and floor cross-read/import or production-store adoption refuses. | C0, B1, B2, B3, G1, M1, B5, B4, RB, RG, RM, Q |
-| A02 | Measured API-key mapping injects exactly x-api-key and retains all eleven non-OAuth flags/required body fields; OAuth/unknown/duplicate/case-variant flag, two beta header fields, missing beta, wrong scheme, redirect and fake policy success refuse; credential-free policy-limits GET works, worker-supplied authentication on GET refuses. | C0, B1, G1, M1, B4, RG, Q |
-| A03 | Current kernel gateway and managed caller execution work; worker/stale or reused UID, wrong class/placement, root JSON spoof and legacy material route refuse. | C0, B1, B3, G1, M1, B4, Q |
+| A01 | Tagged lab records/build graph work; production/lab activation, authority, custody, journal, fence and floor cross-read/import or production-store adoption refuses. | C0, B1, B2, B3, G1, G1b, M1, B5, B4, RB, RG, RM, Q |
+| A02 | Measured API-key mapping injects exactly x-api-key and retains all eleven non-OAuth flags/required body fields; OAuth/unknown/duplicate/case-variant flag, two beta header fields, missing beta, wrong scheme, redirect and fake policy success refuse; credential-free policy-limits GET works, worker-supplied authentication on GET refuses. | C0, B1, G1, G1b, M1, B4, RG, Q |
+| A03 | Current kernel gateway and managed caller execution work; worker/stale or reused UID, wrong class/placement, root JSON spoof and legacy material route refuse. | C0, B1, B3, G1, G1b, M1, B4, Q |
 | A04 | Owner-only no-echo bounded capture with clean endpoint and unchanged human-only vendor roster works; endpoint-agent-reachable, vendor-agent-admin or changed roster, privileged agent reach, interim copy, spill, non-TTY/nonroot input, successor residue and second prompt for spent/committed/UNKNOWN operation refuse; prompt expiry and abort with no forwarded bytes conclusively close the spent ID without enrollment, beside timely committed input and read-only reconciliation controls. | C0, B3, M1, B5, B4, Q |
-| A05 | Fresh committed account/journal and exact-ID status reconcile; orphan/missing-as-empty, contradictory retry, UNKNOWN replay and lost narrowing reserve refuse. | C0, B1, B3, B4, Q |
-| A06 | Accepted exact C opening record plus native NTS/fence/prefix floor admits enrollment/activation/use; missing owner role/amendment/join decision, plain NTP, fixture witness, rewind or expired approval closes use; fresh post-bind access readback admits activation, while stale or changed readback after bind refuses activation without a marker/fence write or gateway start. | C0, B2, B3, M1, B5, B4, Q |
-| A07 | Issue/renew obeys 1..900 and earliest deadline; gateway ceiling mismatch, >900, stale/replayed/retargeted or UNKNOWN duplicate effect refuses. | C0, B1, B2, G1, B4, Q |
+| A05 | Fresh committed account/journal, C0e durable per-forward reservation/settlement and exact-ID status reconcile; orphan/missing-as-empty, contradictory retry, UNKNOWN replay and lost narrowing reserve refuse. | C0, B1, B3, G1b, B4, Q |
+| A06 | Accepted exact C opening record plus native NTS/fence/prefix floor admits enrollment/activation/use; missing owner role/amendment/join decision, plain NTP, fixture witness, rewind or expired approval closes use; fresh post-bind access readback admits activation, while stale or changed readback after bind refuses activation without a marker/fence write or gateway start. | C0, B2, B3, M1, B5, G1b, B4, Q |
+| A07 | Issue/renew obeys 1..900 and earliest deadline; gateway ceiling mismatch, >900, stale/replayed/retargeted or UNKNOWN duplicate effect refuses. | C0, B1, B2, G1, G1b, B4, Q |
 | A08 | Whole-needle leak match durably holds the account; local-only/ack-loss reopening, nonowner or wrong-ID lift and ended-lease resurrection fail. | C0, B1, B3, G1, B4, Q |
-| A09 | Root unbind/current control works; C0d native-age 1200 ms fence, 750 ms current watchdog and <=500 ms closure meet the 3000 ms end-to-end bound; 500 ms periodic singles never publish or advance the publication floor; slow in-time controls remain usable, and failed/changed/partial/stopped observations close use. | C0, B1, B3, G1, M1, B4, Q |
-| A10 | Approved closed API-key lab mapping/Unix launch works; inherited auth, production OAuth mapping substitution, other families/io_uring/network FDs and unapproved executor refuse. | C0, M1, B5, B4, RM, Q |
-| A11 | Approved complete lab aggregate/second build installs; production/lab tag confusion, unapproved digest, unsafe member/link/mode, substitution or missing native NSS closure refuses. | C0, M1, B5, B4, RB, RG, RM, Q |
-| A12 | Owner-run complete lifecycle/surface scan and full guest/endpoint/vendor access attestation work; owner-only endpoint/roster is the valid control beside endpoint-agent-reachable and vendor-agent-admin/changed-roster negatives; missing real needle/version, partial-needle oracle, inaccessible surface, privileged agent access or raw evidence export refuses. | C0, M1, B5, B4, Q |
+| A09 | Root unbind/current control works; C0d native-age 1200 ms fence, 750 ms current watchdog and <=500 ms closure meet the 3000 ms end-to-end bound; 500 ms periodic singles never publish or advance the publication floor; slow in-time controls remain usable, and failed/changed/partial/stopped observations close use. | C0, B1, B3, G1, G1b, M1, B4, Q |
+| A10 | Approved closed API-key lab mapping/Unix launch works; inherited auth, production OAuth mapping substitution, other families/io_uring/network FDs and unapproved executor, missing per-attempt reservation, retry past a bound or UNKNOWN group reopening refuse. | C0, M1, B5, G1b, B4, RM, Q |
+| A11 | Approved complete lab aggregate/second build installs; production/lab tag confusion, unapproved digest, unsafe member/link/mode, substitution or missing native NSS closure refuses. | C0, M1, B5, G1b, B4, RB, RG, RM, Q |
+| A12 | Owner-run complete lifecycle/surface scan and full guest/endpoint/vendor access attestation work; owner-only endpoint/roster is the valid control beside endpoint-agent-reachable and vendor-agent-admin/changed-roster negatives; missing real needle/version, partial-needle oracle, inaccessible surface, privileged agent access or raw evidence export refuses. | C0, M1, B5, G1b, B4, Q |
 
 ### 5.1 Unit-to-row plan, graph and LU
 
@@ -675,18 +675,19 @@ coverage or native qualification already exists.
 | B2 | swarma-credential-broker | Tagged qualified NTS consumer/local C witness, settlement and sticky watermark/hold continuity; root off-home per-start fence, off-VM head/expiry join and persisted manager-prefix floor; burned-install/no-restore path. No production witness/default change. Live construction/qualification additionally waits for C-OPEN-OWNERS. | C0 | A01,A06,A07 | 1.5 |
 | B3 | swarma-credential-broker | Root-only lab control protocol/CLI: prep/enroll/bind/activate/unbind/lift; authenticated broker peer before bounded no-echo stdin capture, no spill and native session retirement; per-operation UNKNOWN reconciliation. No signed production operator ceremony. | B1 | A01,A03,A04,A05,A06,A08,A09 | 1.0 |
 | G1 | swarma-chain-lab | Tagged API-key managed source/intake with the exact eleven-flag API-key-mode profile; reject OAuth/unknown flags and unsupported coupled fields; preserve errors/SSE. Durable hold/recovery, deadline renewal, C0d 300-ms current RPC, 750-ms current watchdog, 500-ms closure and 3000-ms native end-to-end ceiling. | C0 | A01,A02,A03,A07,A08,A09 | 1.5 |
-| M1 | swarma-user-manager | Tagged closed API-key lab mapping with only ANTHROPIC_API_KEY=ssh-placeholder; preserve production mapping/seccomp. Format-owned setup and genuine helper/one-start executor; approved bounded invocation and no-privileged-agent access readback; C0c observation server with unchanged 250-ms global lock cooldown and C0d single/pair scheduling qualification. | C0 | A01,A02,A03,A04,A06,A09,A10,A11,A12 | 1.5 |
-| B5 | swarma-credential-broker | Root bootstrap/aggregate copy verifier and atomic placement; exact disabled unit/config/ACL/native-readback plan; off-VM preparation/next-plan/stop seals; source-owned lab bundle manifest. Not a full-platform installer or a root source build. Verify owner-role/access/cap records and generate persisted nonsecret operation envelopes after each predecessor commits and before its own invocation. | B2,B3,G1,M1 | A01,A04,A06,A10,A11,A12 | 1.0 |
-| B4 | swarma-credential-broker | Tagged native qualification driver and protected lifecycle scanner; complete Q1–Q6 valid/negative/public-plant commands, actual worker peers, C0d periodic/pair/native-age/current/closure timing and stream observation, immutable metadata-only pack and bounded fixture cleanup. Native inert preflight precedes real-key use. In-custody needle attestation and root-only whole-needle matcher; owner executes every live Q command. | B1,B2,B3,G1,M1,B5 | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 1.5 |
+| G1b | swarma-chain-lab | C0e sole per-attempt gate on every billable upstream forward/retry: durable ordinal and worst-case output/USD reservation using the owner-approved published price pin, authoritative usage settlement, full-reservation sticky UNKNOWN, first-bound stop and protected ledger joins to C0b, C0c and B4. No process-start counting substitute. | C0,G1 | A01,A02,A03,A05,A06,A07,A09,A10,A11,A12 | 1.5 |
+| M1 | swarma-user-manager | Tagged closed API-key lab mapping with only ANTHROPIC_API_KEY=ssh-placeholder; preserve production mapping/seccomp. Format-owned setup and genuine helper/one-start executor; approved bound-presence/approval start admission and no-privileged-agent access readback; no attempt counting (G1b owns every forward); C0c observation server with unchanged 250-ms global lock cooldown and C0d single/pair scheduling qualification. | C0 | A01,A02,A03,A04,A06,A09,A10,A11,A12 | 1.5 |
+| B5 | swarma-credential-broker | Root bootstrap/aggregate copy verifier and atomic placement; exact disabled unit/config/ACL/native-readback plan; off-VM preparation/next-plan/stop seals; source-owned lab bundle manifest. Not a full-platform installer or a root source build. Verify owner-role/access/cap records and generate persisted nonsecret operation envelopes after each predecessor commits and before its own invocation. | B2,B3,G1,G1b,M1 | A01,A04,A06,A10,A11,A12 | 1.0 |
+| B4 | swarma-credential-broker | Tagged native qualification driver and protected lifecycle scanner; complete Q1–Q6 valid/negative/public-plant commands, actual worker peers, C0d periodic/pair/native-age/current/closure timing and stream observation, C0e protected gateway ledger/price/plan/start joins, immutable metadata-only pack and bounded fixture cleanup. Native inert preflight precedes real-key use. In-custody needle attestation and root-only whole-needle matcher; owner executes every live Q command. | B1,B2,B3,G1,G1b,M1,B5 | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 1.5 |
 | RB | swarma-credential-broker | Main-owned lab build/release profile and expected inventory, future signed broker tag, independent second build, checksums/provenance/fragment and release review. Production admission rejects lab tags; lab admission builds lab-only targets. | B4 | A01,A11 | 0.5 |
 | RG | swarma-chain-lab | Main-owned gateway lab archive/input policy and future signed tag; correct tagged binary/members/unit plus independent rebuild/review/checksums. Disjoint lab tag admission/provenance; cut only after B4 integrated verification. | B4 | A01,A02,A11 | 0.5 |
 | RM | swarma-user-manager | Future signed manager tag including native cgo NSS probe, launcher, isolated setup/executor and exact Claude dependency; native closure and independent rebuild/review/checksums. Disjoint lab tag admission/provenance; cut only after B4 integrated verification. | B4 | A01,A10,A11 | 0.5 |
 | Q | swarma-credential-broker | Owner-run Q1–Q6 on the dedicated lab VM with sanitized evidence, independent record review and second evidence read. No credential or privileged host access by an agent. | RB,RG,RM; owner/Infra gates | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 0.5 |
 
-Total estimated effort is **12 LU**. The precedence-only critical path is
-**6.5 LU**: C0 → B1 → B3 → B5 → B4 → RB → Q. The implementation graph is:
-C0 → {B1, B2, G1, M1}; B1 → B3; {B2, B3, G1, M1} → B5;
-{B1, B2, B3, G1, M1, B5} → B4 → {RB, RG, RM};
+Total estimated effort is **13.5 LU** (C0e adds 1.5 LU for G1b). The precedence-only critical path is
+**7 LU**: C0 → G1 → G1b → B5 → B4 → RG → Q. The implementation graph is:
+C0 → {B1, B2, G1, M1}; B1 → B3; {C0, G1} → G1b; {B2, B3, G1, G1b, M1} → B5;
+{B1, B2, B3, G1, G1b, M1, B5} → B4 → {RB, RG, RM};
 {RB, RG, RM} → Q. C-OPEN-OWNERS additionally gates B2 live construction/qualification;
 owner/Infra/release acceptance gates remain prerequisites, not invented duration.
 
@@ -697,7 +698,7 @@ At planned parallel width **3**, this feasible resource-constrained schedule is
 | --- | --- | --- | --- |
 | 0–0.5 | C0 | — | — |
 | 0.5–2 | B1 | B2 | G1 |
-| 2–3.5 | M1 | B3 until 3 | — |
+| 2–3.5 | M1 | B3 until 3 | G1b |
 | 3.5–4.5 | B5 | — | — |
 | 4.5–6 | B4 | — | — |
 | 6–6.5 | RB | RG | RM |
@@ -725,9 +726,9 @@ valid own-format controls; production acceptance is never widened to pass it.
 Existing manager-owned production records are the explicit exception in 3.1.
 
 The C0 freeze is [contracts/lab-v0/README.md](../contracts/lab-v0/README.md), with
-27 closed formats, including C0b's `swarma-broker-lab-bounded-invocation/1` (B5 → M1/B4).
+30 closed formats, including C0b's `swarma-broker-lab-bounded-invocation/1` (B5 → M1/G1b/B4).
 The [C0b addendum](../contracts/lab-v0/bounded-invocation.md) freezes owner-set bounds and exact approval/executor joins.
-[C0c](../contracts/lab-v0/observation.md) adds `swarma-broker-lab-observation-request/1` (B1 → M1) and `swarma-broker-lab-observation-response/1` (M1 → B1), with native-lock currentness, C0d publication-pair versus periodic-single consumption, distinct native sequence/observation counter, and final-publication joins. These are construction bytes, not production acceptance or any owner/native execution gate.
+[C0c](../contracts/lab-v0/observation.md) adds `swarma-broker-lab-observation-request/1` (B1 → M1) and `swarma-broker-lab-observation-response/1` (M1 → B1), with native-lock currentness, C0d publication-pair versus periodic-single consumption, distinct native sequence/observation counter, and final-publication joins. C0e adds the gateway-only attempt ledger and approved model-price pin below. These are construction bytes, not production acceptance or any owner/native execution gate.
 
 | Byte surface / lab format | Writer → readers |
 | --- | --- |
@@ -741,6 +742,7 @@ The [C0b addendum](../contracts/lab-v0/bounded-invocation.md) freezes owner-set 
 | `swarma-broker-lab-operation/1`, `swarma-broker-lab-root-control/1`: root verbs, request/result, exits and reconciliation | B3/B5 ↔ B1/B4; no payload/fingerprint in results |
 | `swarma-broker-lab-match/1`: root-only whole-needle request/verdict and issued-version attestation | B4/root collector ↔ B1; verdict only, durable hold on match |
 | `swarma-broker-lab-q-evidence/1`: all Q rows, real command exits, effect/completeness/encoding bounds | B4 → Q and independent evidence readers |
+| `swarma-broker-lab-model-price/1`, `swarma-broker-lab-attempt-group/1`, `swarma-broker-lab-attempt-ledger/1`: C0e published price and durable group-clock/per-attempt accounting/start/evidence joins | B5 → G1b/B4 for price; G1b → M1/B1/B4 for group; G1b → B1/B4/B5 for ledger; [closed addendum](../contracts/lab-v0/attempt-accounting.md) |
 | `swarma-lab-release-set/1`: all product/tag/asset/digest/mode/provenance and second-build comparisons | RB/RG/RM/B5 → root verifier/B1/G1/M1/B4 |
 
 Root mutating requests carry `operation_id` (fresh 128-bit identifier), method,
@@ -813,7 +815,7 @@ checksums. Lab labels do not sort as pre-releases of an existing stable tag.
 | --- | --- |
 | Broker / RB | Explicit `broker_lab` release target: `swarma-credential-broker-lab_linux_<ARCH>` and `swarma-lab-qualify_linux_<ARCH>`, disabled lab units, canonical schemas/fixtures and bounded root install/control runbook. Default release scripts do not magically build tagged commands. Install commands under `/opt/swarma/lab/bin/`. |
 | Gateway / RG | Explicit `gateway_lab` target of model-proxy with the service module, packaged as a lab archive containing `credential-gateway/bin/credential-gateway-lab`, lab unit template and nonsecret config schema. Extend main-owned input policy, not a downloaded/tag-owned script. |
-| Manager / RM | Explicit `manager_lab` manager and launcher, plus the **native cgo NSS probe** for the selected Linux architecture, plus the isolated `manager_lab` setup command and pinned bounded Claude executor. No second allocator or altered production helper authorization. Include source-approved deployment/skeleton/NSS closure and the Claude artifact pin. |
+| Manager / RM | Explicit `manager_lab` manager and launcher, plus the **native cgo NSS probe** for the selected Linux architecture, plus the isolated `manager_lab` setup command and pinned bounded Claude executor. Start admission only; G1b counts Messages attempts. No second allocator or altered production helper authorization. Include source-approved deployment/skeleton/NSS closure and the Claude artifact pin. |
 
 Build with the templates' pinned **Go 1.26.10** and the native cgo toolchain/
 libc/NSS closure for the probe, not a pure-Go substitute. The gateway's source
@@ -822,6 +824,17 @@ sets: `G:.github/release/gateway-inputs.json:1`,
 `G:.scripts/release-build.sh:17`, `B:docs/releasing.md:87` and
 `M:docs/releasing.md:240`. The lab aggregate deliberately supports these reviewed
 member layouts instead of pretending to be a full installer-v0 set.
+
+C0e requires the RG archive to include `contracts/lab-v0/model-price.json`, mode
+0644, exactly once as an approved member of `swarma-lab-release-set/1`. The owner
+approves its full digest, published source/ceiling evidence, exact model/tier/scope
+and C0b values in the same section 6 release/approval chain; no default implies
+approval. The [C0e accounting contract](../contracts/lab-v0/attempt-accounting.md)
+defines pre-forward durable ordinals/reservations, authoritative input/output/cache
+settlement, full-reservation sticky UNKNOWN and first-bound stop. G1b alone counts
+Messages forwards (including retries); M1 admits the approved native start and
+serves C0c, never infers attempts from CLI starts. B4 joins the protected ledger to
+P/A/R/L and the admitted C0c receipt/debit; no copied ledger is authoritative.
 
 Each product has its own `SHA256SUMS`, provenance and `release-set.json` fragment;
 include **all** product digests in `swarma-lab-release-set/1`, including hashes of
@@ -854,7 +867,7 @@ readback, fresh `verify-access` and authenticated prompt.
 
 ## 7. Proposed exact root runbook
 
-**Execution preconditions:** C0/B1/B2/B3/G1/M1/B4/B5 and RB/RG/RM accepted;
+**Execution preconditions:** C0/B1/B2/B3/G1/G1b/M1/B4/B5 and RB/RG/RM accepted;
 C-OPEN-OWNERS records the repository/time-contract/user-manager approvals of
 4.2 and joined start/high-water rules for this exact VM/account/revision/expiry;
 all A rows pass native inert-key preflight; Infra T2 phase A and the complete
@@ -1528,7 +1541,7 @@ are now source-landed where section 2/6 says so, not installed-qualified.
 | G09 | Managed gateway wiring, authority/listener/matcher/hold/final-use and recovery integration. | Partly source-closed: step-2 parent wiring is landed. Still required: true API-key kind/headers, durable hold bridge, UNKNOWN/recovery, final-use and total teardown qualification. | G1, B1, B4 |
 | G10 | Gateway members/config/schema/modes/socket routing, start/readback and native hardening. | Still required: lab member placement/config/unit hardening, per-worker socket ACL and effective native readback; no guessed production executable symlink. | B5, G1, M1 |
 | G11 | Pinned approved Claude executor, bounded invocation, endpoint mapping and placeholder-only environment. | Partly source-closed: Claude mapping and seccomp are landed. Still required: approved native executor/artifact pin, bounded invocation, actual socket/FD and environment qualification. | M1, B4, RM |
-| G12 | Q1 native inference driver with valid/invalid binding controls and metadata-only effects. | Still required: real bounded inference and exact caller/placeholder negatives with metadata-only effect readback. | B4, G1 |
+| G12 | Q1 native inference driver with valid/invalid binding controls and metadata-only effects. | Still required: real gateway-accounted bounded inference and exact caller/placeholder negatives with metadata-only effect readback. | B4, G1 |
 | G13 | Q2 in-custody scanner, complete surface/encoding inventory, safe plants and exact exits. | Still required: holder-custody matcher, lifecycle/surface inventory and complete scans; public plants prove the instrument without leaking the key. | B4 |
 | G14 | Q3 genuine worker peer refusal, gateway valid control and no material/effect readback. | Still required: genuine worker-kernel-peer service/legacy refusal and valid gateway control, not chmod-denied connect. | B4, B1 |
 | G15 | Q4 authenticated removal/generation transition, timing budget and independent full closure observation. | Still required: root unbind, managed generation retirement, C0d 3000 ms native end-to-end timing and independent stream/listener/connection observation. | B3, M1, G1, B4 |

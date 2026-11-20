@@ -1,9 +1,9 @@
-# Lab contract C0 with C0b/C0c addenda, revision 9
+# Lab contract C0 with C0b/C0c/C0d/C0e addenda, revision 10
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
 This is the closed byte inventory of [lab profile §5.2](../../docs/lab-profile-v0.md#52-c0s-closed-byte-inventory-and-consumer-joins).
-The 27 entries in `surfaces.json` (24 base plus C0b and two C0c frames) are authoritative together with this document;
+The 30 entries in `surfaces.json` (24 base, C0b, two C0c frames and three C0e records) are authoritative together with this document;
 `fixtures.json` pairs every own-format valid record with an unknown-field
 negative. Nested negatives carry a complete mutated record, path (array indices
 are integers), structure, field and mutation; each is paired with that surface's
@@ -379,3 +379,24 @@ one versus zero/multiple frames, and lock/completeness provenance separately.
 Run the existing Go contract/assembly and Python probe commands in the
 fixture/reproduction section; C0c
 reference checks are test-only, not an observation server or client.
+
+## C0e gateway accounting consumption
+
+[attempt-accounting.md](attempt-accounting.md) refines the C0b executor boundary:
+G1b is the only billable-forward gate; M1 checks start admission and serves C0c,
+not invocation counts. `model-price.json` pins the published standard/global
+price row and model limits as a candidate RG release member, never a budget
+approval. The three closed C0e formats and GatewayPrices/GatewayUsage/GatewayAttempt
+nested types inherit EVERY applicable operator in the normative catalogue:
+member/literal case/insertion/wrapping/deletion/substitution, separator variants,
+null/all wrong JSON types, both numeric bounds/canonical zero/sign/fraction/
+exponent forms, exact closure/nesting/duplicates and paired-role joins.
+
+New semantic rule operators independently break release/price/model joins, native
+start/admission proofs, protected CAS/fsync/head/prefix continuity, ordinal/retry
+serialization, price ceilings and all five exact integer rate terms, complete
+cache partition/cumulative usage, uncertain full settlement, sticky UNKNOWN and
+first-bound count/output/USD/wall stops. Each refusal has an unchanged valid
+control. No price source download, fixture or reference transition is native
+gateway enforcement or production acceptance. See the coverage map for named
+rule witnesses and source-overlay mutations.
