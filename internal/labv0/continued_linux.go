@@ -179,6 +179,10 @@ func (use *continuedUse) publicationFor(ctx context.Context, purpose observation
 		return ErrUnknown
 	}
 	use.mu.Lock()
+	if use.epoch != publicationEpoch {
+		use.mu.Unlock()
+		return ErrUnknown
+	}
 	use.record = updated
 	use.open = kind != "stop" && kind != "invalidation"
 	use.epoch++
@@ -240,6 +244,9 @@ func (use *continuedUse) guard(epoch uint64) {
 }
 
 func (use *continuedUse) commit(ctx context.Context, envelope, updated map[string]any, deadlines ...int64) error {
+	if use.account.unknown {
+		return ErrUnknown
+	}
 	now, err := bootNanos()
 	if err != nil || ctx.Err() != nil || !validObservationRecovery([]any{updated}) {
 		return ErrUnknown

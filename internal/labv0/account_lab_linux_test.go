@@ -21,15 +21,16 @@ import (
 )
 
 type labFixture struct {
-	a         *Account
-	records   *store.Account
-	disk      *store.Store
-	root      string
-	now       time.Time
-	facts     projectionFacts
-	broker    *service.Broker
-	authority *fixtureAuthority
-	fault     *string
+	a          *Account
+	records    *store.Account
+	disk       *store.Store
+	root       string
+	now        time.Time
+	facts      projectionFacts
+	broker     *service.Broker
+	authority  *fixtureAuthority
+	fault      *string
+	durability func(string)
 }
 
 func fixtureRecord(test *testing.T, format string) map[string]any {
@@ -70,6 +71,9 @@ func newLabFixture(test *testing.T, bootstrap bool) *labFixture {
 	journal := fixtureRecord(test, recoveryFormat)["external"].(map[string]any)
 	context := journal["context"].(map[string]any)
 	disk, err := store.OpenLab(fixture.root, context["installation_id"].(string), uint32(os.Geteuid()), true, func(stage string) error {
+		if fixture.durability != nil {
+			fixture.durability(stage)
+		}
 		if stage == *fixture.fault {
 			*fixture.fault = ""
 			return errors.New("injected durability uncertainty")

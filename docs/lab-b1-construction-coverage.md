@@ -11,6 +11,19 @@ receipt, second lease engine, accepting factory or B1 attempt counter exists.
 
 ## Acceptance allocation
 
+PR #83 B1a fix round 1 retains the whole-B1 non-acceptance boundary above.
+The two reproduced bypasses are fixed before adding the missing-gate witnesses:
+
+| Finding | Fix and paired regression | Source-overlay mutant | Test exit |
+| --- | --- | --- | --- |
+| r F1 sticky fence overwrite | Compare the pair epoch again under the reopening lock; `TestReviewFenceDuringPublishIsSticky` includes an unfenced publication and fences during CAS/publication | `publication-fence-overwrite`; `TestReviewFenceDuringPublishIsSticky/during-publish` | 1, named intended failure |
+| s F1 observation clears engine UNKNOWN | Refuse observation-only CAS on an already UNKNOWN account; `TestReviewProbeObservationCommitClearsEngineUnknown` and `TestReviewProbePublicationCommitClearsEngineUnknown` use an actual rename-uncertain lease write after a valid single/projection | `observation-clears-engine-unknown`, `publication-clears-engine-unknown`; respectively the two named probes | 1 each, named intended failures |
+
+The unmutated three-test regression command exits 0. These controls establish
+the tagged adapter interaction, not installed transport publication or native
+qualification. The publication callback cannot retract already emitted bytes;
+the new guard prevents that pair from reopening continued use.
+
 Every B1 row from profile sections 5/5.1 remains **incomplete**. The named
 controls are paired valid/negative library and fake-server construction tests,
 not a substitute for the missing installed/composed path. No allocated B1 row
