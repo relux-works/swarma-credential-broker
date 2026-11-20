@@ -182,10 +182,13 @@ immutable units. It grants no production currentness or durable recovery authori
 The tagged [B2 lab time/continuity slice](docs/lab-b2-time.md) documents its
 isolated Go test/build and Python 3 overlay commands, outputs and native gates.
 In its absolute task-owned scratch checkout run
-`go test -count=1 -tags broker_lab ./internal/labtimev0 ./timeconf ./internal/labcontractv0`
+`go test -count=1 -tags broker_lab ./internal/labtimev0 ./timeconf ./internal/labcontractv0 ./internal/assemblyv0`
 and `python3 tests/lab-b2/mutants.py --out "$B2_SCRATCH/mutants"`;
 retain logs and receipts below that scratch `.temp/`. Full untagged tests/build
-remain mandatory. This library does not record C-OPEN-OWNERS or qualify a live VM.
+remain mandatory. Lab composition is in `internal/labtimev0`; the tagged
+`timeconf` seam imports no lab package. The graph check includes the shipped
+tree and negative forwarding plants. This library does not record C-OPEN-OWNERS
+or qualify a live VM.
 
 The lab-only [C0 contract and fixtures](contracts/lab-v0/README.md) freeze bytes,
 not runtime admission. In an isolated checkout run

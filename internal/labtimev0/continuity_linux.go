@@ -4,6 +4,7 @@ package labtimev0
 
 import (
 	"bytes"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -74,12 +75,25 @@ func CheckStart(decisionRaw, approvalRaw, fenceRaw []byte, previous *Fence, pins
 	return nil
 }
 
+var ErrRegression = errors.New("lab_verified_manager_regression")
+
 func ManagerExtension(journal []byte, prior Head) (Head, error) {
 	if !patterns["digest"].MatchString(prior.SHA256) || prior.Sequence > 9007199254740991 {
 		return Head{}, ErrClosed
 	}
+	if len(journal) == 0 {
+		return Head{}, ErrClosed
+	}
+	complete, err := genjournal.Verify(bytes.NewReader(journal), genjournal.Floor{Hash: genjournal.ZeroHash})
+	if err != nil || complete.Capacity() != nil {
+		return Head{}, ErrClosed
+	}
 	view, err := genjournal.Verify(bytes.NewReader(journal), genjournal.Floor{Seq: int64(prior.Sequence), Hash: strings.TrimPrefix(prior.SHA256, "sha256:")})
-	if err != nil || view.Capacity() != nil {
+	if err != nil {
+		var refusal *genjournal.Refusal
+		if errors.As(err, &refusal) && (refusal.Code == "journal_rollback" || refusal.Code == "journal_fork") {
+			return Head{}, ErrRegression
+		}
 		return Head{}, ErrClosed
 	}
 	return Head{uint64(view.Tail.Seq), "sha256:" + view.Tail.Hash}, nil

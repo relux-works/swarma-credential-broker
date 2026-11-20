@@ -19,6 +19,14 @@ type Start struct {
 	raw          []byte
 	pins         StartPins
 	owner, group uint32
+	deadline     time.Time
+}
+
+func (start *Start) Deadline() time.Time {
+	if start == nil {
+		return time.Time{}
+	}
+	return start.deadline
 }
 
 func (start *Start) Context() Context {
@@ -137,7 +145,18 @@ func loadStart(ctx context.Context, path, home string, decisionRaw, approvalRaw 
 		return nil, ErrClosed
 	}
 	pins.RefusalFloors = append([]time.Time(nil), pins.RefusalFloors...)
-	return &Start{path, append([]byte(nil), raw...), pins, owner, group}, nil
+	var decision Decision
+	var approval OffVM
+	if Decode(decisionRaw, &decision) != nil || Decode(approvalRaw, &approval) != nil {
+		return nil, ErrClosed
+	}
+	deadline := instant(pins.Context.Expires)
+	for _, bound := range []time.Time{instant(decision.Approval.Expires), instant(approval.Approval.Expires)} {
+		if bound.Before(deadline) {
+			deadline = bound
+		}
+	}
+	return &Start{path, append([]byte(nil), raw...), pins, owner, group, deadline}, nil
 }
 
 func ConsumeStartFence(ctx context.Context, path, home string, decisionRaw, approvalRaw []byte, previous *Fence, pins StartPins) error {

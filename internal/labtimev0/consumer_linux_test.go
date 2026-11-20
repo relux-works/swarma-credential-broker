@@ -1,6 +1,6 @@
 //go:build linux && broker_lab
 
-package timeconf
+package labtimev0
 
 import (
 	"bytes"
@@ -12,43 +12,35 @@ import (
 	"testing"
 	"time"
 
-	"github.com/relux-works/swarma-credential-broker/internal/labtimev0"
+	"github.com/relux-works/swarma-credential-broker/timeconf"
 	"github.com/relux-works/swarma-user-manager/tools/genjournal"
 )
 
-func labFixture(test *testing.T) (*LabConsumer, *settlementFixture, []byte, labtimev0.Floor) {
+func labFixture(test *testing.T) (*LabConsumer, *settlementFixture, []byte, Floor) {
 	test.Helper()
 	fixture := newSettlementFixture(test)
-	fixture.policy.Source = NTSAuthData
-	fixture.consumer.policy = fixture.policy
-	fixture.enrollment.Authority.ID = LabAuthority
-	fixture.enrollment.Policy.EffectiveDigest, _ = EffectivePolicyDigest(fixture.policy, fixture.enrollment.Policy.SharedDigest, "none")
-	fixture.consumer.enrollment = fixture.enrollment
-	encoded, _ := canonical(fixture.enrollment)
-	fixture.consumer.store.binding = sum(encoded)
-	fixture.seed(test, 140, 140, fixtureBoot)
-	fixture.collection.evidence.Authentication = Authentication{Addresses: map[string]bool{"192.0.2.1": true}}
+	fixture.collection.Evidence.Authentication = Authentication{Addresses: map[string]bool{"192.0.2.1": true}}
 	witnessRoot := protectedTemp(test)
 	witness := &labWitness{root: witnessRoot}
 	session, err := witness.session()
 	if err != nil {
 		test.Fatal(err)
 	}
-	if err = session.write(context.Background(), "head", witnessBytes(fixture.witness.head), "fixture-witness"); err != nil {
+	if err = session.LabWrite(context.Background(), "head", witnessBytes(fixture.head), "fixture-witness"); err != nil {
 		test.Fatal(err)
 	}
-	session.close()
-	fixture.consumer.store.witness = witness
-	scope := labtimev0.Context{Account: "lab/anthropic", Installation: "synthetic-installation", Machine: fixtureBoot, VM: sum([]byte("synthetic VM evidence")), Revision: "synthetic-revision", Expires: "2030-01-01T00:00:00Z"}
-	lab := &LabConsumer{consumer: fixture.consumer, context: scope, inventory: sum([]byte("synthetic NTS inventory")), root: fixture.root}
-	checkpoint := labtimev0.Checkpoint{Format: labtimev0.CheckpointFormat, Context: scope, Boot: fixtureBoot, Scope: scope.Installation, Incident: "none", Inventory: lab.inventory, Settled: true, Holds: []string{}, Lower: time.Unix(139, 0).UTC().Format(time.RFC3339Nano), Upper: time.Unix(140, 0).UTC().Format(time.RFC3339Nano), Watermark: time.Unix(140, 0).UTC().Format(time.RFC3339Nano), Previous: labtimev0.Head{SHA256: fixture.witness.head.RecordDigest}, Monotonic: 140 * uint64(time.Second)}
+	session.LabClose()
+	configureLab(fixture.consumer, witness, labRuntime{fixture, fixture})
+	scope := Context{Account: "lab/anthropic", Installation: "synthetic-installation", Machine: fixtureBoot, VM: sum([]byte("synthetic VM evidence")), Revision: "synthetic-revision", Expires: "2030-01-01T00:00:00Z"}
+	lab := &LabConsumer{consumer: fixture.consumer, context: scope, inventory: sum([]byte("synthetic NTS inventory")), root: fixture.root, runtime: labRuntime{fixture, fixture}}
+	checkpoint := Checkpoint{Format: CheckpointFormat, Context: scope, Boot: fixtureBoot, Scope: scope.Installation, Incident: "none", Inventory: lab.inventory, Settled: true, Holds: []string{}, Lower: time.Unix(139, 0).UTC().Format(time.RFC3339Nano), Upper: time.Unix(140, 0).UTC().Format(time.RFC3339Nano), Watermark: time.Unix(140, 0).UTC().Format(time.RFC3339Nano), Previous: Head{SHA256: fixture.head.RecordDigest}, Monotonic: 140 * uint64(time.Second)}
 	checkpointRaw := mustLabBytes(checkpoint)
-	manager := labtimev0.Head{SHA256: "sha256:" + genjournal.ZeroHash}
-	floor := labtimev0.Floor{Format: labtimev0.FloorFormat, Context: scope, Holds: []string{}, Manager: manager, Previous: manager, Persisted: true, Checkpoint: sum(checkpointRaw), Watermark: checkpoint.Watermark}
+	manager := Head{SHA256: "sha256:" + genjournal.ZeroHash}
+	floor := Floor{Format: FloorFormat, Context: scope, Holds: []string{}, Manager: manager, Previous: manager, Persisted: true, Checkpoint: sum(checkpointRaw), Watermark: checkpoint.Watermark}
 	if err := os.WriteFile(filepath.Join(lab.root, "lab-floor"), mustLabBytes(floor), 0600); err != nil {
 		test.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(lab.root, "lab-floor-head"), witnessBytes(WitnessHead{0, sum(mustLabBytes(floor))}), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(lab.root, "lab-floor-head"), witnessBytes(WitnessHead{Generation: 0, RecordDigest: sum(mustLabBytes(floor))}), 0600); err != nil {
 		test.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(lab.root, objectName("lab-checkpoint-", floor.Checkpoint)), checkpointRaw, 0600); err != nil {
@@ -65,11 +57,11 @@ func labFixture(test *testing.T) (*LabConsumer, *settlementFixture, []byte, labt
 	return lab, fixture, append(first, second...), floor
 }
 
-func readLabFloor(test *testing.T, lab *LabConsumer) labtimev0.Floor {
+func readLabFloor(test *testing.T, lab *LabConsumer) Floor {
 	test.Helper()
 	raw, err := os.ReadFile(filepath.Join(lab.root, "lab-floor"))
-	var floor labtimev0.Floor
-	if err != nil || labtimev0.Decode(raw, &floor) != nil {
+	var floor Floor
+	if err != nil || Decode(raw, &floor) != nil {
 		test.Fatal("floor read", err)
 	}
 	return floor
@@ -77,18 +69,18 @@ func readLabFloor(test *testing.T, lab *LabConsumer) labtimev0.Floor {
 
 func labAdvance(fixture *settlementFixture, seconds int64) {
 	fixture.setTime(seconds, fixtureBoot)
-	fixture.collection.evidence.Authentication = Authentication{Addresses: map[string]bool{"192.0.2.1": true}}
+	fixture.collection.Evidence.Authentication = Authentication{Addresses: map[string]bool{"192.0.2.1": true}}
 }
 
 // Claim: the lab witness acknowledges durable exact CAS across reopen and refuses wrong prior, skipped generation, corrupt head and symlink substitution.
 func TestLabWitnessDurableCAS(test *testing.T) {
 	lab, _, _, _ := labFixture(test)
-	witness := lab.consumer.store.witness.(*labWitness)
+	witness := lab.consumer.LabStore().LabWitness().(*labWitness)
 	old, err := witness.Read(context.Background())
 	if err != nil {
 		test.Fatal(err)
 	}
-	next := WitnessHead{old.Generation + 1, sum([]byte("next settled object"))}
+	next := WitnessHead{Generation: old.Generation + 1, RecordDigest: sum([]byte("next settled object"))}
 	if witness.CompareAndSwap(context.Background(), old, next) != nil {
 		test.Fatal("valid CAS")
 	}
@@ -97,12 +89,12 @@ func TestLabWitnessDurableCAS(test *testing.T) {
 	if err != nil || got != next {
 		test.Fatal("durable CAS reopen", err)
 	}
-	for _, candidate := range []WitnessHead{{next.Generation + 2, next.RecordDigest}, {next.Generation, next.RecordDigest}} {
+	for _, candidate := range []WitnessHead{{Generation: next.Generation + 2, RecordDigest: next.RecordDigest}, {Generation: next.Generation, RecordDigest: next.RecordDigest}} {
 		if witness.CompareAndSwap(context.Background(), next, candidate) == nil {
 			test.Fatal("invalid generation CAS")
 		}
 	}
-	if witness.CompareAndSwap(context.Background(), old, WitnessHead{old.Generation + 1, sum([]byte("different settled object"))}) == nil {
+	if witness.CompareAndSwap(context.Background(), old, WitnessHead{Generation: old.Generation + 1, RecordDigest: sum([]byte("different settled object"))}) == nil {
 		test.Fatal("stale CAS")
 	}
 	if got, err = reopened.Read(context.Background()); err != nil || got != next {
@@ -176,13 +168,13 @@ func TestLabFloorDurabilityFaults(test *testing.T) {
 			floor = readLabFloor(test, lab)
 			labAdvance(fixture, 230)
 			triggered := false
-			lab.consumer.store.syncFault = func(stage string) error {
+			lab.consumer.LabStore().LabSyncFault(func(stage string) error {
 				if stage == point {
 					triggered = true
 					return ErrUnavailable
 				}
 				return nil
-			}
+			})
 			raw, err := lab.consumeWithManager(context.Background(), fixture.request(strings.Repeat("4", 32)), journal, floor.Manager)
 			if !triggered || err == nil || len(raw) != 0 {
 				test.Fatal("durability fault not enforced", triggered, err)
@@ -203,12 +195,12 @@ func TestLabConsumerStickyRestart(test *testing.T) {
 	if raw, err := lab.consumeWithManager(context.Background(), fixture.request(strings.Repeat("6", 32)), journal, floor.Manager); err == nil || len(raw) != 0 {
 		test.Fatal("clock step used")
 	}
-	session, err := lab.consumer.store.open()
+	session, err := lab.consumer.LabStore().LabOpen()
 	if err != nil {
 		test.Fatal(err)
 	}
-	record, _, err := session.load(context.Background())
-	session.close()
+	record, _, err := session.LabLoad(context.Background())
+	session.LabClose()
 	if err != nil || !record.Held {
 		test.Fatal("hold not durable", err)
 	}
@@ -216,13 +208,11 @@ func TestLabConsumerStickyRestart(test *testing.T) {
 	if len(held.Holds) == 0 {
 		test.Fatal("C0 floor omitted sticky incident")
 	}
-	reopened, err := NewConsumer(fixture.enrollment, fixture.policy, lab.root)
+	reopened, err := timeconf.NewConsumer(fixture.enrollment, fixture.policy, lab.root)
 	if err != nil {
 		test.Fatal(err)
 	}
-	reopened.store.witness = &labWitness{lab.consumer.store.witness.(*labWitness).root}
-	reopened.timePath = lab.consumer.timePath
-	reopened.clock, reopened.collector = fixture, lab.consumer.collector
+	configureLab(reopened, &labWitness{lab.consumer.LabStore().LabWitness().(*labWitness).root}, labRuntime{fixture, fixture})
 	lab.consumer = reopened
 	labAdvance(fixture, 250)
 	if raw, err := lab.consumeWithManager(context.Background(), fixture.request(strings.Repeat("7", 32)), journal, floor.Manager); err == nil || len(raw) != 0 {
@@ -238,12 +228,13 @@ func TestLabBurnPersists(test *testing.T) {
 	}
 	floor = readLabFloor(test, lab)
 	labAdvance(fixture, 230)
-	if raw, err := lab.consumeWithManager(context.Background(), fixture.request(strings.Repeat("9", 32)), nil, floor.Manager); err == nil || len(raw) != 0 {
+	first, _, _ := managerJournal(test)
+	if raw, err := lab.consumeWithManager(context.Background(), fixture.request(strings.Repeat("9", 32)), first, floor.Manager); err == nil || len(raw) != 0 {
 		test.Fatal("regressed history")
 	}
 	raw, err := os.ReadFile(filepath.Join(lab.root, "lab-burned"))
-	var burned labtimev0.Checkpoint
-	if err != nil || labtimev0.Decode(raw, &burned) != nil || burned.Incident != "burned" || burned.Settled {
+	var burned Checkpoint
+	if err != nil || Decode(raw, &burned) != nil || burned.Incident != "burned" || burned.Settled {
 		test.Fatal("burn not durable", err)
 	}
 	lab.failed = false
@@ -252,11 +243,11 @@ func TestLabBurnPersists(test *testing.T) {
 	}
 }
 
-// Claim: a matching persisted start admits; mismatched off-VM heads or missing local metadata permanently burn, never infer a replacement baseline.
+// Claim: a matching persisted start admits; verified mismatched off-VM heads permanently burn, never infer a replacement baseline.
 func TestLabStartContinuityBurn(test *testing.T) {
-	for _, fault := range []string{"time", "floor", "manager", "missing-floor", "missing-checkpoint"} {
+	for _, fault := range []string{"time", "floor", "manager"} {
 		test.Run(fault, func(test *testing.T) {
-			lab, _, _, floor := labFixture(test)
+			lab, _, _, _ := labFixture(test)
 			heads, err := lab.Heads(context.Background())
 			if err != nil || lab.checkStartHeads(context.Background(), heads) != nil {
 				test.Fatal("valid persisted start", err)
@@ -269,14 +260,6 @@ func TestLabStartContinuityBurn(test *testing.T) {
 				candidate.Floor.Sequence++
 			case "manager":
 				candidate.Manager.Sequence++
-			case "missing-floor":
-				if err := os.Remove(filepath.Join(lab.root, "lab-floor")); err != nil {
-					test.Fatal(err)
-				}
-			case "missing-checkpoint":
-				if err := os.Remove(filepath.Join(lab.root, objectName("lab-checkpoint-", floor.Checkpoint))); err != nil {
-					test.Fatal(err)
-				}
 			}
 			if lab.checkStartHeads(context.Background(), candidate) == nil {
 				test.Fatal("mismatch admitted")
@@ -295,11 +278,11 @@ func TestLabStartContinuityBurn(test *testing.T) {
 // Claim: default construction stays ClosedWitness; the lab factory and public consume path refuse a missing consumed-start capability before collection.
 func TestLabProductionConstructionClosed(test *testing.T) {
 	lab, fixture, _, _ := labFixture(test)
-	ordinary, err := NewConsumer(fixture.enrollment, fixture.policy, lab.root)
+	ordinary, err := timeconf.NewConsumer(fixture.enrollment, fixture.policy, lab.root)
 	if err != nil {
 		test.Fatal(err)
 	}
-	if _, ok := ordinary.store.witness.(ClosedWitness); !ok {
+	if _, ok := ordinary.LabStore().LabWitness().(ClosedWitness); !ok {
 		test.Fatal("production witness changed")
 	}
 	raw, err := ordinary.ConsumeBeforePin(context.Background(), fixture.request(strings.Repeat("b", 32)))
@@ -307,10 +290,10 @@ func TestLabProductionConstructionClosed(test *testing.T) {
 	if len(raw) != 0 || !errors.As(err, &inactive) || inactive.Reason != "path_unqualified" {
 		test.Fatal("production opened", err)
 	}
-	if _, err := NewLabConsumer(context.Background(), nil, fixture.enrollment, fixture.policy, lab.root, lab.consumer.store.witness.(*labWitness).root, lab.inventory); err == nil {
+	if _, err := NewLabConsumer(context.Background(), nil, fixture.enrollment, fixture.policy, lab.root, lab.consumer.LabStore().LabWitness().(*labWitness).root, lab.inventory); err == nil {
 		test.Fatal("nil start selected lab")
 	}
-	if _, err := lab.ConsumeWithManager(context.Background(), fixture.request(strings.Repeat("c", 32)), nil, labtimev0.Head{}); err == nil {
+	if _, err := lab.ConsumeWithManager(context.Background(), fixture.request(strings.Repeat("c", 32)), nil, Head{}); err == nil {
 		test.Fatal("fixture selected native lab authority")
 	}
 }
@@ -322,7 +305,7 @@ func TestLabProductionCrossReadTime(test *testing.T) {
 	if err != nil {
 		test.Fatal(err)
 	}
-	if _, err := DecodeReceipt(raw); err != nil {
+	if _, err := timeconf.DecodeReceipt(raw); err != nil {
 		test.Fatal("production codec control", err)
 	}
 	floor = readLabFloor(test, lab)
@@ -330,16 +313,16 @@ func TestLabProductionCrossReadTime(test *testing.T) {
 	if err != nil {
 		test.Fatal(err)
 	}
-	if labtimev0.Decode(checkpointRaw, &labtimev0.Checkpoint{}) != nil {
+	if Decode(checkpointRaw, &Checkpoint{}) != nil {
 		test.Fatal("lab codec control")
 	}
-	if _, err := DecodeReceipt(checkpointRaw); err == nil {
+	if _, err := timeconf.DecodeReceipt(checkpointRaw); err == nil {
 		test.Fatal("production accepted lab checkpoint")
 	}
-	if labtimev0.Decode(raw, &labtimev0.Checkpoint{}) == nil {
+	if Decode(raw, &Checkpoint{}) == nil {
 		test.Fatal("lab accepted production receipt")
 	}
-	for _, format := range []string{labtimev0.FenceFormat, labtimev0.FloorFormat, labtimev0.CheckpointFormat} {
+	for _, format := range []string{FenceFormat, FloorFormat, CheckpointFormat} {
 		if bytes.Contains(raw, []byte(format)) {
 			test.Fatal("production receipt format changed")
 		}
@@ -358,13 +341,13 @@ func TestLabConsumerAuthenticatedNTS(test *testing.T) {
 			labAdvance(fixture, 230)
 			switch fault {
 			case "plain-ntp":
-				fixture.collection.evidence.Sources.AllNTS = false
+				fixture.collection.Evidence.Sources.AllNTS = false
 			case "missing-auth":
-				fixture.collection.evidence.Authentication.Addresses = map[string]bool{}
+				fixture.collection.Evidence.Authentication.Addresses = map[string]bool{}
 			case "stale":
-				fixture.collection.evidence.Tracking.Reference = fixture.now.Add(-fixture.policy.MaxSyncAge)
+				fixture.collection.Evidence.Tracking.Reference = fixture.now.Add(-fixture.policy.MaxSyncAge)
 			case "unlisted":
-				fixture.collection.evidence.Tracking.Address = "192.0.2.2"
+				fixture.collection.Evidence.Tracking.Address = "192.0.2.2"
 			}
 			raw, err := lab.consumeWithManager(context.Background(), fixture.request(strings.Repeat("f", 32)), journal, floor.Manager)
 			if err == nil || len(raw) != 0 {

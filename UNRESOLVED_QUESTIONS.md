@@ -350,3 +350,14 @@ protection, real NTS/bootstrap inventory, adapter closure, fsync/crash behavior,
 boot/monotonic continuity and bounded collection under qualified load. C1
 metadata acceptance is not a privileged restore/reset route. The whole-VM live
 rollback residual remains, and no production witness/default is opened.
+
+Fix round 1 preserves the frozen C0 bytes. A later-start `previous *Fence`
+must be authenticated by B5 as the acknowledged orderly-stop evidence; C0 has
+no stop-record digest field in off-VM approval and B2 supplies no live stop
+writer. The canonical stop fixtures prove the predicate, not that provenance.
+C0/B5 owners must settle that binding before live construction. B1 must pass
+`Start.Deadline()` into issuance/renewal bounds; B2 now independently checks
+both approval expiries against every fresh settled upper/W. Missing/corrupt
+metadata and uncertain two-pointer publication refuse without inferring burn
+or a replacement baseline. The non-native reboot, load and home-alias/root
+qualification observations remain open; fixture tests do not close them.

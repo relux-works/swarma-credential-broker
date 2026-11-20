@@ -10,15 +10,29 @@ import (
 	"testing"
 )
 
-// Claim: the compiler-selected graph admits a lab command but detects default and tag-selected forwarding into the lab time boundary.
-func TestInactiveImportGraphBuildTagControlsLabTime(test *testing.T) {
-	previous := inactiveImportConsumers
-	test.Cleanup(func() { inactiveImportConsumers = previous })
+func init() {
 	inactiveImportConsumers = append(inactiveImportConsumers[:len(inactiveImportConsumers):len(inactiveImportConsumers)],
 		struct {
 			prefix  string
 			imports []string
 		}{prefix: "internal/labtimev0/"},
+	)
+}
+
+// Claim: the shipped tree has no default or tag-selected forwarding from production into the lab time boundary, in either build configuration.
+func TestInactiveImportGraphLabTimeRealTree(test *testing.T) {
+	for _, flags := range []string{"-tags=", "-tags=broker_lab"} {
+		if err := checkInactiveImportGraph("../..", flags); err != nil {
+			test.Fatal("shipped lab time boundary", flags, err)
+		}
+	}
+}
+
+// Claim: the compiler-selected graph admits a lab command but detects default and tag-selected forwarding into the lab time boundary.
+func TestInactiveImportGraphBuildTagControlsLabTime(test *testing.T) {
+	previous := inactiveImportConsumers
+	test.Cleanup(func() { inactiveImportConsumers = previous })
+	inactiveImportConsumers = append(inactiveImportConsumers[:len(inactiveImportConsumers):len(inactiveImportConsumers)],
 		struct {
 			prefix  string
 			imports []string

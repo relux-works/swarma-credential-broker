@@ -169,6 +169,60 @@ func TestLabStartJoins(test *testing.T) {
 	}
 }
 
+// Claim: advancing acknowledged-stop heads admit only the exact next generation, current approval/invocation, ordered clocks and pinned owner decision.
+func TestLabRestartChainRefusals(test *testing.T) {
+	for _, fault := range []string{"generation", "stop-heads", "stop-state", "approval-heads", "approval-generation", "invocation", "clock-before", "clock-after", "decision-digest"} {
+		test.Run(fault, func(test *testing.T) {
+			decision, approval, fence, pins := startFixture(test)
+			decisionRaw := encoded(test, decision)
+			if CheckDecision(decisionRaw, pins.DecisionDigest, pins.Context, pins.Now) != nil {
+				test.Fatal("decision pin control")
+			}
+			previous := fence
+			previous.Consumed, previous.State = true, "orderly-stop"
+			previous.Heads.Time.Sequence++
+			previous.Heads.Time.SHA256 = Digest([]byte("advanced settled head"))
+			previous.Heads.Floor.Sequence++
+			previous.Heads.Floor.SHA256 = Digest([]byte("advanced floor head"))
+			pins.Heads, approval.Heads, fence.Heads = previous.Heads, previous.Heads, previous.Heads
+			fence.Generation, fence.State, approval.Generation, pins.Generation = 2, "orderly-stop", 2, 2
+			approvalRaw := seal(test, &approval)
+			pins.ApprovalDigest, fence.ApprovalDigest = Digest(approvalRaw), Digest(approvalRaw)
+			if CheckStart(decisionRaw, approvalRaw, encoded(test, fence), &previous, pins) != nil {
+				test.Fatal("advancing restart control")
+			}
+			switch fault {
+			case "generation":
+				fence.Generation, pins.Generation, approval.Generation = 3, 3, 3
+			case "stop-heads":
+				previous.Heads.Time.Sequence++
+			case "stop-state":
+				previous.State = "fresh"
+			case "approval-generation":
+				approval.Generation = 1
+			case "approval-heads":
+				approval.Heads.Time.Sequence++
+			case "invocation":
+				approval.Invocation = Digest([]byte("changed invocation"))
+			case "clock-before":
+				approval.Now = instant(approval.Approval.At).Add(-time.Nanosecond).Format(time.RFC3339Nano)
+			case "clock-after":
+				approval.Now = pins.Now.Add(time.Nanosecond).Format(time.RFC3339Nano)
+			case "decision-digest":
+				if CheckDecision(decisionRaw, Digest([]byte("wrong expected decision")), pins.Context, pins.Now) == nil {
+					test.Fatal("decision digest pin bypass")
+				}
+				return
+			}
+			approvalRaw = seal(test, &approval)
+			pins.ApprovalDigest, fence.ApprovalDigest = Digest(approvalRaw), Digest(approvalRaw)
+			if CheckStart(decisionRaw, approvalRaw, encoded(test, fence), &previous, pins) == nil {
+				test.Fatal("restart chain bypass", fault)
+			}
+		})
+	}
+}
+
 // Claim: protected off-home fences consume once durably; replay, in-home, symlink and hardlink variants refuse beside the valid load.
 func TestLabRootFenceOneUse(test *testing.T) {
 	decision, approval, fence, pins := startFixture(test)

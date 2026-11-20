@@ -33,6 +33,16 @@ All new Go files require `linux && broker_lab`. Ordinary `NewConsumer`,
 unchanged. No public fixture clock, arbitrary witness or injected runner is
 accepted by the lab factory.
 
+Lab composition and its public `PrepareLabTime` / `NewLabConsumer` entry points
+live in `internal/labtimev0`, not in the production `timeconf` package.
+`timeconf/lab_engine_linux.go` exposes tagged engine/store/collector hooks only;
+it imports no lab package. The real-tree graph instrument checks both tagged
+and untagged configurations, in addition to its retained forwarding plants.
+There is no approved forwarding exception. Tests replace a private lab runtime
+factory, not the exported constructors, and use synthetic expected ownership
+for the root fence logic. The installed binding remains `SystemClock`, the
+concrete NTS collector and root ownership; none is qualified by that substitution.
+
 - `LabInventoryDigest` pins applied NTS-authdata/operator policy and complete
   protected explicit source-file bytes. Source expansion is conservatively
   refused: `confdir`/`sourcedir` cannot hide unenumerated inputs. The concrete
@@ -42,6 +52,8 @@ accepted by the lab factory.
   It checks exact owner consent/context and dedicated lab enrollment, requires
   two separate existing empty protected directories, and establishes a fresh
   local witness and settlement using authenticated NTS before returning heads.
+  Consent is checked before genesis writes and again against both settled
+  interval bounds before the first lab floor is published.
   It never adopts existing storage. Partial provisioning refuses subsequent
   provisioning; it is not an automatic reset path.
 - `ConsumeStartFence` requires effective root and a protected off-home regular
@@ -68,6 +80,11 @@ accepted by the lab factory.
 - `Deadline` provides only B2’s 1..900 and exclusive qualification/authority
   deadline predicate. It is not a second issue/renew engine. B1/G1 own actual
   lease bounds, idempotency, UNKNOWN reconciliation and gateway enforcement.
+  `Start.Deadline()` exposes the earliest owner-decision, off-VM approval and
+  qualification expiry for those callers. Every public use checks its fresh
+  settled upper/W against that exclusive deadline before returning a receipt.
+  An expired use returns no receipt or advanced lab floor and closes that
+  consumer; `Heads` refuses failed/burned consumers.
 
 The protected B5 caller must authenticate owner-terminal provenance and obtain
 expected digests/VM identity/invocation, off-VM clock and final heads from
@@ -89,10 +106,22 @@ before the owners authorize construction/use. No fixture authorizes them.
 The local witness uses locked exact-head CAS and fsync publication. Missing,
 corrupt, linked, skipped-generation or stale-CAS heads refuse. Existing
 settlement holds survive reopen; C0 incident metadata retains sticky holds and
-W. Manager regression also writes a durable burned checkpoint; reconstructed
+W. Only verified regression writes a durable burned checkpoint; reconstructed
 consumers refuse a burned marker even if matching history is later supplied.
-I/O uncertainty never permits a successful receipt. Physical crash persistence
-and root/VM rollback exclusion remain native obligations.
+First the entire nonempty manager journal must verify from genesis, including
+capacity. Only then can its owning verifier report a fork/rollback at the
+persisted prefix as burn evidence. Missing, partial, malformed, oversized or
+capacity-refused history never burns. A failed burn write returns explicit
+`lab_burn_persistence_unknown` alongside the ordinary refusal.
+
+Stricter reading of unknown state: lock contention, cancellation, unreadable,
+missing or undecodable metadata refuses this start without burning or spending
+its process marker. No absence is promoted to regression evidence. Once the
+transient fault is removed the exact matching start may be retried. Complete
+decoded state differing from independent off-VM pins does burn. An inconsistent
+two-pointer floor publication remains closed/unknown, not a burn inferred from
+an ordinary crash. No code automatically restores or resets that state.
+Physical crash persistence and root/VM rollback exclusion remain native obligations.
 
 `CheckRecovery` is a metadata predicate, not a restore command or a hold-release
 API. C1 requires distinct never-reused installation and time scope, empty new
@@ -125,9 +154,10 @@ that absolute `.temp`, export:
 ```sh
 export HOME="$B2_SCRATCH/home" USERPROFILE="$B2_SCRATCH/home"
 export XDG_CONFIG_HOME="$B2_SCRATCH/config" XDG_CACHE_HOME="$B2_SCRATCH/cache"
+export XDG_DATA_HOME="$B2_SCRATCH/data" XDG_STATE_HOME="$B2_SCRATCH/state"
 export GOCACHE="$B2_SCRATCH/go-build" GOMODCACHE="$B2_SCRATCH/go-mod"
 export GOPATH="$B2_SCRATCH/go-path" TMPDIR="$B2_SCRATCH/tmp"
-export TMP="$TMPDIR" TEMP="$TMPDIR" GOTOOLCHAIN=local GOWORK=off
+export TMP="$TMPDIR" TEMP="$TMPDIR" GOTMPDIR="$TMPDIR" GOTOOLCHAIN=local GOWORK=off GOENV=off
 export GOPROXY=off GOSUMDB=off GOTELEMETRY=off GOFLAGS=-trimpath
 unset GOTELEMETRYDIR
 export GO="$(command -v go)"
@@ -144,8 +174,27 @@ python3 tests/lab-b2/mutants.py --out "$B2_SCRATCH/mutants"
 Run each command as a standalone gate; retain stdout/stderr and its real exit
 separately, without a status-losing pipeline. The overlay driver refuses output
 reuse and nonisolated HOME/caches. Each row records source/overlay hashes,
-command, PID, exit and the **named failing test**. Compilation/setup failure or
-panic is not a killed mutant. `results.json` and `results.md` are generated
+command, PID, exit and the **named failing test and intended assertion**.
+Compilation/setup failure, panic or an unrelated deadline refusal is not a
+killed mutant. `results.json` and `results.md` are generated
 under the selected task scratch. Scope and limits are in the
 [coverage map](lab-b2-coverage-map.md); the producer handoff records actual
 tool versions, exits, signed source head and native gates.
+
+## Review fix round 1
+
+Both independent reads required revision. The public lifecycle now drives fresh
+provisioning, fence consume/load, construction, use, advanced heads, an
+acknowledged second generation, per-start replay and fence substitution/removal.
+Adjacent negatives cover consent before writes and at settled expiry, C1 floors,
+both approval expiries (including trusted upper equality), start lock/read
+uncertainty, verified mismatch burn, complete versus torn/forked journals and
+sticky holds through restart. The restart predicate has separate negatives for
+generation, acknowledged heads/state, approval generation/invocation, both clock
+orderings and the decision digest pin. Each gate has a narrowing overlay.
+
+The acknowledged-stop fixture is canonical C0 metadata supplied by a trusted
+caller; it is not proof of B5 provenance. C0 has no stop-record digest member in
+the off-VM approval. That existing contract gap is recorded in
+`UNRESOLVED_QUESTIONS.md`; no frozen field or unauthenticated live stop writer is
+invented here. Native reboot/load/root and whole-VM exclusions remain unrun.
