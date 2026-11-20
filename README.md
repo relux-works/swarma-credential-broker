@@ -1,5 +1,33 @@
 # swarma-credential-broker
 
+## B1 lab construction (not an installed daemon)
+
+The `broker_lab` build contains private recovery/custody adapter construction
+and disjoint lab store identities. The
+[recovery addendum](contracts/lab-v0/recovery.md) is **private to B1**, never an
+external consumer input or export; external journal bytes remain frozen.
+The existing lease engine and protected fsync/CAS store are reused. Default
+constructors and the stopped production owner retain their production behavior.
+The internal tagged engine constructor is not an authority factory: synthetic
+test authorities and clocks are not installed or admitted by a daemon.
+
+The [construction coverage map](docs/lab-b1-construction-coverage.md) lists every
+incomplete B1 acceptance row and the named mutation controls.
+An accepting daemon/current-caller assembly is deliberately not supplied around
+the [native evidence access conflict](docs/lab-b1-native-execution-access-stop.md).
+No real-key enrollment, vendor call, native qualification or production
+activation follows from these construction tests.
+
+Tools: Go builds/tests the adapter (`go test -tags=broker_lab ./internal/labv0`),
+the C0 catalogue (`go test ./internal/labcontractv0`) and production regression
+packages (`go test ./internal/service ./internal/store ./internal/claude`).
+Run them in an absolute task-owned scratch checkout with private HOME/caches,
+as required by the project test-environment instructions, not an inherited HOME.
+Git supplies signed source commits and source-overlay diffs; `gofmt -d` checks
+changed Go files. Logs, overlays and exact exits belong in `.temp/`; the task
+handoff maps acceptance limitations and mutant evidence. Python is used only
+for task-local JSON fixture/overlay generation, never product execution.
+
 The credential broker is **Merovingian** in the platform's codenames.
 
 A credential broker for agent systems. It runs under its own OS user, holds subscription and API credentials in its own store, and leases them to authorised agent launches over a Unix socket whose peer it identifies through the kernel (`getpeereid` / `SO_PEERCRED`).

@@ -67,23 +67,26 @@ type Account interface {
 	StoreServiceState(wire.ServiceState) error
 }
 type Broker struct {
-	gate           chan struct{}
-	authority      Authority
-	accounts       map[string]Account
-	states         map[string]*wire.ServiceState
-	bindings       map[string]*wire.ServiceBindingRecord
-	leases         map[string]*wire.ServiceLeaseRecord
-	holds          map[string]*wire.AccountHoldRecord
-	now            func() time.Time
-	watermark      time.Time
-	lifetime       time.Duration
-	failed         bool
-	connections    map[uint64]serviceConnection
-	nextConnection uint64
-	pendingHold    *pendingHold
-	realClock      bool
-	anchorWall     time.Time
-	anchorMono     time.Time
+	gate                chan struct{}
+	authority           Authority
+	accounts            map[string]Account
+	states              map[string]*wire.ServiceState
+	bindings            map[string]*wire.ServiceBindingRecord
+	leases              map[string]*wire.ServiceLeaseRecord
+	holds               map[string]*wire.AccountHoldRecord
+	now                 func() time.Time
+	watermark           time.Time
+	lifetime            time.Duration
+	credentialKind      string
+	terminalContainment bool
+	strictReplay        bool
+	failed              bool
+	connections         map[uint64]serviceConnection
+	nextConnection      uint64
+	pendingHold         *pendingHold
+	realClock           bool
+	anchorWall          time.Time
+	anchorMono          time.Time
 }
 
 type pendingHold struct {
@@ -102,7 +105,7 @@ func (b *Broker) recoverHold(p Principal, raw json.RawMessage) error {
 	}
 	account := pending.account
 	state, e := b.accounts[account].LoadServiceState()
-	if e != nil || !validState(state, account) || state.Revision == 0 || state.Revision >= 9007199254740990 {
+	if e != nil || !validStateForKind(state, account, b.credentialKind) || state.Revision == 0 || state.Revision >= 9007199254740990 {
 		return refuse("account_hold_unknown")
 	}
 	state.Revision++
@@ -209,6 +212,10 @@ func New(a Authority, accounts map[string]Account, now func() time.Time) (*Broke
 
 // NewWithLifetime refuses invalid configuration instead of silently clamping.
 func NewWithLifetime(a Authority, accounts map[string]Account, now func() time.Time, lifetime time.Duration) (*Broker, error) {
+	return newWithKind(a, accounts, now, lifetime, Kind, false)
+}
+
+func newWithKind(a Authority, accounts map[string]Account, now func() time.Time, lifetime time.Duration, credentialKind string, terminalContainment bool) (*Broker, error) {
 	if a == nil || len(accounts) == 0 || lifetime <= 0 || lifetime > V0LeaseCeiling || lifetime%time.Second != 0 {
 		return nil, refuse("lease_owner_unavailable")
 	}
@@ -217,13 +224,14 @@ func NewWithLifetime(a Authority, accounts map[string]Account, now func() time.T
 		now = time.Now
 	}
 	b := &Broker{gate: make(chan struct{}, 1), authority: a, accounts: map[string]Account{}, states: map[string]*wire.ServiceState{}, bindings: map[string]*wire.ServiceBindingRecord{}, leases: map[string]*wire.ServiceLeaseRecord{}, holds: map[string]*wire.AccountHoldRecord{}, now: now, lifetime: lifetime}
+	b.credentialKind, b.terminalContainment = credentialKind, terminalContainment
 	b.gate <- struct{}{}
 	for label, account := range accounts {
 		if account == nil || !wire.ASCII(label, 128) {
 			return nil, refuse("lease_owner_unavailable")
 		}
 		s, err := account.LoadServiceState()
-		if err != nil || !validState(s, label) {
+		if err != nil || !validStateForKind(s, label, credentialKind) {
 			return nil, refuse("lease_owner_unavailable")
 		}
 		// Recovery re-confirms file and directory durability before replay can
@@ -275,6 +283,10 @@ func NewWithLifetime(a Authority, accounts map[string]Account, now func() time.T
 	return b, nil
 }
 func validState(s wire.ServiceState, account string) bool {
+	return validStateForKind(s, account, Kind)
+}
+
+func validStateForKind(s wire.ServiceState, account, credentialKind string) bool {
 	if s.Revision == 0 {
 		return s.Kind == "" && len(s.Bindings)+len(s.Leases)+len(s.Holds)+len(s.Operations) == 0
 	}
@@ -283,7 +295,7 @@ func validState(s wire.ServiceState, account string) bool {
 	}
 	active := map[wire.ServiceBinding]bool{}
 	for _, r := range s.Bindings {
-		if !wire.ASCII(r.ID, 128) || r.Account != account || !validBinding(r.Binding()) || r.CreatedAt.IsZero() || !wire.ASCII(r.CreatedBy, 512) || !wire.ASCII(r.OperationID, 128) || (r.State != "active" && r.State != "removed") {
+		if !wire.ASCII(r.ID, 128) || r.Account != account || !validBindingForKind(r.Binding(), credentialKind) || r.CreatedAt.IsZero() || !wire.ASCII(r.CreatedBy, 512) || !wire.ASCII(r.OperationID, 128) || (r.State != "active" && r.State != "removed") {
 			return false
 		}
 		if r.State == "active" {
@@ -296,7 +308,7 @@ func validState(s wire.ServiceState, account string) bool {
 		}
 	}
 	for _, r := range s.Leases {
-		if !wire.ASCII(r.ID, 128) || r.Account != account || r.Kind != Kind || r.Harness != "claude_code" || !validCaller(r.Caller()) || !wire.ASCII(r.AgentBindingID, 128) || r.Until.IsZero() || (r.State != "active" && r.State != "released" && r.State != "expired" && r.State != "revoked") {
+		if !wire.ASCII(r.ID, 128) || r.Account != account || r.Kind != credentialKind || r.Harness != "claude_code" || !validCaller(r.Caller()) || !wire.ASCII(r.AgentBindingID, 128) || r.Until.IsZero() || (r.State != "active" && r.State != "released" && r.State != "expired" && r.State != "revoked") {
 			return false
 		}
 	}
@@ -323,7 +335,11 @@ func validState(s wire.ServiceState, account string) bool {
 	return true
 }
 func validBinding(v wire.ServiceBinding) bool {
-	return v.Service == Gateway && v.Kind == Kind && wire.ASCII(v.Generation, 128) && wire.ASCII(v.Account, 128) && wire.ASCII(v.PolicyDigest, 128)
+	return validBindingForKind(v, Kind)
+}
+
+func validBindingForKind(v wire.ServiceBinding, credentialKind string) bool {
+	return v.Service == Gateway && v.Kind == credentialKind && wire.ASCII(v.Generation, 128) && wire.ASCII(v.Account, 128) && wire.ASCII(v.PolicyDigest, 128)
 }
 func validCaller(c wire.ServiceCaller) bool {
 	return wire.ASCII(c.Account, 128) && wire.ASCII(c.Generation, 128) && wire.ASCII(c.LaunchID, 128)
@@ -707,7 +723,7 @@ func (b *Broker) call(ctx context.Context, v View, p Principal, method string, r
 			}
 			return publish(bindingResult(b.bindings[x.ID]))
 		}
-		if r.Service != Gateway || r.Kind != Kind {
+		if r.Service != Gateway || r.Kind != b.credentialKind {
 			return refuse("bind_target_invalid")
 		}
 		target, e := v.Principal(r.UID)
@@ -724,7 +740,7 @@ func (b *Broker) call(ctx context.Context, v View, p Principal, method string, r
 		if info.Kind != r.Kind {
 			return refuse("service_binding_mismatch")
 		}
-		if !validBinding(r.ServiceBinding) {
+		if !validBindingForKind(r.ServiceBinding, b.credentialKind) {
 			return refuse("service_binding_mismatch")
 		}
 		e = v.Service(r.ServiceBinding)
@@ -776,6 +792,13 @@ func (b *Broker) call(ctx context.Context, v View, p Principal, method string, r
 		s.State = "removed"
 		s.RemovedAt = &now
 		s.RemovedOperationID = &r.OperationID
+		if b.terminalContainment {
+			for _, lease := range b.leases {
+				if lease.BindingID == s.ID && lease.State == "active" {
+					lease.State = "revoked"
+				}
+			}
+		}
 		out := map[string]any{"service_binding_id": s.ID, "state": "removed"}
 		if e = b.save(s.Account, p, method, r.OperationID, raw, out); e != nil {
 			return e
@@ -866,7 +889,7 @@ func (b *Broker) call(ctx context.Context, v View, p Principal, method string, r
 		if b.leases[id] != nil {
 			return refuse("lease_owner_unavailable")
 		}
-		l := &wire.ServiceLeaseRecord{ID: id, BindingID: s.ID, Service: s.Service, UID: s.UID, Generation: s.Generation, Account: r.Account, Harness: "claude_code", Kind: Kind, AgentUID: r.UID, AgentGeneration: r.Generation, LaunchID: r.LaunchID, OperationID: r.OperationID, State: "active"}
+		l := &wire.ServiceLeaseRecord{ID: id, BindingID: s.ID, Service: s.Service, UID: s.UID, Generation: s.Generation, Account: r.Account, Harness: "claude_code", Kind: b.credentialKind, AgentUID: r.UID, AgentGeneration: r.Generation, LaunchID: r.LaunchID, OperationID: r.OperationID, State: "active"}
 		return b.issue(ctx, v, p, l, method, r.OperationID, raw, publish)
 	case "service.lease.renew":
 		var r wire.ServiceRenew
@@ -986,6 +1009,13 @@ func (b *Broker) call(ctx context.Context, v View, p Principal, method string, r
 		// Even when returning an existing hold, retain this operation's correlation
 		// in the journal without creating or changing the hold record.
 		b.pendingHold = &pendingHold{principal: principalRef(p), account: l.Account, arguments: append(json.RawMessage(nil), raw...)}
+		if b.terminalContainment {
+			for _, lease := range b.leases {
+				if lease.Account == l.Account && lease.State == "active" {
+					lease.State = "revoked"
+				}
+			}
+		}
 		if e = b.save(l.Account, p, method, r.OperationID, raw, h.Metadata()); e != nil {
 			return refuse("account_hold_unknown")
 		}
@@ -1076,7 +1106,7 @@ func (b *Broker) issue(ctx context.Context, v View, p Principal, l *wire.Service
 	if e != nil {
 		return refuse("lease_owner_unavailable")
 	}
-	if info.Account != l.Account || info.Kind != Kind || info.Harness != "claude_code" {
+	if info.Account != l.Account || info.Kind != b.credentialKind || info.Harness != "claude_code" {
 		return refuse("lease_harness_mismatch")
 	}
 	switch info.State {
@@ -1127,8 +1157,12 @@ func (b *Broker) replayMaterial(ctx context.Context, v View, p Principal, o *wir
 	if l.State != "active" || !b.evaluation().Before(r.Until) || !b.evaluation().Before(l.Until) {
 		return refuse("lease_not_active")
 	}
-	if _, e = b.authorities(ctx, v, l); e != nil {
+	currentUntil, e := b.authorities(ctx, v, l)
+	if e != nil {
 		return e
+	}
+	if b.strictReplay && r.Until.After(currentUntil) {
+		return refuse("lease_not_authorised")
 	}
 	info, e := b.accounts[l.Account].ServiceAccount()
 	if e != nil {

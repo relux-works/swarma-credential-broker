@@ -38,6 +38,8 @@ type Store struct {
 	lock         *os.File
 	uid          uint32
 	installation string
+	identityKind string
+	accountKind  string
 	hook         Durability
 	accounts     map[string]*Account
 }
@@ -138,13 +140,17 @@ func lock(r *os.Root, uid uint32) (*os.File, error) {
 	return f, nil
 }
 func Open(path, installation string, uid uint32, initialize bool, hook Durability) (*Store, error) {
+	return openFamily(path, installation, uid, initialize, hook, "store-identity/1", "account-store/1")
+}
+
+func openFamily(path, installation string, uid uint32, initialize bool, hook Durability, identityKind, accountKind string) (*Store, error) {
 	if installation == "" {
 		return nil, ErrUnavailable
 	}
 	var initial []byte
 	if initialize {
 		var e error
-		initial, e = encodeRecord(identity{"store-identity/1", installation, 1})
+		initial, e = encodeRecord(identity{identityKind, installation, 1})
 		if e != nil {
 			return nil, e
 		}
@@ -171,6 +177,7 @@ func Open(path, installation string, uid uint32, initialize bool, hook Durabilit
 		return nil, e
 	}
 	s := &Store{root: r, path: path, lock: l, uid: uid, installation: installation, hook: hook, accounts: map[string]*Account{}}
+	s.identityKind, s.accountKind = identityKind, accountKind
 	fail := func() (*Store, error) { s.Close(); return nil, ErrUnavailable }
 	b, e := read(r, "identity.json", uid)
 	if os.IsNotExist(e) && initialize {
@@ -186,7 +193,7 @@ func Open(path, installation string, uid uint32, initialize bool, hook Durabilit
 		return fail()
 	} else {
 		var id identity
-		if wire.Decode(b, &id) != nil || id.Kind != "store-identity/1" || id.Installation != installation || id.Revision != 1 {
+		if wire.Decode(b, &id) != nil || id.Kind != identityKind || id.Installation != installation || id.Revision != 1 {
 			return fail()
 		}
 	}
@@ -302,7 +309,7 @@ func (s *Store) Account(label string, initialize bool) (*Account, error) {
 	var initial []byte
 	if initialize {
 		var e error
-		initial, e = encodeRecord(identity{"account-store/1", s.installation, 1})
+		initial, e = encodeRecord(identity{s.accountKind, s.installation, 1})
 		if e != nil {
 			return nil, e
 		}
@@ -363,7 +370,7 @@ func (s *Store) Account(label string, initialize bool) (*Account, error) {
 	} else if e == nil {
 		var id identity
 		e = wire.Decode(b, &id)
-		if id.Kind != "account-store/1" || id.Installation != s.installation || id.Revision != 1 {
+		if id.Kind != s.accountKind || id.Installation != s.installation || id.Revision != 1 {
 			e = ErrUnavailable
 		}
 	}
@@ -522,7 +529,7 @@ func (a *Account) Healthy() error {
 		return ErrUnavailable
 	}
 	var id identity
-	if wire.Decode(b, &id) != nil || id.Kind != "account-store/1" || id.Installation != a.installation || id.Revision != 1 {
+	if wire.Decode(b, &id) != nil || id.Kind != a.parent.accountKind || id.Installation != a.installation || id.Revision != 1 {
 		return ErrUnavailable
 	}
 	return nil
@@ -537,7 +544,7 @@ func (s *Store) Healthy() error {
 	}
 	b, err := read(s.root, "identity.json", s.uid)
 	var id identity
-	if err != nil || wire.Decode(b, &id) != nil || id.Kind != "store-identity/1" || id.Installation != s.installation || id.Revision != 1 {
+	if err != nil || wire.Decode(b, &id) != nil || id.Kind != s.identityKind || id.Installation != s.installation || id.Revision != 1 {
 		return ErrUnavailable
 	}
 	return nil

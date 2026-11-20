@@ -330,6 +330,15 @@ implementation remains unchanged and no production defect is asserted.
 
 ## Lab C0 execution gates
 
+B1 construction is stopped at
+[native execution-evidence access](docs/lab-b1-native-execution-access-stop.md):
+the dedicated nonroot broker must verify current native launch debits, while the
+pinned manager requires its launch directory/ledger to remain root-only
+0700/0600. A receipt alone is not a committed start. Choose an explicitly
+specified privileged observation capability or revise the privilege split;
+do not widen native permissions or substitute fixture authority. The prior
+private recovery-envelope question is resolved by OPTION 2, not reopened.
+
 The [closed lab contract](contracts/lab-v0/README.md) supplies inert construction
 bytes only. C-OPEN-OWNERS, native joined-start/NTS/protection evidence, the exact
 owner-approved live model/output/spend bounds and released consumer assemblies
