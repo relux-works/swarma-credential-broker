@@ -199,7 +199,7 @@ func TestLabObservationConsumptionDurablePairs(test *testing.T) {
 
 // Claim: every periodic transport, completeness, binding, replay and native-proof failure closes admitted use with no F/S update or publication; every mode is beside a fresh valid single.
 func TestLabObservationPeriodicAdversarialPairs(test *testing.T) {
-	for _, mode := range []string{"wrong-start-uid", "stale-generation", "partial", "timeout", "pending-stop", "not-current", "incomplete", "wrong-manager", "store-generation", "counter-generation", "debit-mismatch", "invalidation", "duplicate-receipt", "replayed-sequence", "moved-proof"} {
+	for _, mode := range []string{"wrong-start-uid", "stale-generation", "partial", "timeout", "pending-stop", "not-current", "incomplete", "wrong-manager", "store-generation", "counter-generation", "debit-mismatch", "invalidation", "duplicate-receipt", "replayed-sequence", "moved-proof", "response-operation-id", "response-start-id", "future-observation"} {
 		test.Run(mode, func(test *testing.T) {
 			for _, fault := range []bool{false, true} {
 				use, fixture, server, closed := continuedFixture(test, "valid")

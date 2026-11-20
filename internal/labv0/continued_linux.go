@@ -139,8 +139,8 @@ func (use *continuedUse) publicationFor(ctx context.Context, purpose observation
 	if err := waitObservationCooldown(ctx, receipt+int64(observationWindow)); err != nil {
 		return ErrUnknown
 	}
-	first, err := use.client.collectFor(ctx, seen, purpose)
-	if err != nil || first.before < receipt+int64(observationWindow) || first.before >= receipt+int64(observationWindow+schedulerMargin) {
+	first, err := use.initialObservation(ctx, seen, purpose, receipt)
+	if err != nil {
 		return ErrUnknown
 	}
 	if err := waitObservationCooldown(ctx, first.after+int64(observationWindow)); err != nil {
@@ -190,6 +190,14 @@ func (use *continuedUse) publicationFor(ctx context.Context, purpose observation
 	use.mu.Unlock()
 	go use.guard(epoch)
 	return nil
+}
+
+func (use *continuedUse) initialObservation(ctx context.Context, seen int64, purpose observationPurpose, receipt int64) (observationSample, error) {
+	first, err := use.client.collectFor(ctx, seen, purpose)
+	if err != nil || first.before < receipt+int64(observationWindow) || first.before >= receipt+int64(observationWindow+schedulerMargin) {
+		return observationSample{}, ErrUnknown
+	}
+	return first, nil
 }
 
 func (use *continuedUse) prepare(entered int64) (map[string]any, int64, int64, error) {
@@ -328,13 +336,13 @@ func (use *continuedUse) periodic(ctx context.Context) error {
 	updated["seen"] = next.record["sequence"]
 	updated["observed_monotonic_ms"] = next.record["observed_monotonic_ms"]
 	updated["receipt_monotonic_ms"] = next.after / int64(time.Millisecond)
+	if use.current() != nil {
+		return ErrUnknown
+	}
 	if !use.account.mu.TryLock() {
 		return ErrUnknown
 	}
 	defer use.account.mu.Unlock()
-	if use.current() != nil {
-		return ErrUnknown
-	}
 	if err := use.commit(ctx, envelope, updated, next.deadline, previous["observed_monotonic_ms"].(int64)*int64(time.Millisecond)+int64(nativeAge)); err != nil {
 		return ErrUnknown
 	}

@@ -49,7 +49,8 @@ publication callback is not an installed deadline-bound socket writer.
 
 ## Source-overlay mutations
 
-Current evidence: **67 runtime/actual-reader overlays**, 65 named intended
+Original producer evidence at `2751169d` (historical, not a fresh fix-round
+replay): **67 runtime/actual-reader overlays**, 65 named intended
 failures and two bounded survivors, plus **7 private contract overlays**, all
 with named intended failures. Commands are standalone `go test` executions in
 absolute isolated scratch, with canonical own-format/valid controls retained.
@@ -140,6 +141,86 @@ not reused as current evidence.
 
 | physical-operation-reserve | Ignore the physical 256-entry array capacity when an approved scalar operation limit is larger | `TestLabFiniteNarrowingReserve/physical-cap` | 1; valid control retains exactly eight slots, one further operation consumes the reserve |
 
+## PR #83 B1a fix-round delivered-gate witnesses
+
+Scope is the delivered B1a slice, not completion of B1b or any whole acceptance
+row. Review records 5998029277 (r) and 5998127088 (s) are addressed without a new
+contract surface. The two bypass fixes were committed first, separately.
+
+| Finding | Fix or independently exercised predicate | Tests (valid control beside negatives) | Mutants / actual test exits |
+| --- | --- | --- | --- |
+| r F1 | Recheck the epoch under the final reopening lock; a fence before or during CAS/publication wins | `TestReviewFenceDuringPublishIsSticky`, `TestLabReviewFenceBeforeObservationCAS` | `publication-fence-overwrite`, `publication-pre-cas-epoch`, `publication-post-cas-epoch`: 1 each |
+| s F1 | Reject observation-only CAS when engine UNKNOWN was already set; only engine reconciliation can resolve it | `TestReviewProbeObservationCommitClearsEngineUnknown`, `TestReviewProbePublicationCommitClearsEngineUnknown` | `observation-clears-engine-unknown`, `publication-clears-engine-unknown`: 1 each |
+| r F2 | Preserve initial cooldown/lateness, independent current-age interval and both CAS deadline checks | `TestLabReviewInitialObservationWindow`, `TestLabReviewCurrentAgePredicate`, `TestLabReviewObservationCommitDeadlines` | Two initial-window, two current-age and six before/after-CAS deadline overlays: 1 each |
+| r F3 | Independently re-seal and CAS-write held, revoked, gateway UID/generation and state-revision mismatches; real account projection/material stays UNKNOWN with no repair write | `TestLabReviewRecoveryJoinPredicates` | Five `recovery-*` overlays below: 1 each |
+| s F2 | Before/after-CAS time checks, successful-but-late pair/single durability and post-callback final deadline | `TestLabReviewObservationCommitDeadlines`, `TestLabReviewPublicationDeadlines`, `TestLabReviewPeriodicLateCAS` | Six explicit deadline overlays plus `late-cas-publishes`, `late-single-cas`, `late-publication-reopens`: 1 each |
+| s F3 | Top-level operation/start IDs independently match request pins although nested start is unchanged | `TestLabReviewObservationResponseJoins`, `TestLabObservationPeriodicAdversarialPairs` | `response-operation-id`, `response-start-id`: 1 each |
+| s F4 | Observed time cannot exceed the local receipt; shape-valid future answers refuse on pair and periodic paths | `TestLabReviewObservationResponseJoins`, `TestLabObservationPeriodicAdversarialPairs` | `future-observation`, `future-periodic-two-layer`: 1 each |
+| r N7 (cheap note) | Invoke a currentness closer outside the account lock; a callback can acquire the lock | `TestLabReviewContainmentCallbackLockOrder` | `containment-callback-under-lock`: 1 |
+
+The control families run unmutated with exit 0. A source-overlay catalogue is
+committed at `tests/lab-b1/mutants.py`: it requires green unmutated controls,
+unique exact plants and the intended named assertion. The corrected catalogue
+contains **28 overlays**, each with an intended named failure (test exit 1),
+not 28 green tests. No new survivor is claimed as coverage.
+The corrected full catalogue replay exits 0, including its unmutated control;
+that orchestration success is distinct from each expected-red Go test exit 1.
+
+The complete per-overlay map follows. `deadline-*` tests exercise each passed
+absolute deadline independently: connection at slot zero; pair budget or prior
+native-age ceiling at slot one. Full pair/single late-durability tests separately
+exercise the real store hook, original connection deadline and fenced result.
+
+| Mutant | What it narrows the gate to | Named failing test selection | Exit |
+| --- | --- | --- | --- |
+| `publication-fence-overwrite` | Ignore a fence in the final reopening critical section | `TestReviewFenceDuringPublishIsSticky/during-publish` | 1 |
+| `observation-clears-engine-unknown` | Single CAS overwrites pre-existing engine UNKNOWN | `TestReviewProbeObservationCommitClearsEngineUnknown` | 1 |
+| `publication-clears-engine-unknown` | Pair CAS overwrites pre-existing engine UNKNOWN | `TestReviewProbePublicationCommitClearsEngineUnknown` | 1 |
+| `publication-pre-cas-epoch` | Ignore epoch change before the CAS | `TestLabReviewFenceBeforeObservationCAS` | 1 |
+| `publication-post-cas-epoch` | Ignore epoch change after the CAS but before callback | `TestReviewFenceDuringPublishIsSticky/during-cas` | 1 |
+| `initial-lateness` | Accept initial reads >=300 ms after the receipt | `TestLabReviewInitialObservationWindow` | 1 |
+| `initial-cooldown` | Accept initial reads <250 ms after the receipt | `TestLabReviewInitialObservationWindow` | 1 |
+| `current-age-ceiling` | Allow local current proof at age >=1200 ms without guard masking | `TestLabReviewCurrentAgePredicate` | 1 |
+| `current-age-future` | Allow negative local native age | `TestLabReviewCurrentAgePredicate` | 1 |
+| `containment-callback-under-lock` | Run the currentness closer under the account mutex | `TestLabReviewContainmentCallbackLockOrder` | 1 |
+| `deadline-before-cas-connection` | Ignore only the connection passed deadline before CAS | `TestLabReviewObservationCommitDeadlines/connection/` | 1 |
+| `deadline-before-cas-pair-budget` | Ignore only the pair-budget passed deadline before CAS | `TestLabReviewObservationCommitDeadlines/pair-budget/` | 1 |
+| `deadline-before-cas-native-age` | Ignore only the native-age passed deadline before CAS | `TestLabReviewObservationCommitDeadlines/native-age/` | 1 |
+| `deadline-after-cas-connection` | Ignore only the connection passed deadline after CAS | `TestLabReviewObservationCommitDeadlines/connection/` | 1 |
+| `deadline-after-cas-pair-budget` | Ignore only the pair-budget passed deadline after CAS | `TestLabReviewObservationCommitDeadlines/pair-budget/` | 1 |
+| `deadline-after-cas-native-age` | Ignore only the native-age passed deadline after CAS | `TestLabReviewObservationCommitDeadlines/native-age/` | 1 |
+| `late-cas-publishes` | Acknowledge successful-but-late CAS and enter the publication callback | `TestLabReviewPublicationDeadlines/late-cas` | 1 |
+| `late-single-cas` | Acknowledge late single persistence and install S | `TestLabReviewPeriodicLateCAS` | 1 |
+| `late-publication-reopens` | Reopen after a callback crosses its final connection deadline | `TestLabReviewPublicationDeadlines/late-publish` | 1 |
+| `recovery-held` | Ignore disagreement between private active holds and external held bit | `TestLabReviewRecoveryJoinPredicates/held` | 1 |
+| `recovery-revoked` | Ignore disagreement between private binding removal and external tombstone | `TestLabReviewRecoveryJoinPredicates/revoked` | 1 |
+| `recovery-gateway-uid` | Ignore exact private/external gateway UID join | `TestLabReviewRecoveryJoinPredicates/gateway-uid` | 1 |
+| `recovery-gateway-generation` | Ignore exact private/external gateway generation join | `TestLabReviewRecoveryJoinPredicates/gateway-generation` | 1 |
+| `recovery-state-revision` | Permit engine revision above the envelope revision | `TestLabReviewRecoveryJoinPredicates/state-revision` | 1 |
+| `response-operation-id` | Trust nested start without joining the response operation ID | `TestLabReviewObservationResponseJoins/response-operation-id` | 1 |
+| `response-start-id` | Trust nested start without joining the response start ID | `TestLabReviewObservationResponseJoins/response-start-id` | 1 |
+| `future-observation` | Remove the client receipt-time upper bound only | `TestLabReviewObservationResponseJoins/future-observation` | 1 |
+| `future-periodic-two-layer` | Remove both the client upper bound and independent private observed<=receipt check | `TestLabObservationPeriodicAdversarialPairs/future-observation` | 1 |
+
+The periodic future-time plant is deliberately two-layer: removing only the
+client predicate still leaves the independent private recovery receipt-time
+bound. Its pair counterpart isolates and kills the client predicate alone.
+The pre-CAS direct fixture adds 5 ms to its wait solely to avoid nanosecond vs
+persisted-millisecond rounding; no runtime timing bound is widened. Initial
+setup/compile diagnostics are retained but excluded from the 28 corrected
+kills. The older producer's two survivors remain explicit historical bounds.
+
+The publication callback witness proves sticky refusal after a late callback;
+it cannot retract already emitted bytes and is not an installed deadline-bound
+transport. The first-read witness calls the same extracted Unix-read/window
+method as the publication path; it is not OS scheduler qualification.
+
+Non-blocking notes: the stale timing-stop paragraph and blanket-tag wording
+are corrected in this fix. Cross-boot receipt liveness, historical head-chain
+reconstruction, sealed historical format-count prose, socket-path swap and
+root-native peer/owner qualification remain outside this bounded fix round;
+none is silently promoted to native evidence or a new acceptance waiver.
+
 ## Evidence limits and scope
 
 The actual C0 reader executes the C0 operator catalogue on frozen surfaces;
@@ -152,8 +233,8 @@ Validation commands and exact exit codes, signatures, source identity and
 retained log paths are in the requested `out/HANDOFF.md` outside this checkout.
 Default production tests were run, not omitted; their environment failures
 must not be described as green or as a proved causal equivalence to main.
-No published branch, PR, live key, vendor network call or installed adoption
-is part of this producer packet.
+The owner published the original B1a head as PR #83. This fix round performs
+no push or PR mutation, live key act, vendor network call or installed adoption.
 
 The finite-plan reserve is bounded by both the approved scalar limit and the
 frozen 256-entry array capacity, without altering/clamping the approved record.

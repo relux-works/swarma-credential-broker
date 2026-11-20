@@ -25,7 +25,20 @@ the accepting daemon remains blocked on the
 No real-key enrollment, vendor call, native qualification or production
 activation follows from these construction tests.
 
-Tools: Go builds/tests the adapter (`go test -tags=broker_lab ./internal/labv0`),
+PR #83 B1a fix round 1 keeps an independent publication fence and prior engine
+UNKNOWN sticky. Paired regressions cover the delivered timing, recovery joins,
+response IDs and observed-time upper bound. The prior untagged service/store
+parameterization is still present; only its production-default behavior is
+claimed unchanged, not that every file in the original PR has a lab tag.
+
+Tools: from an absolute isolated test checkout, replay the B1a Go source-overlay
+catalogue with `python3 tests/lab-b1/mutants.py --out "$B1_SCRATCH/mutants"`.
+The checkout, absolute HOME/config/caches/temp directories and `mutants/` must
+share that task-owned scratch root. The runner first checks unmutated valid and
+negative controls, then records exact edits, source hashes, named assertion
+failures, commands, PIDs and real exit codes in `mutants/`; setup/compiler errors
+and skipped tests are not kills. No live authority or network vendor call runs.
+Go builds/tests the adapter (`go test -tags=broker_lab ./internal/labv0`),
 the C0 catalogue (`go test ./internal/labcontractv0`) and production regression
 packages (`go test ./internal/service ./internal/store ./internal/claude`).
 The actual tagged C0b/C0c reader catalogue runs with

@@ -574,3 +574,27 @@ B1 physical reserve clarification: `TestLabFiniteNarrowingReserve/physical-cap`
 uses a larger approved scalar limit beside exactly-eight/only-seven physical
 slots; `physical-operation-reserve` removes the 256-entry cap and fails that
 named test. This enforces the existing frozen array bound, not a new surface.
+
+## B1a PR #83 fix-round runtime witnesses
+
+These supplement the unchanged C0 operator catalogue and reference fixtures;
+no byte surface, reader/writer, native binding or production default changes.
+`tests/lab-b1/mutants.py` replays each source overlay after a green unmutated
+control and requires its named assertion, not merely any nonzero exit.
+
+| Review gate | Paired tests | Narrowing mutants / named failure |
+| --- | --- | --- |
+| r F1 sticky fence across final publication | `TestReviewFenceDuringPublishIsSticky`, `TestLabReviewFenceBeforeObservationCAS` | `publication-fence-overwrite`, `publication-pre-cas-epoch`, `publication-post-cas-epoch`; respectively those tests at during-publish, before-CAS and during-cas |
+| s F1 observation-only CAS never clears prior engine UNKNOWN | `TestReviewProbeObservationCommitClearsEngineUnknown`, `TestReviewProbePublicationCommitClearsEngineUnknown` | `observation-clears-engine-unknown`, `publication-clears-engine-unknown`; same named probes |
+| r F2 initial scheduling and independent current-age predicates | `TestLabReviewInitialObservationWindow`, `TestLabReviewCurrentAgePredicate` | `initial-lateness`, `initial-cooldown`, `current-age-ceiling`, `current-age-future`; same named tests |
+| r F2 / s F2 before/after-CAS and final-publication deadlines | `TestLabReviewObservationCommitDeadlines`, `TestLabReviewPublicationDeadlines`, `TestLabReviewPeriodicLateCAS` | Six `deadline-{before,after}-cas-{connection,pair-budget,native-age}` overlays and `late-cas-publishes`, `late-single-cas`, `late-publication-reopens`; same named tests |
+| r F3 complete recovery join / UNKNOWN | `TestLabReviewRecoveryJoinPredicates` | `recovery-held`, `recovery-revoked`, `recovery-gateway-uid`, `recovery-gateway-generation`, `recovery-state-revision`; same named subtests |
+| s F3 response IDs independently join request IDs | `TestLabReviewObservationResponseJoins`, `TestLabObservationPeriodicAdversarialPairs` | `response-operation-id`, `response-start-id`; first test / matching subtest |
+| s F4 observed upper bound | `TestLabReviewObservationResponseJoins`, `TestLabObservationPeriodicAdversarialPairs` | `future-observation`; first test / future-observation; `future-periodic-two-layer` additionally removes the independent private receipt-time check and fails the periodic test |
+| r N7 close callback lock order | `TestLabReviewContainmentCallbackLockOrder` | `containment-callback-under-lock`; same named test |
+
+The direct CAS deadline tests isolate each passed deadline independently; full
+pair/single tests additionally exercise successful-but-late store durability.
+The first-read window test uses the actual Unix reader without relying on OS
+scheduling to induce lateness. These bounded witnesses do not qualify an
+installed transport or make any whole-B1 acceptance row complete.

@@ -34,6 +34,7 @@ type observationFixtureServer struct {
 	requests       atomic.Int64
 	workers        sync.WaitGroup
 	released       int64
+	beforeWrite    func(int64)
 }
 
 func newObservationFixtureServer(test *testing.T, mode string) *observationFixtureServer {
@@ -103,6 +104,7 @@ func (server *observationFixtureServer) setMode(mode string, enabled bool) {
 func (server *observationFixtureServer) serve(connection *net.UnixConn) {
 	server.modeMu.Lock()
 	mode := server.mode
+	beforeWrite := server.beforeWrite
 	server.modeMu.Unlock()
 	defer connection.Close()
 	connection.SetDeadline(time.Now().Add(time.Second))
@@ -186,6 +188,12 @@ func (server *observationFixtureServer) serve(connection *net.UnixConn) {
 		response["sequence_generation"] = "dddddddddddddddddddddddddddddddd"
 	case "old-observation":
 		response["observed_monotonic_ms"] = now/int64(time.Millisecond) - 500
+	case "future-observation":
+		response["observed_monotonic_ms"] = now/int64(time.Millisecond) + 500
+	case "response-operation-id":
+		response["operation_id"] = "dddddddddddddddddddddddddddddddd"
+	case "response-start-id":
+		response["start_id"] = "dddddddddddddddddddddddddddddddd"
 	case "debit-mismatch":
 		response["debits"].([]any)[0].(map[string]any)["pid"] = int64(4322)
 	case "missing-debit":
@@ -209,6 +217,9 @@ func (server *observationFixtureServer) serve(connection *net.UnixConn) {
 			store["effects_revision"] = int64(5)
 			store["effects_sha256"] = digest("fixture-changed-effects")
 		}
+	}
+	if beforeWrite != nil {
+		beforeWrite(ordinal)
 	}
 	server.released, _ = bootNanos()
 	var encoded bytes.Buffer
