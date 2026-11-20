@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,12 +101,14 @@ func fields(object map[string]any, shape Shape) error {
 }
 
 var patterns = map[string]*regexp.Regexp{
-	"id":        regexp.MustCompile(`^[\x21-\x7e]{1,128}$`),
-	"digest":    regexp.MustCompile(`^sha256:[0-9a-f]{64}$`),
-	"operation": regexp.MustCompile(`^[0-9a-f]{32}$`),
-	"uuid":      regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`),
-	"commit":    regexp.MustCompile(`^[0-9a-f]{40}$`),
-	"material":  regexp.MustCompile(`^[\x21-\x7e]+$`),
+	"id":              regexp.MustCompile(`^[\x21-\x7e]{1,128}$`),
+	"digest":          regexp.MustCompile(`^sha256:[0-9a-f]{64}$`),
+	"operation":       regexp.MustCompile(`^[0-9a-f]{32}$`),
+	"uuid":            regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`),
+	"commit":          regexp.MustCompile(`^[0-9a-f]{40}$`),
+	"material":        regexp.MustCompile(`^[\x21-\x7e]+$`),
+	"native-id":       regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`),
+	"native-executor": regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`),
 }
 
 func field(value any, grammar string) error {
@@ -155,6 +158,17 @@ func field(value any, grammar string) error {
 		}
 		return nil
 	}
+	if grammar == "usd" {
+		text, ok := value.(string)
+		if !ok || !regexp.MustCompile(`^(0|[1-9][0-9]{0,9})\.[0-9]{6}$`).MatchString(text) {
+			return fmt.Errorf("usd")
+		}
+		micros, err := strconv.ParseInt(strings.ReplaceAll(text, ".", ""), 10, 64)
+		if err != nil || micros < 1 || micros > 9007199254740991 {
+			return fmt.Errorf("usd")
+		}
+		return nil
+	}
 	if grammar == "time" {
 		text, ok := value.(string)
 		instant, err := time.Parse(time.RFC3339Nano, text)
@@ -172,6 +186,12 @@ func field(value any, grammar string) error {
 		maximum = 0
 	case "lifetime":
 		minimum, maximum = 1, 900
+	case "invocation-count":
+		minimum, maximum = 1, 256
+	case "output-tokens":
+		minimum, maximum = 1, 128000
+	case "wall-ms":
+		minimum, maximum = 1, 900000
 	case "alignment":
 		maximum = 2
 	case "exit":

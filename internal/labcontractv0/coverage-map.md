@@ -520,3 +520,29 @@ overlays were also replayed against this candidate; all fail their named tests.
 | c0e-null-closure | Delegate null closure to a later grammar check | TestLabNestedClosurePairs/swarma-broker-lab-model-price/1/GatewayPrices/null |
 | c0e-array-bound | Admit 257 attempt members | TestLabGatewayArrayPairs/257 |
 | c0e-byte-bound | Admit one byte above the frozen ceiling | TestLabPayloadLimitPairs/swarma-broker-lab-model-price/1 |
+## B1 actual tagged reader and tentative Unix client
+
+The reference-function limitation above remains unchanged. Separately, B1's
+actual tagged shape reader consumes the combined C0/C0b/C0c/private inventory;
+the external schemas and fixtures stay byte-identical to landed eef0f9f3.
+The tentative Unix client is tested against a contract-exact nonroot private
+fake server, NOT an installed M1 observer or native ledger. Its production
+constructor retains the fixed root-socket/daemon-UID boundary. The detailed
+test/mutant map, including surviving one-layer frame/CAS plants, is in
+[B1 construction coverage](../../docs/lab-b1-construction-coverage.md).
+
+| Surface / boundary | Actual construction tests | Named narrowing mutant |
+| --- | --- | --- |
+| C0b bounded invocation closed grammar | TestLabRuntimeCataloguePairs/swarma-broker-lab-bounded-invocation/1 | bounded-usd-ceiling; bounded-usd-grammar; bounded-invocation-count; bounded-output-tokens; bounded-wall-time |
+| C0c native identifiers / closed fields | TestLabRuntimeCataloguePairs/swarma-broker-lab-observation-request/1; TestLabRuntimeCataloguePairs/swarma-broker-lab-observation-response/1; TestLabRuntimeSurfacePairs | observation-native-id; observation-native-executor; runtime-closure |
+| C0c complete response and static currentness/start/store joins | TestLabObservationClientPairs | observation-complete; observation-current; observation-start-pins; observation-manager; observation-store-generation; observation-counter-generation |
+| C0c receipt/debit/invalidation/pending-stop join | TestLabObservationClientPairs | observation-debit-join; observation-invalidation; observation-pending-stop |
+| C0c actual Unix peer/path and bounded frame/EOF | TestLabObservationKernelPeerAndPath; TestLabObservationPathChanges; TestLabObservationTransportWindow; TestLabObservationClientPairs | observation-kernel-peer; observation-daemon-uid; observation-socket-mode; observation-symlink; observation-parent-mode; observation-transport-window; observation-trailing-frame-two-layer; observation-ancillary |
+| C0c fresh initial/final sequence and whole-snapshot revalidation | TestLabObservationSequenceFloor; TestLabObservationClientPairs | observation-initial-floor; observation-final-sequence; observation-final-snapshot |
+| Required current-RPC/watchdog budget composition | TestLabObservationCurrentRPCBudget; TestLabObservationComposedCurrentBudget; TestLabObservationRecurringWatchdogBudget | observation-no-half-close detects a dead valid control; no timing acceptance claim |
+
+All seven allocated B1 acceptance rows remain incomplete. The native-access
+decision is resolved; [STOP:C0C_CURRENT_RPC_BUDGET](../../docs/lab-b1-observation-budget-stop.md)
+requires a coherent owner timing/consumption decision. The sufficient-budget
+controls are diagnostics, not compliant A09 valid controls. Atomic high-water
+publication, a real managed factory and an accepting daemon remain absent.

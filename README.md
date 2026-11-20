@@ -13,14 +13,23 @@ test authorities and clocks are not installed or admitted by a daemon.
 
 The [construction coverage map](docs/lab-b1-construction-coverage.md) lists every
 incomplete B1 acceptance row and the named mutation controls.
-An accepting daemon/current-caller assembly is deliberately not supplied around
-the [native evidence access conflict](docs/lab-b1-native-execution-access-stop.md).
+The C0c manager-owned capability resolves the former native access stop.
+The tagged Unix observation client and C0b shape reader now have paired
+adversarial construction tests. The client returns tentative metadata only;
+atomic high-water/publication and an accepting daemon/current-caller assembly
+remain absent because of the
+[observation/current-check timing conflict](docs/lab-b1-observation-budget-stop.md).
 No real-key enrollment, vendor call, native qualification or production
 activation follows from these construction tests.
 
 Tools: Go builds/tests the adapter (`go test -tags=broker_lab ./internal/labv0`),
 the C0 catalogue (`go test ./internal/labcontractv0`) and production regression
 packages (`go test ./internal/service ./internal/store ./internal/claude`).
+The actual tagged C0b/C0c reader catalogue runs with
+`go test -tags=broker_lab -run '^TestLabRuntime' ./internal/labcontractv0`;
+`go test -tags=broker_lab -run '^TestLabObservation' ./internal/labv0` runs
+the client, composed timing witnesses and private fake server. They are not
+installed/native qualification or compliant A09 success controls.
 Run them in an absolute task-owned scratch checkout with private HOME/caches,
 as required by the project test-environment instructions, not an inherited HOME.
 Git supplies signed source commits and source-overlay diffs; `gofmt -d` checks

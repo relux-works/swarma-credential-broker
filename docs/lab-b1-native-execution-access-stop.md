@@ -1,9 +1,13 @@
 # B1 native execution-evidence access stop
 
-Status: **STOP:NATIVE_EXECUTION_EVIDENCE_ACCESS**. The earlier recovery-surface
-stop is resolved by the 2026-11-20 OPTION 2 decision and the first B1 commit.
-This is a different, source-backed privilege/access conflict, not a request to
-relax replay, containment, C0, native manager permissions or production gates.
+Status: **RESOLVED**, historical evidence only. The owner selected the
+manager-owned observation capability in PR #81, broker main
+`eef0f9f3388c3b35ce562f126540fc333370ec43`. Native store permissions stay
+unchanged; M1 owns the server and B1 the client. The recovery-surface decision
+also remains resolved by OPTION 2. Neither decision is reopened. The remaining
+composition stop is [C0c current-check timing](lab-b1-observation-budget-stop.md).
+The original access analysis below records why a privileged capability was
+needed, not a current request to change native permissions or daemon identity.
 
 ## Conflicting requirements
 
