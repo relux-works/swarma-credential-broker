@@ -1,4 +1,4 @@
-# Lab contract C0 with C0b/C0c addenda, revision 8
+# Lab contract C0 with C0b/C0c addenda, revision 9
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
@@ -160,11 +160,16 @@ Result heads are authoritative only at committed; UNKNOWN heads grant nothing.
 Hold uses leak_match/account/caller/operation ID, is durable before acknowledgment,
 and an unknown result never reopens. Hold-lift binds the exact current hold in a
 nonsecret input pin; it cannot revive a removed lease. Finite capacity reserves
-narrowing before further widening. Current checks every 250 ms use a 200 ms RPC
-timeout (as `docs/lab-profile-v0.md:401`; its 190 ms valid control is at
-`:1266`) plus at most 500 ms closure; independent 500 ms watchdog plus 500 ms
-closure bounds teardown to 1 s. These timing/effect obligations belong to G1/B4,
-not to schema tests.
+narrowing before further widening. Current checks every 250 ms after receipt use a 300 ms RPC
+timeout, <50 ms scheduler lateness, independent 750 ms current watchdog and
+<=500 ms closure. C0d periodic native singles run 500 ms after receipt with
+<250 ms RPC, <50 ms lateness and a separate 1200 ms native-age fence.
+Worst case 1200+300+750+500 = 2750 ms is below the new 3000 ms lab closure ceiling;
+<1050 ms valid native inter-observation age and <600 ms valid current-success
+spacing leave watchdog margin. See lab profile §3.2 and Q4. These timing/effect
+obligations belong to M1/B1/G1/B4, not to schema tests. Fence budgets include
+scheduling: arm native/current watchdogs at 1150/700 ms with <50 ms dispatch
+lateness; do not add jitter after the 1200/750 ms fences.
 
 The root-only matcher accepts a protected collection ID and full issued-version
 inventory, **never caller-supplied needle bytes or partial needles**. It emits
@@ -229,9 +234,9 @@ for the exact executable pin, portable harness and bounded synthetic command.
 | Decision | Binding evidence / disposition |
 | --- | --- |
 | Lab conflict remains explicit | `docs/lab-profile-v0.md:5`, `spec/broker.md:880`, `spec/operator-and-activation-v0.md:1137`: manual-root lab only, never production. |
-| Residual direction is not C opening | `docs/lab-profile-v0.md:457`, `spec/operator-and-activation-v0.md:1143`: the dated residual act supplies no other owner's consent. |
-| Exact amendment/API bytes | `docs/lab-profile-v0.md:481`, `spec/operator-and-activation-v0.md:1285` and `:1349`: extracted text pins above; all three owner roles still required. |
-| Every-start and prefix join | `docs/lab-profile-v0.md:543`, `timeconf/consume_linux.go:66`: joined off-VM fence/clock, persisted manager prefix and native NTS witness remain implementation/qualification gates. |
+| Residual direction is not C opening | `docs/lab-profile-v0.md:507`, `spec/operator-and-activation-v0.md:1143`: the dated residual act supplies no other owner's consent. |
+| Exact amendment/API bytes | `docs/lab-profile-v0.md:531`, `spec/operator-and-activation-v0.md:1285` and `:1349`: extracted text pins above; all three owner roles still required. |
+| Every-start and prefix join | `docs/lab-profile-v0.md:593`, `timeconf/consume_linux.go:66`: joined off-VM fence/clock, persisted manager prefix and native NTS witness remain implementation/qualification gates. |
 | Existing API-key intake is not assumed | `docs/lab-profile-v0.md:178`, `docs/lab-wire-profile-v0.md:34`, `docs/lab-wire-profile-v0.md:50`: frozen API-key header/body shapes, not the existing OAuth adapter. |
 
 The table cites current file lines; the profile's B/G/M/D aliases resolve at its
@@ -303,6 +308,7 @@ part of the catalogue, not exemptions silently selected by the implementation.
 | Every typed value | Null and each of the other five JSON kinds, excluding only its required kind; fixed Boolean opposite where the measured value is fixed. | Direct grammar node, `TestLabGeneratedWirePairs`, `TestLabGeneratedWireJSONTypePairs`. |
 | Every closed object/member | Missing member, extra plain member, rename and extra alias for **every label operator**, duplicate member bytes, wrapper/wrong nesting. Duplicate tests use the test-local raw parser before map projection; they do not prove end-to-end wire-reader duplicate refusal. | `field_set` / `body_fields`, and parser duplicate refusal in `TestLabGeneratedObjectBytePairs`. |
 | Paired principal roles and closed owner set | Each principal kind swapped independently and both swapped; each tuple component shared. For **each** owner role: unaccept, remove, duplicate/replace by every other role, add unknown/extra role; independently unaccept residual consent. | `TestLabPrincipalDisjointPairs`, `TestLabGeneratedOwnerSetPairs`. |
+| C0d consumption/timing | For each publication role and periodic single, independently remove pair membership/freshness/floor/CAS and native baseline, seen-counter, cooldown, cadence, age, RPC, scheduler and watchdog conditions. Both sides of every bound; stopped/pending/partial answers; singles never advance F, enable publications, postpone use checks or reopen a fence. Distinguish unchanged native sequence/proof from increasing observation counter. | `TestLabObservationConsumptionPairs`, `TestLabObservationPeriodicPairs`, `TestLabObservationTimingBoundaries`, `TestLabObservationBudgetArithmetic`, `TestLabObservationCurrentPairs`, `TestLabObservationNarrowingJoins`; complete wire shape catalogue remains unchanged. |
 | C0b/C0c state predicates | Independently negate each conjunct of managed-account currentness; admitted/terminal launch and stop phases, each matching selector independently changed and both changed; absent/partial/full stop sets. Check both sides of each concurrency/hold/cooldown bound, both approval/qualification window endpoints, revocation/current-access and unknown authority before every ordinal AND in flight. Join target, sealed release, sealed A, full plan and launch pins after re-sealing mutated subjects. Sequence and counter generation differ independently and together; sequence reservation must leave every native snapshot member unchanged. Each semantic negative must reach its named gate beside a valid control; re-seal to avoid a stale-digest mask. | `TestLabObservationStopPairs`, `TestLabObservationCurrentnessPairs`, `TestLabObservationLoadPairs`, `TestLabObservationSnapshotSequencePairs`, `TestLabBoundedAuthorityPairs`, `TestLabBoundedReleasePairs`; shape fields still receive EVERY recursive operator above. |
 
 HTTP header names are nonempty ASCII RFC 9110 section 5.6.2 `tchar` tokens,
@@ -343,8 +349,16 @@ B5 and B4 release/qualification obligations, not C0b implementation evidence.
 ## C0c manager-owned lab observation
 
 [observation.md](observation.md) defines the tagged M1 → B1 observation
-capability, narrow request, complete native join and fresh final-publication
-rule. `observation-fixtures.json` is inert reference evidence, not a native
+capability, narrow request, complete native join and C0d consumption rules.
+Fresh non-reusable pairs are required only for start admission and final
+start-affecting commit/debit/stop/invalidation publication. Recurring current/
+revocation answers use periodic SINGLE checks plus the independent native-age
+fence, never a pair. Native sequence/proof must not move; the distinct durable
+observation counter MUST increase on every read. Singles advance only replay
+seen S, never publication floor F or a future pair candidate. No reuse,
+prevalidation or pipelining across publications. Pair entry first fences use,
+shares the single server budget, and has a 1250 ms total budget plus each
+original 250 ms RPC deadline. Safety containment does not wait for a pair. `observation-fixtures.json` is inert reference evidence, not a native
 receipt or proof of kernel authentication, locking or installed currentness.
 `native-executor` is 1..32 ASCII lowercase alphanumeric-first, then lowercase
 alphanumeric/hyphen, matching native executor/profile IDs. `native-id` preserves the native manager grammar: ASCII alphanumeric first,

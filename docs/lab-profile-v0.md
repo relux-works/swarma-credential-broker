@@ -345,7 +345,7 @@ its manager state and installed lab bytes are never promoted to production.
 
 ### 3.2 Concrete authority instead of permissive fixture facts
 
-[C0c](../contracts/lab-v0/observation.md) defines manager-owned, daemon-only native observation and fresh pre-publication revalidation; no native store permissions are widened.
+[C0c](../contracts/lab-v0/observation.md) defines manager-owned, daemon-only native observation, C0d publication pairs/periodic singles and their separate floors; no native store permissions are widened.
 
 `/etc/swarma/lab/authority.json` is root:broker 0640, under a root-owned 0750
 directory. It binds one API account, its owner root UID, exact gateway managed
@@ -399,22 +399,72 @@ Retained contracts and qualifications:
   redact and continue. Only the owner's root
   `hold-lift` with the exact active hold ID may lift; lifting never revives an
   ended lease or unbound service. No `clear_block` substitute.
-- **Revocation:** one-second end-to-end bound, not merely a one-second poll
-  constant. The lab sets 250 ms cadence + **200 ms RPC timeout**, strictly
-  below the 500 ms watchdog, leaving 50 ms scheduling margin; cancellation/closure
-  takes at most another 500 ms under qualified load. The landed defaults are
-  250 ms/250 ms (`G:experiments/model-proxy/cmd/model-proxy/managed_linux.go:36`
-  and `G:experiments/model-proxy/cmd/model-proxy/managed_linux.go:37`),
-  so G1 must change the timeout rather than claim the defaults have margin. Independently arm a **500 ms**
-  watchdog from the last successful current check; watchdog closure must finish
-  within another 500 ms, hence at most 1 s from that check. Measure both paths.
-  Unavailability, missed deadline, stale generation or hold cancels in-flight
-  upstream use, closes every affected downstream/broker connection and retires
-  the old listener; no cached permit or automatic stale-generation redial.
+- **Revocation (C0d):** the lab end-to-end closure bound is **3000 ms**,
+  replacing the former 1 s lab bound; no production requirement is amended.
+  Current/revocation checks use 250 ms cadence after receipt + **300 ms RPC timeout**;
+  allow one current RPC at a time, no queue or catch-up burst;
+  they consume NO C0c pair and cannot wait for or enable a publication.
+  With scheduling lateness strictly <50 ms, consecutive successful current
+  checks are <250+300+50 = 600 ms apart. G1 independently arms a **750 ms**
+  watchdog from the last successful current response; another current success
+  cannot reopen a closed use. Cancellation closes all affected upstream use,
+  streams, broker/downstream connections and the old listener within **500 ms**
+  of refusal/watchdog. Unknown authority, hold, stale generation and timeout
+  close immediately, never wait for the numerical maximum.
+- **Native observation (C0d):** B1 admits a start and publishes each
+  start-affecting commit/debit/stop/invalidation only with its own fresh C0c
+  pair. A periodic SINGLE is a continued-use check, never publication authority.
+  After each successful observation receipt, schedule the next single **500 ms**
+  later, with <50 ms lateness and the unchanged <250 ms observation RPC bound.
+  There is one server-wide observed-use slot and connection/lock budget,
+  no concurrent observed starts, burst, queue or overlapping publications.
+  The receipt anchor conservatively follows native lock release,
+  so 500 >=250 ms meets the release-to-acquire cooldown, even after a slow read.
+  Require unchanged native generation AND native sequence/proof (the complete
+  snapshot), and a strictly newer observation counter. A single advances only
+  the replay-seen counter, NEVER the durable publication floor. The native
+  sequence is the manager/effects/debit/invalidation prefix sequence tuple,
+  not the observation counter that increments on every read; C0c defines both.
+  Last validated native observed time must be strictly younger than **1200 ms**,
+  in the same boot. B1 independently fences use at that age even if current
+  checks succeed; cached current responses never refresh native age. A failed,
+  late, partial or changed single, observed stop/pending exec.stop, invalidation
+  or sequence replay closes use, not merely its next publication.
+- **Timing arithmetic:** a change just after the last native observation is
+  discovered in <250 (previous response tail)+500 (receipt cadence)+50
+  (scheduling)+250 (single RPC) = **1050 ms**; the independent native-age
+  watchdog fences by 1200 ms, leaving 150 ms valid-load margin. Even if a fault
+  is hidden until that fence and no failure reaches G1, its last success
+  can arrive <300 ms after the fence if already in flight;
+  1200+300+750+500 = **2750 ms** bounds full closure from the native
+  observation, leaving 250 ms below the 3000 ms limit.
+  Ordinary broker unbind is faster even with an old in-flight success:
+  <300+250+300+50+500 = **1400 ms** poll/closure, or
+  <=300+750+500 = **1550 ms** through the current watchdog. Late scheduling
+  is UNKNOWN,
+  not extra budget. All timers use CLOCK_BOOTTIME; equality at age/deadline
+  closes. All fence/closure bounds INCLUDE scheduling/dispatch; no extra
+  jitter is added after a deadline. Arm the native-age timer at 1150 ms and
+  the current watchdog timer at 700 ms, each with <50 ms dispatch lateness:
+  fencing is then <1200/<750 ms respectively. Valid <1050 ms native and
+  <600 ms current successes precede even those early timers by >100 ms.
+  M1/B1/G1/B4 must qualify these bounds under actual approved load.
+  The landed G defaults (250 ms cadence/250 ms RPC and 1 s watchdog at
+  `G:experiments/model-proxy/cmd/model-proxy/managed_linux.go:36`, `:37`, `:166`)
+  are not C0d qualification and must not silently override these lab budgets.
+  Publication pairs fence continued use before acquisition; first/final reads
+  each take <250 ms, each pre-connection cooldown wait is 250 ms with <50 ms
+  lateness, so even an immediately preceding receipt costs <2*(250+50+250)
+  = **1100 ms**, inside a nonextendable **1250 ms** pair budget. No blocking
+  work follows final revalidation; its original <250 ms deadline also applies.
+  Periodic work is suspended while this serialized pair runs; no still-active
+  use relies on a postponed single. Safety containment never waits for a pair;
+  only the conclusive start-affecting result needs one, otherwise UNKNOWN.
 - **Finite state:** renew from the actual `authorized_until`, not on every poll.
   The current holder schedules renewal at no more than 0.5 s regardless of a
   900-second lease (`G:experiments/model-proxy/cmd/model-proxy/managed_linux.go:170`).
-  G1 must avoid that journal churn while continuing 250 ms checks. The approved
+  G1 must avoid that journal churn while continuing 250 ms current checks;
+  B1 separately schedules the C0d periodic native singles. The approved
   lab plan bounds operations/leases; B1 reserves serialized capacity for hold,
   unbind and reconciliation before admitting further widening. Exhaustion fails
   closed, never deletes replay/hold/tombstone evidence.
@@ -611,7 +661,7 @@ coverage or native qualification already exists.
 | A06 | Accepted exact C opening record plus native NTS/fence/prefix floor admits enrollment/activation/use; missing owner role/amendment/join decision, plain NTP, fixture witness, rewind or expired approval closes use; fresh post-bind access readback admits activation, while stale or changed readback after bind refuses activation without a marker/fence write or gateway start. | C0, B2, B3, M1, B5, B4, Q |
 | A07 | Issue/renew obeys 1..900 and earliest deadline; gateway ceiling mismatch, >900, stale/replayed/retargeted or UNKNOWN duplicate effect refuses. | C0, B1, B2, G1, B4, Q |
 | A08 | Whole-needle leak match durably holds the account; local-only/ack-loss reopening, nonowner or wrong-ID lift and ended-lease resurrection fail. | C0, B1, B3, G1, B4, Q |
-| A09 | Root unbind/current control works; poll removal closes all affected streams/connections/listener within 1 s, and 500-ms watchdog plus closure within another 500 ms is independently measured; slow in-time current checks do not trigger teardown. | C0, B1, B3, G1, M1, B4, Q |
+| A09 | Root unbind/current control works; C0d native-age 1200 ms fence, 750 ms current watchdog and <=500 ms closure meet the 3000 ms end-to-end bound; 500 ms periodic singles never publish or advance the publication floor; slow in-time controls remain usable, and failed/changed/partial/stopped observations close use. | C0, B1, B3, G1, M1, B4, Q |
 | A10 | Approved closed API-key lab mapping/Unix launch works; inherited auth, production OAuth mapping substitution, other families/io_uring/network FDs and unapproved executor refuse. | C0, M1, B5, B4, RM, Q |
 | A11 | Approved complete lab aggregate/second build installs; production/lab tag confusion, unapproved digest, unsafe member/link/mode, substitution or missing native NSS closure refuses. | C0, M1, B5, B4, RB, RG, RM, Q |
 | A12 | Owner-run complete lifecycle/surface scan and full guest/endpoint/vendor access attestation work; owner-only endpoint/roster is the valid control beside endpoint-agent-reachable and vendor-agent-admin/changed-roster negatives; missing real needle/version, partial-needle oracle, inaccessible surface, privileged agent access or raw evidence export refuses. | C0, M1, B5, B4, Q |
@@ -621,13 +671,13 @@ coverage or native qualification already exists.
 | Unit | Repository | Bounded implementation scope | Dependencies | Acceptance rows | LU |
 | --- | --- | --- | --- | --- | --- |
 | C0 | swarma-credential-broker | Freeze section 5.2 byte surfaces and API-key-mode/body fixtures once, with published reproducible probe artifacts; review the lab conflict and exact C amendment/join/owner-decision record. No inferred production acceptance. | none | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 0.5 |
-| B1 | swarma-credential-broker | Tagged lab daemon and committed-account bootstrap; narrowly parameterized API-key custody/service record family; real managed gateway/caller facts; worker/legacy refusal; durable operation/hold/state and finite-plan narrowing reserve. Reuse service arithmetic/store, not a second lease engine or invented production receipt. | C0 | A01,A02,A03,A05,A07,A08,A09 | 1.5 |
+| B1 | swarma-credential-broker | Tagged lab daemon and committed-account bootstrap; narrowly parameterized API-key custody/service record family; real managed gateway/caller facts; worker/legacy refusal; durable operation/hold/state and finite-plan narrowing reserve; C0d serialized publication pairs, floor/seen separation, periodic singles and native-age fence. Reuse service arithmetic/store, not a second lease engine or invented production receipt. | C0 | A01,A02,A03,A05,A07,A08,A09 | 1.5 |
 | B2 | swarma-credential-broker | Tagged qualified NTS consumer/local C witness, settlement and sticky watermark/hold continuity; root off-home per-start fence, off-VM head/expiry join and persisted manager-prefix floor; burned-install/no-restore path. No production witness/default change. Live construction/qualification additionally waits for C-OPEN-OWNERS. | C0 | A01,A06,A07 | 1.5 |
 | B3 | swarma-credential-broker | Root-only lab control protocol/CLI: prep/enroll/bind/activate/unbind/lift; authenticated broker peer before bounded no-echo stdin capture, no spill and native session retirement; per-operation UNKNOWN reconciliation. No signed production operator ceremony. | B1 | A01,A03,A04,A05,A06,A08,A09 | 1.0 |
-| G1 | swarma-chain-lab | Tagged API-key managed source/intake with the exact eleven-flag API-key-mode profile; reject OAuth/unknown flags and unsupported coupled fields; preserve errors/SSE. Durable hold/recovery, deadline renewal, 500-ms watchdog and full one-second teardown. | C0 | A01,A02,A03,A07,A08,A09 | 1.5 |
-| M1 | swarma-user-manager | Tagged closed API-key lab mapping with only ANTHROPIC_API_KEY=ssh-placeholder; preserve production mapping/seccomp. Format-owned setup and genuine helper/one-start executor; approved bounded invocation and no-privileged-agent access readback. | C0 | A01,A02,A03,A04,A06,A09,A10,A11,A12 | 1.5 |
+| G1 | swarma-chain-lab | Tagged API-key managed source/intake with the exact eleven-flag API-key-mode profile; reject OAuth/unknown flags and unsupported coupled fields; preserve errors/SSE. Durable hold/recovery, deadline renewal, C0d 300-ms current RPC, 750-ms current watchdog, 500-ms closure and 3000-ms native end-to-end ceiling. | C0 | A01,A02,A03,A07,A08,A09 | 1.5 |
+| M1 | swarma-user-manager | Tagged closed API-key lab mapping with only ANTHROPIC_API_KEY=ssh-placeholder; preserve production mapping/seccomp. Format-owned setup and genuine helper/one-start executor; approved bounded invocation and no-privileged-agent access readback; C0c observation server with unchanged 250-ms global lock cooldown and C0d single/pair scheduling qualification. | C0 | A01,A02,A03,A04,A06,A09,A10,A11,A12 | 1.5 |
 | B5 | swarma-credential-broker | Root bootstrap/aggregate copy verifier and atomic placement; exact disabled unit/config/ACL/native-readback plan; off-VM preparation/next-plan/stop seals; source-owned lab bundle manifest. Not a full-platform installer or a root source build. Verify owner-role/access/cap records and generate persisted nonsecret operation envelopes after each predecessor commits and before its own invocation. | B2,B3,G1,M1 | A01,A04,A06,A10,A11,A12 | 1.0 |
-| B4 | swarma-credential-broker | Tagged native qualification driver and protected lifecycle scanner; complete Q1–Q6 valid/negative/public-plant commands, actual worker peers, timing/stream observation, immutable metadata-only pack and bounded fixture cleanup. Native inert preflight precedes real-key use. In-custody needle attestation and root-only whole-needle matcher; owner executes every live Q command. | B1,B2,B3,G1,M1,B5 | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 1.5 |
+| B4 | swarma-credential-broker | Tagged native qualification driver and protected lifecycle scanner; complete Q1–Q6 valid/negative/public-plant commands, actual worker peers, C0d periodic/pair/native-age/current/closure timing and stream observation, immutable metadata-only pack and bounded fixture cleanup. Native inert preflight precedes real-key use. In-custody needle attestation and root-only whole-needle matcher; owner executes every live Q command. | B1,B2,B3,G1,M1,B5 | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 1.5 |
 | RB | swarma-credential-broker | Main-owned lab build/release profile and expected inventory, future signed broker tag, independent second build, checksums/provenance/fragment and release review. Production admission rejects lab tags; lab admission builds lab-only targets. | B4 | A01,A11 | 0.5 |
 | RG | swarma-chain-lab | Main-owned gateway lab archive/input policy and future signed tag; correct tagged binary/members/unit plus independent rebuild/review/checksums. Disjoint lab tag admission/provenance; cut only after B4 integrated verification. | B4 | A01,A02,A11 | 0.5 |
 | RM | swarma-user-manager | Future signed manager tag including native cgo NSS probe, launcher, isolated setup/executor and exact Claude dependency; native closure and independent rebuild/review/checksums. Disjoint lab tag admission/provenance; cut only after B4 integrated verification. | B4 | A01,A10,A11 | 0.5 |
@@ -677,7 +727,7 @@ Existing manager-owned production records are the explicit exception in 3.1.
 The C0 freeze is [contracts/lab-v0/README.md](../contracts/lab-v0/README.md), with
 27 closed formats, including C0b's `swarma-broker-lab-bounded-invocation/1` (B5 → M1/B4).
 The [C0b addendum](../contracts/lab-v0/bounded-invocation.md) freezes owner-set bounds and exact approval/executor joins.
-[C0c](../contracts/lab-v0/observation.md) adds `swarma-broker-lab-observation-request/1` (B1 → M1) and `swarma-broker-lab-observation-response/1` (M1 → B1), with native-lock currentness and final-publication joins. These are construction bytes, not production acceptance or any owner/native execution gate.
+[C0c](../contracts/lab-v0/observation.md) adds `swarma-broker-lab-observation-request/1` (B1 → M1) and `swarma-broker-lab-observation-response/1` (M1 → B1), with native-lock currentness, C0d publication-pair versus periodic-single consumption, distinct native sequence/observation counter, and final-publication joins. These are construction bytes, not production acceptance or any owner/native execution gate.
 
 | Byte surface / lab format | Writer → readers |
 | --- | --- |
@@ -1156,7 +1206,7 @@ error, inaccessible socket, dead daemon or skipped plant never passes a negative
 Use a fresh approved fixture store/transport for synthetic cases, same exact
 released code/configuration and public noncredential canaries. Never plant a real
 key. Fixture results are labeled separately from the real-token run; they cannot
-stand in for Q1 vendor validity, live peer refusal or native one-second timing.
+stand in for Q1 vendor validity, live peer refusal or native C0d closure timing.
 Every invasive control is confined to the lab's owned units/accounts/scratch.
 
 ### Q1 — bounded real inference via Unix gateway
@@ -1265,18 +1315,23 @@ set -eu
 
 Valid: current poll is `not_revoked` and a bounded affected use/connection is
 observable. `fixture-slow-current-check` schedules 250 ms cadence and a slow
-190 ms successful response under the 200 ms RPC timeout: its next success is
-within 450 ms plus less than 50 ms qualified scheduling margin, so the 500 ms
-watchdog must not fire or close a valid stream. G1 owns
-`TestLabWatchdogSlowCurrentCheck` and B4 observes the same valid control.
-Negatives: durable root service.unbind, synthetic unavailable and
-missed-check controls. Require all affected key use/in-flight streams and old
-broker/downstream connections/listener closed within **1 s** of durable removal
-for the poll path. For unavailable/delayed-check paths require watchdog firing
-by 500 ms from the last successful current check and complete closure within
-another 500 ms. The source watchdog is currently 1 s
-(`G:experiments/model-proxy/cmd/model-proxy/managed_linux.go:166`); G1 must change
-and qualify it, not claim that current constant proves the tighter path.
+290 ms successful response under the 300 ms RPC timeout: its next success is
+<600 ms including <50 ms scheduling lateness, below the 750 ms watchdog.
+Pair it with a valid <250 ms native single every 500 ms after receipt: native
+age remains <1050 ms, below 1200 ms. G1 owns `TestLabWatchdogSlowCurrentCheck`;
+B4 independently measures both controls, with no pair on recurring RPCs.
+Negatives: durable root service.unbind, synthetic unavailable/missed/late check,
+partial/failed native single, moved generation/native sequence, observed terminal
+start or pending exec.stop. Equality at native age 1200 ms closes use even with
+successful cached current responses. Require the native-age fence by 1200 ms,
+current watchdog by 750 ms from its last success, then full closure within
+500 ms: **3000 ms** is the lab end-to-end ceiling (worst case 2750 ms).
+For ordinary unbind, including an old in-flight current response, poll/closure
+is <1400 ms and the unavailable path <=1550 ms. No later good single/poll resurrects the old stream. Publication
+valid controls use separate serialized initial/final observations, each above
+all preceding seen/publication sequences, within 1250 ms and the final RPC's
+original deadline; reuse, pipelining and single-as-publication refuse with no
+publication/floor advance. Safety stop proceeds even if its result stays UNKNOWN.
 Record the scheduler/load
 bound and independent monotonic observation; a stream already ended before the
 fault gives no in-flight credit. Any additional real inference must fit the
@@ -1476,7 +1531,7 @@ are now source-landed where section 2/6 says so, not installed-qualified.
 | G12 | Q1 native inference driver with valid/invalid binding controls and metadata-only effects. | Still required: real bounded inference and exact caller/placeholder negatives with metadata-only effect readback. | B4, G1 |
 | G13 | Q2 in-custody scanner, complete surface/encoding inventory, safe plants and exact exits. | Still required: holder-custody matcher, lifecycle/surface inventory and complete scans; public plants prove the instrument without leaking the key. | B4 |
 | G14 | Q3 genuine worker peer refusal, gateway valid control and no material/effect readback. | Still required: genuine worker-kernel-peer service/legacy refusal and valid gateway control, not chmod-denied connect. | B4, B1 |
-| G15 | Q4 authenticated removal/generation transition, timing budget and independent full closure observation. | Still required: root unbind, managed generation retirement, one-second native timing and independent stream/listener/connection observation. | B3, M1, G1, B4 |
+| G15 | Q4 authenticated removal/generation transition, timing budget and independent full closure observation. | Still required: root unbind, managed generation retirement, C0d 3000 ms native end-to-end timing and independent stream/listener/connection observation. | B3, M1, G1, B4 |
 | G16 | Q5 synthetic leak, durable broker hold bridge/readback, owner-only lift and cleanup. | Still required: public match through real durable account-hold bridge, same-ID ack reconciliation, restart persistence and root-only lift. | G1, B1, B3, B4 |
 | G17 | Q6 lifetime selector, issue/renew/expiry/replay/trusted-time controls and over-900 refusal. | Still required: sole lab selector-to-constructor path, issue/renew/replay/expiry and isolated >900 refusal with actual exits. | B1, B2, B4 |
 | G18 | Snapshot/reset coverage, authorized stop, restore fences, baseline and token-lifecycle decisions. | Not needed for Q1–Q6: snapshot creation/restore/reset. DN-09 C explicitly forbids restore; orderly-stop/off-VM seals, vendor revoke and fresh-install retirement remain required. | B2, B5; the owner, Infra |

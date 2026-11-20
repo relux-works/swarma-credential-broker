@@ -90,6 +90,11 @@ func observationControl(test *testing.T) observationFixture {
 
 func observationAdmission(test *testing.T, fixture observationFixture, nativeLocked bool) string {
 	test.Helper()
+	return observationJoinAdmission(test, fixture, nativeLocked, false)
+}
+
+func observationJoinAdmission(test *testing.T, fixture observationFixture, nativeLocked, narrowing bool) string {
+	test.Helper()
 	set, _ := loadContracts(test)
 	for format, record := range map[string]map[string]any{observationRequest: fixture.Request, observationResponse: fixture.Response} {
 		if checkRecord(canonicalObject(test, record), boundedShape(set, format), set) != nil {
@@ -137,10 +142,10 @@ func observationAdmission(test *testing.T, fixture observationFixture, nativeLoc
 	if !reflect.DeepEqual(normalizedBounded(test, pins), expected["start"]) {
 		return "start_join"
 	}
-	if start["phase"] != "admitted" {
+	if start["phase"] != "admitted" && !narrowing {
 		return "start_phase"
 	}
-	if len(response["stops"].([]any)) != 0 {
+	if len(response["stops"].([]any)) != 0 && !narrowing {
 		return "stop"
 	}
 	receipts, debits, invalidations := response["receipts"].([]any), response["debits"].([]any), response["invalidations"].([]any)
@@ -150,7 +155,7 @@ func observationAdmission(test *testing.T, fixture observationFixture, nativeLoc
 	if len(debits) != 1 {
 		return "debit_count"
 	}
-	if len(invalidations) != 0 {
+	if len(invalidations) != 0 && !narrowing {
 		return "invalidation"
 	}
 	receipt, debit := receipts[0].(map[string]any), debits[0].(map[string]any)
@@ -164,6 +169,18 @@ func observationAdmission(test *testing.T, fixture observationFixture, nativeLoc
 	}
 	if start["uid"].(int64) > 4294967294 || receipt["pid"].(int64) > 4194304 || receipt["session_id"].(int64) > 4194304 {
 		return "native_bounds"
+	}
+	for _, value := range invalidations {
+		invalidation := value.(map[string]any)
+		if invalidation["generation"] != start["generation"] || invalidation["execution_id"] != request["start_id"] || invalidation["boot_id"] != manager["boot_id"] {
+			return "invalidation_join"
+		}
+	}
+	for _, value := range response["stops"].([]any) {
+		stop := value.(map[string]any)
+		if stop["generation"] != start["generation"] || stop["start_id"] != request["start_id"] {
+			return "stop_join"
+		}
 	}
 	if debit["committed_ms"].(int64) > observed {
 		return "debit_time"
@@ -227,7 +244,7 @@ func publishObservation(test *testing.T, state *observationPublication, first, f
 		return "unknown_freshness"
 	}
 	sequence := final.Response["sequence"].(int64)
-	if sequence <= first.Response["sequence"].(int64) || sequence <= state.Floor {
+	if first.Response["sequence"].(int64) <= state.Floor || sequence <= first.Response["sequence"].(int64) || sequence <= state.Floor {
 		return "unknown_sequence"
 	}
 	old, newer := cloneObject(test, first.Response), cloneObject(test, final.Response)
@@ -567,7 +584,7 @@ func freshObservationPair(test *testing.T) (observationFixture, observationFixtu
 
 // Claim: a new complete observation is mandatory immediately before atomic publication; mismatches, replay, partials, timeouts and failed CAS leave floor and publication unchanged.
 func TestLabObservationPublicationPairs(test *testing.T) {
-	names := []string{"fresh", "reused", "sequence", "floor", "generation", "manager", "prefix", "receipt", "debit", "invalidation", "partial", "timeout", "delayed", "clock-regression", "cas", "transport", "reordered-time"}
+	names := []string{"fresh", "reused", "sequence", "floor", "initial-floor", "generation", "manager", "prefix", "receipt", "debit", "invalidation", "partial", "timeout", "delayed", "clock-regression", "cas", "transport", "reordered-time"}
 	for _, name := range names {
 		test.Run(name, func(test *testing.T) {
 			first, final := freshObservationPair(test)
@@ -588,6 +605,10 @@ func TestLabObservationPublicationPairs(test *testing.T) {
 				want = "unknown_freshness"
 			case "sequence":
 				final.Response["sequence"] = int64(8)
+				want = "unknown_sequence"
+			case "initial-floor":
+				state.Floor = 8
+				original = state
 				want = "unknown_sequence"
 			case "floor":
 				state.Floor = 9

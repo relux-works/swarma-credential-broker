@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "3916382ff3a22dbc11115e6780bba69a1c46177eccc7b30bea89debed7ceeb47"
+const indexSHA256 = "149ab1175692b379fae251388774d54fbeeb5a1758d03fd87af3a6a8abc85823"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -1571,10 +1571,20 @@ func TestLabPrincipalDisjointPairs(test *testing.T) {
 }
 
 func timingTextAgrees(profile, contract string) bool {
-	return strings.Contains(profile, "250 ms cadence + **200 ms RPC timeout**") && strings.Contains(contract, "every 250 ms use a 200 ms RPC")
+	for _, literal := range []string{"250 ms cadence after receipt + **300 ms RPC timeout**", "**750 ms**", "**500 ms**", "**1200 ms**", "**1250 ms**", "**3000 ms**", "**2750 ms**", "strictly <50 ms"} {
+		if !strings.Contains(profile, literal) {
+			return false
+		}
+	}
+	for _, literal := range []string{"every 250 ms after receipt use a 300 ms RPC", "750 ms current watchdog", "<=500 ms closure", "500 ms after receipt", "<250 ms RPC", "<50 ms lateness", "1200 ms native-age fence", "1250 ms total budget", "2750 ms", "3000 ms lab closure ceiling"} {
+		if !strings.Contains(contract, literal) {
+			return false
+		}
+	}
+	return true
 }
 
-// Claim: C0's frozen cadence/RPC text agrees with the design's 190 ms valid-control budget; the old 100 ms contradiction refuses, without claiming native timing qualification.
+// Claim: C0d's frozen cadence/RPC text agrees with the design's 290 ms valid control; the former 200 ms contradiction refuses, without claiming native timing qualification.
 func TestLabTimingContractPairs(test *testing.T) {
 	profile, err := os.ReadFile("../../docs/lab-profile-v0.md")
 	if err != nil {
@@ -1584,7 +1594,18 @@ func TestLabTimingContractPairs(test *testing.T) {
 	if !timingTextAgrees(string(profile), contract) {
 		test.Fatal("design/C0 timeout mismatch")
 	}
-	if timingTextAgrees(string(profile), strings.Replace(contract, "200 ms RPC", "100 ms RPC", 1)) {
-		test.Fatal("old timeout contradiction admitted")
+	for _, literal := range []string{"300 ms RPC", "750 ms current watchdog", "<=500 ms closure", "500 ms after receipt", "<250 ms RPC", "<50 ms lateness", "1200 ms native-age fence", "1250 ms total budget", "2750 ms", "3000 ms lab closure ceiling"} {
+		test.Run(literal, func(test *testing.T) {
+			if timingTextAgrees(string(profile), strings.Replace(contract, literal, "contradictory budget", 1)) {
+				test.Fatal("timing contradiction admitted")
+			}
+		})
+	}
+	for _, literal := range []string{"250 ms cadence after receipt + **300 ms RPC timeout**", "**750 ms**", "**500 ms**", "**1200 ms**", "**1250 ms**", "**3000 ms**", "**2750 ms**", "strictly <50 ms"} {
+		test.Run("profile/"+literal, func(test *testing.T) {
+			if timingTextAgrees(strings.ReplaceAll(string(profile), literal, "contradictory budget"), contract) {
+				test.Fatal("profile timing contradiction admitted")
+			}
+		})
 	}
 }

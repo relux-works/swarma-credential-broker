@@ -327,3 +327,27 @@ catalogue reaches each new member/type at its own grammar/closure gate.
 All witnesses concern test-only reference functions, not an installed executor,
 server or client. M1/B1/B4 must supply real enforcement evidence; no native or
 production acceptance is inferred. The existing out-of-contract list applies.
+
+
+## C0d consumption and timing clarification
+
+No field, discriminator, bound in a wire grammar, fixture payload, native lock
+mode/cooldown, or production source is changed. The full existing recursive C0
+catalogue still exercises the unchanged 27 formats. Additional rule operators
+below apply at the intended consumption/timing gate, with nearby valid controls.
+All functions are test-only references; installed M1/B1/G1/B4 proof is pending.
+
+| Rule / cases | Named tests | Narrowing overlays |
+| --- | --- | --- |
+| Exact publication role set; all literal/null/wrong-type operators; current/single/revocation never publish | TestLabObservationConsumptionPairs | c0d-role; c0d-role-type |
+| New non-reusable pair; both then-current floor and seen counter; initial/final replay, previous-final reuse and pipelined obsolete floor | TestLabObservationConsumptionPairs; TestLabObservationCurrentPairs; TestLabObservationPublicationPairs | c0d-floor; c0d-legacy-initial-floor; c0d-seen; c0d-final-counter; c0d-fresh |
+| Pair joins/snapshot/effect binding, actual stop/invalidation selectors, CAS, original final deadline; no stopped-use grant | TestLabObservationConsumptionPairs; TestLabObservationNarrowingJoins | c0d-pair-join; c0d-pair-snapshot; c0d-effect; c0d-narrowing-proof; c0d-stop-join; c0d-invalidation-join; c0d-cas; c0d-final-deadline; c0d-narrowing-use |
+| Periodic single validates completeness, generation, native sequence/digests and strictly increasing observation counter; failed/late/partial/pending/terminal stop closes use | TestLabObservationPeriodicPairs | c0d-single-answer; c0d-single-join; c0d-single-counter; c0d-single-snapshot; c0d-single-baseline-reset; c0d-single-receipt |
+| Single never advances publication floor or native baseline, never grants a publication; successful current never refreshes native age; failed reads irreversibly fence use | TestLabObservationPeriodicPairs; TestLabObservationCurrentPairs | c0d-single-floor; c0d-current-age-refresh; c0d-sticky; c0d-fence |
+| Timing both boundaries: age [0,1200), periodic [500,550), waits [250,300), pair [0,1250), current RPC [0,300), current spacing [250,300), watchdog [0,750), closure [0,500]; watchdog dispatch [0,50) | TestLabObservationTimingBoundaries | c0d-age-low; c0d-age-high; c0d-schedule-low; c0d-schedule-high; c0d-wait-low; c0d-wait-high; c0d-pair-low; c0d-pair-high; c0d-current-low; c0d-current-high; c0d-current-schedule-low; c0d-current-schedule-high; c0d-watchdog-low; c0d-watchdog-high; c0d-closure-low; c0d-closure-high; c0d-dispatch-low; c0d-dispatch-high |
+| Independent native-age fence/current check, final publication and periodic gates actually invoke timing rules; no optimistic result on stale/late facts | TestLabObservationPeriodicPairs; TestLabObservationCurrentPairs; TestLabObservationConsumptionPairs | c0d-current-age; c0d-single-schedule; c0d-pair-wait; c0d-final-wait; c0d-pair-budget; c0d-pair-order; c0d-pair-entry-fence |
+| Prior response tail + single cadence/jitter/RPC = 1050; native age 1200; current success gap <600 <750; in-flight old success + watchdog + closure = 2750 <3000; pair <1100 <1250 | TestLabObservationBudgetArithmetic; TestLabObservationSlowControls; TestLabTimingContractPairs | c0d-arithmetic; c0d-timing-text |
+
+No installed cadence, socket load, atomic publication, failover or closure timing
+is claimed from these integer/reference controls. The C0d design changes the
+lab ceiling explicitly; it does not reopen the pending native/owner gates.

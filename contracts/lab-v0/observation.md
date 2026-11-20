@@ -1,4 +1,4 @@
-# C0c: manager-owned lab observation, version 1
+# C0c: manager-owned lab observation, version 1 (C0d consumption clarification)
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Construction only. The owner-delegate
 2026-11-20 decision selects a narrow manager-owned capability, not a root
@@ -153,8 +153,10 @@ complete in that interval closes UNKNOWN. Rate/concurrency state is protected
 manager-wide, not per connection; restart/unknown clock enforces a full cooldown.
 Native manager transitions have priority; no spin/retry, new lock or wait-policy
 weakening. M1 must qualify actual bounded native reads/fsync, not infer them from
-these reference facts. Initial/final observations respect the cooldown; any
-waiting is BEFORE the fresh final connection, not after its publication check.
+these reference facts. Initial/final and periodic observations share this SAME
+global cooldown; any
+waiting is BEFORE a new connection, not after its publication check. C0d
+consumption below changes no server limit, request or response field.
 
 Exactly one request frame and one complete response frame per connection.
 Frames use 4-byte unsigned big-endian nonzero lengths and the limits above.
@@ -187,35 +189,127 @@ exhausted, regressed or uncertain persistence gives
 UNKNOWN. Instance/boot changes invalidate an in-flight pair. Store replacement
 requires a separately approved new installation, never a counter reset.
 
-## Fresh final-publication consumption
+## C0d: publication pairs versus periodic singles
 
-B1 initially validates an authenticated complete observation against protected
-current factory/authority pins and a durable per-store high-water. It uses that
-as a tentative candidate only. Immediately before publishing ANY result that
-could enable use, B1 makes a NEW connection/request for the SAME native IDs.
-Require a new, strictly greater sequence than the candidate and durable
-high-water, identical manager identity/store proof/start/receipt/debit/
-invalidation/stop join, matching sequence_generation, current generation and complete=true, fresh CLOCK_BOOTTIME
-interval and deadline; the final request interval cannot precede the first
-receipt interval. No intervening blocking I/O, effect or widening work is
-allowed between the final check and publication; if delayed or retried, observe
-again. Persist the new high-water in B1's atomic publication record; a failed or
-uncertain persistence publishes nothing and yields UNKNOWN. Concurrent uses
-serialize through that native B1 commit/CAS so no sequence is accepted twice.
+The owner-delegate decision of 2026-11-20 confines fresh pairs to start
+admission and final publication of a start-affecting result: commit, debit,
+stop or invalidation. Recurring current/revocation answers are NOT publications
+for this purpose and consume NO pair; they merely check continuing authority.
+No other enabling path is exempted. Containment/narrowing begins immediately
+without waiting for a pair; an unvalidated conclusive result remains UNKNOWN.
+A stop or invalidation pair authenticates the complete corresponding native
+state, never treats it as committed-use authority. An admitted-use pair still
+requires admitted phase, one receipt/debit, no stop and no invalidation.
 
-Any mismatch (including an unrelated native prefix change), stale generation,
-replayed/regressed sequence, timeout, missing/partial answer, reconnect failure,
-restart or failed local CAS is UNKNOWN, with NO material/result publication and
-no automatic resend of an effect. A known invalidation likewise permits no use;
-containment may proceed through independently admitted narrowing paths. Retry
-is a fresh observation only, never a retry of launch.start or a ledger reset.
-No copied ledger is authoritative. A local high-water is a replay floor, not
-current native evidence. The manager lock ends after observation: this does not
-promise future liveness or atomicity with a later manager revocation. Native
-per-use currentness, revocation polling and final publication checks still apply;
-this is not a replacement for those authorities or a distributed transaction.
-The existing no-restore/off-VM continuity gates and accepted whole-VM snapshot
-residual remain unchanged; a local generation/counter is not rollback-proof.
+### Native sequence, seen counter and publication floor
+
+There are TWO different sequences, not a change to existing wire bytes:
+- Native sequence/proof is the tuple (store.manager_head.sequence,
+  store.effects_revision, store.debits_head.sequence,
+  store.invalidations_head.sequence), together with ALL associated digests and
+  complete manager/store/start/receipt/debit/invalidation/stop projections.
+  Any movement, including unrelated prefix movement or a receipt-only digest
+  change, invalidates continued use. Installed store generation and managed
+  account currentness remain independently mandatory.
+- Response `sequence` is the durable observation counter. Every successful read
+  increases it, even when native state has NOT changed. Its sequence_generation
+  MUST still match the installed store generation. Periodic singles must have
+  strictly newer observation counters, not equal ones. Requiring equality of
+  this transport counter would wrongly close every valid second observation.
+
+B1 tracks a durable publication floor F and a separate replay-seen counter S,
+per installed store generation. S >= F; every accepted read advances S, never
+backwards. Tentative pair reads are accepted only at the atomic publication
+commit; failed pairs remain fenced, and the manager still consumes their
+reserved counters. Restart/loss/uncertainty of either record fences use until a new
+admitted pair reconciles durable state; no cache/counter reset repairs it.
+A periodic single NEVER advances F. It cannot become either member of a
+publication pair, be banked as a future candidate, or enable any publication.
+No cross-publication reuse, sharing, prevalidation or pipelining is permitted.
+
+### Fresh pair and final publication
+
+Serialize pairs and periodic work across the one server-wide observed-use slot
+and connection budget. Concurrent observed starts are not admitted by this
+timing profile; additional starts require a newly qualified scheduling contract. Before entering
+any pair, fence existing continued use; no open use depends on delaying its next
+single. Do not transparently revive ended streams after a later good result.
+Collect the initial observation on a NEW connection, same protected pins and
+native IDs, above BOTH then-current F and S; it is tentative only. Immediately
+before final publication collect a second NEW connection/request for those same
+IDs. The final counter must exceed the candidate, F and S; the complete native
+snapshot must be identical. Full locked/protected currentness, completeness,
+boot, interval, transport and deadline checks apply to each read. For a narrowing
+result require the authentic projected stop/invalidation/terminal state and
+its exact requested operation binding, not admitted-use liveness.
+
+After each preceding receipt wait >=250 ms before opening the next connection,
+with scheduling lateness <50 ms, never inside the native lock or an RPC queue.
+Each observation retains its nonextendable <250 ms deadline. An initial/final
+pair including a possible preceding cooldown costs <2*(250+50+250) = 1100 ms;
+its total deadline is 1250 ms from pair entry, equality closed. No blocking I/O,
+effect or widening work may intervene after final revalidation; publication is
+also before the final connection's original deadline. Persist final S and F in
+B1's atomic publication/CAS record; failure/uncertainty publishes nothing.
+Concurrent publications serialize, never validate above an obsolete floor.
+The first read of the next pair must be above the previous final AND any singles
+since then. No result reuses the previous final as its next initial.
+
+### Continued use: periodic SINGLE and independent fences
+
+While admitted use is open, schedule a SINGLE 500 ms after the last successful
+observation receipt, with scheduling lateness strictly <50 ms. This is a
+receipt-anchored delay, NOT 500 ms from acquisition or an accumulating timer.
+With <250 ms RPC time it always respects the >=250 ms release/acquire cooldown.
+No burst, queued catch-up, overlap or retry on failure. An absent due observation
+or late scheduler is UNKNOWN. A pair cannot preempt a due single while leaving
+that use open: first fence use, then serialize the pair.
+
+The single authenticates the same IDs and protected bindings, all original
+admitted-use checks, generation_current=true, complete=true and the SAME native
+sequence/proof as the last published admitted pair. Its observation counter
+must exceed S; on success advance S and the last validated observed/receipt
+times ONLY. Do not update the baseline snapshot, F or any authority/lease
+expiry. Require now - observed_monotonic_ms in [0,1200) in the same boot before
+EVERY continued-use/current answer and forwarding decision. Merely returning
+current success does not refresh this age. The metadata cache is only a bounded
+derived gate, NEVER an authoritative copied ledger or replacement for native
+per-use currentness, authorization, qualification and revocation checks.
+
+Failed, late, partial, replayed, changed generation/native sequence/proof,
+stopped/invalidated or pending exec.stop observations immediately fence use,
+close the broker connection and trigger gateway cancellation. The fence is
+sticky; a later single/current success cannot reopen it. B1 independently
+fences at observed time +1200 ms even if no check arrives. G1 allows one current
+RPC at a time, no queue; it checks current at 250 ms cadence after the preceding
+response, RPC deadline 300 ms, scheduler lateness <50 ms, and independently
+closes on a 750 ms watchdog since its last successful current response. Full
+affected use/streams/connections/listener closure takes <=500 ms from detection
+or watchdog; no automatic stale-generation redial.
+
+Worst case from a native change just after observation: <250 ms prior response
+tail +500 cadence +50 scheduling +250 RPC = 1050 ms to detection, leaving 150 ms
+before the 1200 ms native-age fence. Even if the failure signal is lost, the
+last permitted current response can arrive <300 ms after that fence:
+1200+300+750+500 = 2750 ms full closure, below the profile's 3000 ms ceiling. Normal current successes
+are <250+300+50 = 600 ms apart (<750); ordinary unbind poll/closure,
+including an old in-flight success, is <300+250+300+50+500 = 1400 ms,
+or <=300+750+500 = 1550 ms through the current watchdog. The stated fence/closure
+bounds include all scheduling/dispatch. Native-age watchdog arm is observed
++1150 ms, current watchdog arm is last current success +700 ms, with dispatch
+lateness <50 ms in each case: actual fences precede +1200/+750 ms. Valid native
+inter-observation age <1050 ms and current spacing <600 ms precede those early
+arms by >100 ms. Do not add scheduler delay to a deadline. Scheduling/clock
+uncertainty closes,
+never extends these budgets. These are required native M1/B1/G1/B4 qualification
+bounds, NOT measured installed guarantees from reference tests.
+
+Every mismatch, timeout, missing/partial answer, reconnect/restart or failed
+CAS yields UNKNOWN with no material/result publication and no automatic effect
+resend. A narrowing containment act may proceed independently. Manager lock
+release still precedes observation receipt: no future-liveness/distributed
+transaction claim is added. The no-restore/off-VM continuity gates and accepted
+whole-VM snapshot residual are unchanged; counters are not rollback-proof.
 
 ## Construction evidence and remaining implementation
 
