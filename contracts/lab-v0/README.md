@@ -1,4 +1,4 @@
-# Lab contract C0, revision 2
+# Lab contract C0, revision 3
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
@@ -7,7 +7,10 @@ The 24 entries in `surfaces.json` are authoritative together with this document;
 `fixtures.json` pairs every own-format valid record with an unknown-field
 negative. Nested negatives carry a complete mutated record, path (array indices
 are integers), structure, field and mutation; each is paired with that surface's
-valid record. The acceptance allocations are construction obligations, not claims
+valid record. Closure mutations outside an excluded seal member are re-sealed,
+so every exported closure negative passes its independent seal-only control.
+The composed reader must refuse specifically at field_set before seals.
+The acceptance allocations are construction obligations, not claims
 that these fixtures implement A01–A12. B1–B5/G1/M1 must exercise their actual
 readers and effects against these bytes. No runtime code or constructors ship here.
 
@@ -77,8 +80,8 @@ request bytes and returned receipt/request ID/head must agree; never synthesize 
 manager receipt. Existing manager records retain their own formats. Principal
 facts come from native protected manager evidence and kernel peers, not these
 fixture assertions. Authority's gateway is `kind=service`, worker/caller is
-`kind=worker`, generations and UIDs are disjoint; root control requires kernel
-UID 0 separately. Lease material goes only to the exact gateway. Every duplicate
+`kind=worker`; generations, execution_id values and UIDs are disjoint. Root control
+requires kernel UID 0 separately. Lease material goes only to the exact gateway. Every duplicate
 configuration lifetime equals activation's one selector; `authorized_until` is
 the earliest issue+lifetime/authority/caller/time/qualification deadline. Equality
 at a deadline closes use; hold/expiry/revocation invalidates replayed material.
@@ -195,8 +198,11 @@ silent fixture normalization. G1 forwards admitted body bytes unchanged and all
 eleven measured non-OAuth flags; it rejects OAuth, unknown/missing/duplicate/
 case-variant flags, duplicate beta fields, TTL 1h, system clear_at or tools outside
 this frozen empty-tool invocation. Measured enums/cache values, model, max_tokens
-and stream are checked separately from paths; stripping any required field
-refuses. Per-message effort=medium is a reconstructed fixture constraint, not
+and stream are checked separately from paths; tools must be an empty JSON array.
+metadata.user_id and diagnostics.previous_message_id must be strings. Cache
+controls are compared as a multiset of the three observed objects, not a
+placement claim; swapping their system positions remains admitted. In contrast,
+stripping any required field refuses. Per-message effort=medium is a reconstructed fixture constraint, not
 an additional measured value. It never strips body fields to fit API-key
 mode. Policy GET receives no injected credential and preserves real errors;
 fake policy success is a response-side G1/B4 native obligation, not proven by
@@ -264,8 +270,8 @@ the specific size refusal, separately from canonical/shape validity. Compact
 fixed-field records cannot reach their large transport ceiling under the frozen
 grammar; an at-limit noncanonical payload is therefore only a preflight control,
 not a claimed admitted record. Grammar-valid exact-limit records are also
-exercised for expandable frame and release-file surfaces. Arrays admit 256 and
-refuse 257 members. No payload or array limit is enlarged for a test.
+exercised for account/1 (65536 bytes) and release-set/1 (262144 bytes) only.
+Arrays admit 256 and refuse 257 members. No payload or array limit is enlarged for a test.
 
 Q-row result/effect semantics, raw-export prohibitions and release/tag/build
 semantics remain B4/RB implementation pairs; C0 does not claim those native

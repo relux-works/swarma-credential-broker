@@ -66,7 +66,7 @@ preflight acceptance is not mislabeled schema acceptance.
 | Contract | Named paired test | Narrowing mutant |
 | --- | --- | --- |
 | Recursive closure, all nested types | TestLabNestedClosurePairs | nested-closure-skip |
-| Required coupled body fields | TestLabAPIKeyWireFixturePairs/body-strip-diagnostics | wire-body-subset |
+| Required coupled body fields | TestLabAPIKeyWireFixturePairs/body-strip-diagnostics | wire-body-subset-sentinel-unchecked |
 | Measured body values and POST user agent | TestLabAPIKeyWireFixturePairs/body-value-model; /body-value-cache-scope; /post-user-agent | wire-body-values-unchecked; wire-cache-values-unchecked; wire-ua-unchecked |
 | Every payload ceiling | TestLabPayloadLimitPairs | size-limit-off |
 | 256-member bound | TestLabArrayLimitPairs | array-limit-off |
@@ -80,3 +80,32 @@ must name the failing test and intended assertion; a crash or unrelated setup
 failure is not a killed control. Foreign-format, duplicate-beta and
 missing-owner-role controls from revision 1 remain required. No native
 B/G/M qualification or production reader acceptance is inferred.
+
+## Revision 3 refusal isolation
+
+Closure vectors carry freshly computed approval-target/journal-content seals,
+not stale seals from their valid controls. The composed reader checks closure
+before seals and must report field_set. All six sealed root negatives and
+all 84 sealed nested negatives pass their independent seal-only controls.
+No cryptographic approval or runtime consumer acceptance is claimed.
+
+| Contract | Named paired test | Narrowing source-overlay mutant |
+| --- | --- | --- |
+| Empty-array tools, not a path-set approximation | TestLabAPIKeyWireFixturePairs/body-value-tools-nonempty; /body-value-tools-type | wire-tools-unchecked |
+| String metadata/diagnostic sentinels | TestLabAPIKeyWireFixturePairs/body-value-metadata-user-id-type; /body-value-diagnostics-id-type | wire-sentinel-type-unchecked |
+| Two-sided fixed hex length, algorithm, ASCII and enum case | TestLabFieldGrammarPairs | digest-overlong; digest-any-algorithm; operation-overlong; commit-overlong; uuid-overlong; id-non-ascii; material-non-ascii; enum-case-insensitive |
+| Closure before valid seals | TestLabClosedSurfacePairs; TestLabNestedClosurePairs | top-level-closure-skip; nested-closure-skip; closure-drop-approval-reseal; closure-drop-journal-reseal |
+| Gateway service / caller worker kind | TestLabPrincipalDisjointPairs/wrong-kind-gateway; /wrong-kind-caller | principal-kind-unchecked |
+
+The primitive-field controls exercise both ASCII endpoints, each hex alphabet
+edge, each UUID group at length minus/plus one, identifier/material length
+minus/plus one, enum/singleton exact spelling, canonical post-epoch and four-digit
+year bounds, and each integer lower/upper bound. The safe-integer upper refusal
+is at the shared canonical gate, not mislabeled as a field range refusal.
+
+The former wire-body-subset mutant now survives the 72 wire fixtures: the new
+metadata/diagnostic typed readers independently require the missing fields.
+That is a bounded redundancy observation, not a killed mutant or a universal
+equivalence claim. Removing both the path-presence and sentinel-reader gates
+(wire-body-subset-sentinel-unchecked) fails the required-field negative; the
+wire-sentinel-type-unchecked mutant separately fails the new type negatives.

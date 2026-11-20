@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "3a16491d6e2790f157439db12fee4760f5f07d2ef231c94a70a1993ddaaf635a"
+const indexSHA256 = "d7b0465472e641b9cab174e2ab36a56b82bd1e376fb887d06a77a42dfe461b87"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -332,30 +332,30 @@ func TestLabClosedInventory(test *testing.T) {
 	}
 }
 
-// Claim: every lab surface admits its canonical own-format fixture and rejects unknown, missing, null, wrong-format and noncanonical variants.
+// Claim: valid sealed surfaces admit; re-sealed closure negatives fail specifically before seal verification, while format/encoding variants also refuse.
 func TestLabClosedSurfacePairs(test *testing.T) {
 	set, fixtures := loadContracts(test)
 	for position, shape := range set.Surfaces {
 		test.Run(shape.Format, func(test *testing.T) {
 			fixture := fixtures[position]
 			valid := canonicalObject(test, fixture.Valid)
-			if err := checkRecord(valid, shape, set); err != nil {
+			if err := checkSealedRecord(valid, shape, set); err != nil {
 				test.Fatalf("valid refused: %v", err)
 			}
-			if fixture.NegativeReason != "unknown_field" || checkRecord(canonicalObject(test, fixture.Negative), shape, set) == nil {
-				test.Fatal("unknown field admitted")
+			if fixture.NegativeReason != "unknown_field" {
+				test.Fatal("wrong closure reason")
 			}
+			assertClosureSealControl(test, shape, fixture.Negative)
+			assertClosureRefusal(test, fixture.Negative, shape, set)
 			for name := range shape.Fields {
 				missing := cloneObject(test, fixture.Valid)
 				delete(missing, name)
-				if checkRecord(canonicalObject(test, missing), shape, set) == nil {
-					test.Fatalf("missing field admitted: %s", name)
-				}
+				resealClosure(test, missing)
+				assertClosureRefusal(test, missing, shape, set)
 				null := cloneObject(test, fixture.Valid)
 				null[name] = nil
-				if checkRecord(canonicalObject(test, null), shape, set) == nil {
-					test.Fatalf("null field admitted: %s", name)
-				}
+				resealClosure(test, null)
+				assertClosureRefusal(test, null, shape, set)
 			}
 			for _, format := range []string{"production", shape.Format + "-other", "swarma-broker-activation/1"} {
 				changed := cloneObject(test, fixture.Valid)
@@ -599,6 +599,20 @@ func wireAdmitted(fixture wireFixture, beta string, allowedPaths map[string]bool
 		}
 	}
 	body := request.Body
+	tools, ok := body["tools"].([]any)
+	if !ok || len(tools) != 0 {
+		return false
+	}
+	for _, member := range []string{"metadata", "diagnostics"} {
+		object, ok := body[member].(map[string]any)
+		if !ok {
+			return false
+		}
+		name := map[string]string{"metadata": "user_id", "diagnostics": "previous_message_id"}[member]
+		if _, ok := object[name].(string); !ok {
+			return false
+		}
+	}
 	if body["stream"] != true || body["model"] != "claude-opus-5-5" || body["max_tokens"] != float64(128000) {
 		return false
 	}
@@ -699,9 +713,30 @@ func TestLabAPIKeyWireFixturePairs(test *testing.T) {
 			refusedCount++
 		}
 	}
-	if validCount != 2 || refusedCount != 66 {
+	if validCount != 2 || refusedCount != 70 {
 		test.Fatal("missing wire controls")
 	}
+	test.Run("cache-placement-multiset", func(test *testing.T) {
+		for _, fixture := range fixtures.Cases {
+			if fixture.Name != "messages-valid" {
+				continue
+			}
+			fixture.Request.Body = cloneObject(test, fixture.Request.Body)
+			systems := fixture.Request.Body["system"].([]any)
+			first := systems[0].(map[string]any)
+			second := systems[1].(map[string]any)
+			first["cache_control"], second["cache_control"] = second["cache_control"], first["cache_control"]
+			if !wireAdmitted(fixture, beta, paths) {
+				test.Fatal("valid cache multiset position swap refused")
+			}
+			first["cache_control"].(map[string]any)["scope"] = "PUBLIC-OTHER-SCOPE"
+			if wireAdmitted(fixture, beta, paths) {
+				test.Fatal("changed cache multiset admitted")
+			}
+			return
+		}
+		test.Fatal("missing valid message fixture")
+	})
 }
 
 func ownersAccepted(object map[string]any) bool {
@@ -973,6 +1008,79 @@ func TestLabJournalHeadPairs(test *testing.T) {
 	test.Fatal("missing journal fixture")
 }
 
+func resealClosure(test *testing.T, object map[string]any) {
+	test.Helper()
+	for _, name := range []string{"approval", "owner_approval"} {
+		if approval, exists := object[name].(map[string]any); exists {
+			record := map[string]any{}
+			for key, value := range object {
+				if key != name {
+					record[key] = value
+				}
+			}
+			approval["approved_sha256"] = "sha256:" + hashContract(canonicalObject(test, map[string]any{"domain": "swarma-broker-lab-approval-target/1", "record": record}))
+		}
+	}
+	if object["format"] == "swarma-broker-lab-service-journal/1" {
+		if head, exists := object["head"].(map[string]any); exists {
+			record := map[string]any{}
+			for key, value := range object {
+				if key != "head" {
+					record[key] = value
+				}
+			}
+			head["sha256"] = "sha256:" + hashContract(canonicalObject(test, map[string]any{"domain": "swarma-broker-lab-journal-head/1", "record": record}))
+			if entries, present := record["entries"].([]any); present && head["sequence"] != nil {
+				head["sequence"] = int64(len(entries))
+			}
+		}
+	}
+}
+
+func checkSealedRecord(data []byte, shape recordShape, set contractSet) error {
+	if err := checkRecord(data, shape, set); err != nil {
+		return err
+	}
+	object, err := wire.Parse(data)
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"approval", "owner_approval"} {
+		if _, sealed := shape.Fields[name]; sealed && !approvalTargetValid(object) {
+			return fmt.Errorf("approval_seal")
+		}
+	}
+	if shape.Format == "swarma-broker-lab-service-journal/1" && !journalHeadValid(object) {
+		return fmt.Errorf("journal_seal")
+	}
+	return nil
+}
+
+func assertClosureRefusal(test *testing.T, object map[string]any, shape recordShape, set contractSet) {
+	test.Helper()
+	if err := checkSealedRecord(canonicalObject(test, object), shape, set); err == nil || !strings.Contains(err.Error(), "field_set") {
+		test.Fatalf("closure gate admitted or wrong refusal: %v", err)
+	}
+}
+
+func assertClosureSealControl(test *testing.T, shape recordShape, object map[string]any) {
+	test.Helper()
+	record, err := wire.Parse(canonicalObject(test, object))
+	if err != nil {
+		test.Fatal(err)
+	}
+	for _, name := range []string{"approval", "owner_approval"} {
+		if _, sealed := shape.Fields[name]; sealed && !approvalTargetValid(record) {
+			test.Fatal("closure negative has stale approval seal")
+		}
+	}
+	if shape.Format == "swarma-broker-lab-service-journal/1" {
+		if !journalHeadValid(record) {
+			test.Fatal("closure negative has stale journal seal")
+		}
+	}
+}
+
 type nestedNegative struct {
 	Path      []any          `json:"path"`
 	Structure string         `json:"structure"`
@@ -1032,7 +1140,7 @@ func fixtureFields(object map[string]any, shape recordShape, set contractSet) []
 	return visits
 }
 
-// Claim: every instantiated nested type per surface rejects unknown, missing and null members, including array elements, beside the same complete valid record.
+// Claim: every nested type rejects unknown/missing/null at closure before seals, while every re-sealed target passes its independent seal-only control.
 func TestLabNestedClosurePairs(test *testing.T) {
 	set, fixtures := loadContracts(test)
 	covered := map[string]bool{}
@@ -1051,7 +1159,7 @@ func TestLabNestedClosurePairs(test *testing.T) {
 		for _, negative := range fixture.NestedNegatives {
 			name := shape.Format + "/" + negative.Structure + "/" + negative.Mutation
 			test.Run(name, func(test *testing.T) {
-				if err := checkRecord(canonicalObject(test, fixture.Valid), shape, set); err != nil {
+				if err := checkSealedRecord(canonicalObject(test, fixture.Valid), shape, set); err != nil {
 					test.Fatal(err)
 				}
 				path, _ := json.Marshal(negative.Path)
@@ -1078,12 +1186,12 @@ func TestLabNestedClosurePairs(test *testing.T) {
 				default:
 					test.Fatal("unknown mutation")
 				}
+				resealClosure(test, changed)
 				if !bytes.Equal(canonicalObject(test, changed), canonicalObject(test, negative.Record)) {
-					test.Fatal("nested vector changed")
+					test.Fatal("nested vector changed after reseal")
 				}
-				if err := checkRecord(canonicalObject(test, negative.Record), shape, set); err == nil || !strings.Contains(err.Error(), "field_set") {
-					test.Fatalf("nested closure admitted or wrong refusal: %v", err)
-				}
+				assertClosureSealControl(test, shape, negative.Record)
+				assertClosureRefusal(test, negative.Record, shape, set)
 				covered[negative.Structure] = true
 			})
 		}
@@ -1112,20 +1220,34 @@ func stringValues(values []string) []any {
 
 func grammarValues(kind string) grammarPair {
 	if strings.HasPrefix(kind, "=") {
-		return grammarPair{"singleton", []any{kind[1:]}, []any{"PUBLIC-OTHER-SINGLETON", false}}
+		text := kind[1:]
+		variant := strings.ToUpper(text)
+		if variant == text {
+			variant = strings.ToLower(text)
+		}
+		return grammarPair{"singleton", []any{text}, []any{text[:len(text)-1], text + "x", variant, false}}
 	}
 	if strings.Contains(kind, "|") {
-		return grammarPair{"enum", stringValues(strings.Split(kind, "|")), []any{"PUBLIC-OUT-OF-ENUM", false}}
+		members := strings.Split(kind, "|")
+		invalid := []any{"PUBLIC-OUT-OF-ENUM", false}
+		for _, member := range members {
+			for _, variant := range []string{strings.ToUpper(member), member[:len(member)-1], member + "x"} {
+				if !slices.Contains(members, variant) {
+					invalid = append(invalid, variant)
+				}
+			}
+		}
+		return grammarPair{"enum", stringValues(members), invalid}
 	}
 	maximum := int64(9007199254740991)
 	pairs := map[string]grammarPair{
-		"id":              {"id", []any{"x", strings.Repeat("x", 128)}, []any{"", strings.Repeat("x", 129), "with space", "line\nfeed"}},
-		"digest":          {"digest", []any{"sha256:" + strings.Repeat("a", 64)}, []any{"sha256:" + strings.Repeat("A", 64), "sha256:" + strings.Repeat("a", 63)}},
-		"operation":       {"operation", []any{strings.Repeat("a", 32)}, []any{strings.Repeat("a", 31), strings.Repeat("A", 32)}},
-		"uuid":            {"uuid", []any{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}, []any{"AAAAAAAA-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
-		"commit":          {"commit", []any{strings.Repeat("a", 40)}, []any{strings.Repeat("A", 40), strings.Repeat("a", 39)}},
-		"material":        {"material", []any{"PUBLIC-SYNTHETIC", strings.Repeat("x", 4096)}, []any{"", strings.Repeat("x", 4097), "with space", "line\nfeed"}},
-		"time":            {"time", []any{"2027-01-01T00:00:00Z", "2027-01-01T00:00:00.000000001Z"}, []any{"2027-01-01T00:00:00+00:00", "2027-01-01T00:00:00.000Z", "1970-01-01T00:00:00Z", "not-time", false}},
+		"id":              {"id", []any{"!", "~", "x", strings.Repeat("x", 128)}, []any{"", strings.Repeat("x", 129), "with space", "line\nfeed", "x\x7f", "é"}},
+		"digest":          {"digest", []any{"sha256:" + strings.Repeat("a", 64), "sha256:" + strings.Repeat("0", 64), "sha256:" + strings.Repeat("9", 64), "sha256:" + strings.Repeat("f", 64)}, []any{"sha256:" + strings.Repeat("A", 64), "sha256:" + strings.Repeat("a", 63), "sha256:" + strings.Repeat("a", 65), "sha512:" + strings.Repeat("a", 64), "sha255:" + strings.Repeat("a", 64), "sha257:" + strings.Repeat("a", 64)}},
+		"operation":       {"operation", []any{strings.Repeat("a", 32), strings.Repeat("0", 32), strings.Repeat("9", 32), strings.Repeat("f", 32)}, []any{strings.Repeat("a", 31), strings.Repeat("a", 33), strings.Repeat("A", 32)}},
+		"uuid":            {"uuid", []any{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "00000000-0000-0000-0000-000000000000", "99999999-9999-9999-9999-999999999999", "ffffffff-ffff-ffff-ffff-ffffffffffff"}, []any{"AAAAAAAA-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+		"commit":          {"commit", []any{strings.Repeat("a", 40), strings.Repeat("0", 40), strings.Repeat("9", 40), strings.Repeat("f", 40)}, []any{strings.Repeat("A", 40), strings.Repeat("a", 39), strings.Repeat("a", 41)}},
+		"material":        {"material", []any{"!", "~", "PUBLIC-SYNTHETIC", strings.Repeat("x", 4096)}, []any{"", strings.Repeat("x", 4097), "with space", "line\nfeed", "x\x7f", "é"}},
+		"time":            {"time", []any{"1970-01-01T00:00:00.000000001Z", "2027-01-01T00:00:00Z", "2027-01-01T00:00:00.000000001Z", "9999-12-31T23:59:59.999999999Z"}, []any{"2027-01-01T00:00:00+00:00", "2027-01-01T00:00:00.000Z", "1970-01-01T00:00:00Z", "1969-12-31T23:59:59.999999999Z", "10000-01-01T00:00:00Z", "not-time", false}},
 		"bool":            {"boolean", []any{true, false}, []any{"true", int64(1)}},
 		"uint":            {"range: uint", []any{int64(0), maximum}, []any{int64(-1), "0"}},
 		"positive":        {"range: positive", []any{int64(1), maximum}, []any{int64(0), int64(-1), "1"}},
@@ -1136,10 +1258,30 @@ func grammarValues(kind string) grammarPair {
 		"poll":            {"range: poll", []any{int64(250)}, []any{int64(249), int64(251), "250"}},
 		"capture-timeout": {"range: capture-timeout", []any{int64(300)}, []any{int64(299), int64(301), "300"}},
 	}
-	return pairs[kind]
+	pair := pairs[kind]
+	if slices.Contains([]string{"digest", "operation", "uuid", "commit"}, kind) {
+		valid := pair.Valid[0].(string)
+		prefix := 0
+		if kind == "digest" {
+			prefix = len("sha256:")
+		}
+		for _, outside := range []byte{'/', ':', '`', 'g'} {
+			pair.Invalid = append(pair.Invalid, valid[:prefix]+string(outside)+valid[prefix+1:])
+		}
+		if kind == "uuid" {
+			for group := range strings.Split(valid, "-") {
+				for _, delta := range []int{-1, 1} {
+					groups := strings.Split(valid, "-")
+					groups[group] = strings.Repeat("a", len(groups[group])+delta)
+					pair.Invalid = append(pair.Invalid, strings.Join(groups, "-"))
+				}
+			}
+		}
+	}
+	return pair
 }
 
-// Claim: each primitive field uses the frozen grammar at valid boundaries and refuses wrong values/types through its full record, not a parallel validator.
+// Claim: every primitive field exercises both length/range/ASCII/hex edges, exact enum case and canonical time beside valid controls; unsafe integers fail the canonical gate.
 func TestLabFieldGrammarPairs(test *testing.T) {
 	set, fixtures := loadContracts(test)
 	for position, shape := range set.Surfaces {
@@ -1265,7 +1407,7 @@ func exactLimitFixture(test *testing.T, fixture map[string]any, shape recordShap
 	return record
 }
 
-// Claim: expandable frame/file records admit grammar-valid exact 65536/262144-byte controls and refuse one extra byte without relaxing any field or array bound.
+// Claim: account and release records admit exact 65536/262144-byte controls and refuse one extra byte without relaxing field or array bounds.
 func TestLabExactLimitRecordPairs(test *testing.T) {
 	set, fixtures := loadContracts(test)
 	for position, shape := range set.Surfaces {
@@ -1315,7 +1457,7 @@ func principalsDisjoint(gateway, caller map[string]any) bool {
 	return gateway["uid"] != caller["uid"] && gateway["generation"] != caller["generation"] && gateway["execution_id"] != caller["execution_id"] && gateway["kind"] == "service" && caller["kind"] == "worker"
 }
 
-// Claim: authority, lease and journal fixtures have disjoint gateway/caller UIDs, generations and executions; equality of each tuple component refuses beside that valid pair.
+// Claim: authority, lease and journal pairs require disjoint UID/generation/execution and service/worker kinds; shared tuple components and each wrong kind refuse beside valid pairs.
 func TestLabPrincipalDisjointPairs(test *testing.T) {
 	_, fixtures := loadContracts(test)
 	count := 0
@@ -1336,6 +1478,20 @@ func TestLabPrincipalDisjointPairs(test *testing.T) {
 			test.Run(fixture.Surface, func(test *testing.T) {
 				if !principalsDisjoint(gateway, caller) {
 					test.Fatal("valid principal pair refused")
+				}
+				for _, principal := range []string{"gateway", "caller"} {
+					test.Run("wrong-kind-"+principal, func(test *testing.T) {
+						changedGateway := cloneObject(test, gateway)
+						changedCaller := cloneObject(test, caller)
+						if principal == "gateway" {
+							changedGateway["kind"] = "worker"
+						} else {
+							changedCaller["kind"] = "service"
+						}
+						if principalsDisjoint(changedGateway, changedCaller) {
+							test.Fatalf("wrong %s kind admitted", principal)
+						}
+					})
 				}
 				for _, name := range []string{"uid", "generation", "execution_id"} {
 					changed := cloneObject(test, caller)
