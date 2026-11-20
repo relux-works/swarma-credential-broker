@@ -43,7 +43,7 @@ resolve at these immutable inspected commits, not at an older runbook's pins:
 | G | swarma-chain-lab | `87e8a7e41a073f6fb3b6ff2d09299162ee16deb3` |
 | M | swarma-user-manager | `7c5e9eebbaf859246d4e5adc600a6727e5773e34` |
 | D | swarma-docs | `bc1132c9d9be60864ef7195efa83215357ad3011` |
-| W | `docs/lab-wire-profile-v0.md` in this revision | exact-binary synthetic wire/body observation, 2026-11-20; repository reproduction limit stated there |
+| W | `docs/lab-wire-profile-v0.md` in this revision | exact-binary synthetic wire/body observation, 2026-11-20; C0 harness/fixtures and reproduction limits stated there |
 
 Historical qualification and implementation plans are background only. All
 load-bearing Q requirements, gap definitions, unit allocations and source pins
@@ -671,6 +671,11 @@ parallel implementation. The lab format IDs are intentionally disjoint. Every
 broker row has `TestLabProductionCrossRead<Surface>` in both directions with
 valid own-format controls; production acceptance is never widened to pass it.
 Existing manager-owned production records are the explicit exception in 3.1.
+
+The C0 freeze is [contracts/lab-v0/README.md](../contracts/lab-v0/README.md), with
+24 closed format definitions, paired inert fixtures, exact amendment/API/join
+text pins and a content-sealed artifact index. Its test-only readers establish
+construction bytes, not production acceptance or any owner/native execution gate.
 
 | Byte surface / lab format | Writer → readers |
 | --- | --- |

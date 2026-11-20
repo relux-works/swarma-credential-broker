@@ -10,11 +10,11 @@ The vendor platform package's published SHA-512 integrity was checked before
 extracting that executable; its SHA-256 exactly matches the earlier wire probe.
 No package install script ran and no host CLI installation changed.
 
-The original 2026-11-19 report, `REPORT.md:94–97` and `:279–287`, has SHA-256
-`b0012b9dcf893eab063ced90311cf297bfda5cfc1caf0d0506bbdb71914437d8`.
+The sanitized 2026-11-19 `contracts/lab-v0/probe/REPORT.md:94–97` and `:279–287`
+has SHA-256 `db56c5479d680157e1fe03c76ea9accff3e342b4826523ce7fffde8c13d402e4`.
 It measured the API-key header and eleven flags but explicitly did not retain
-body fields (`REPORT.md:44`). The new probe retains structural field paths and
-nonsecret protocol enum values only, never prompt text or metadata values.
+body fields (`REPORT.md:44` at that path). The new probe retains structural paths
+and nonsecret protocol enum values only, never prompt text or metadata values.
 
 Both probes use `ANTHROPIC_API_KEY=ssh-placeholder`, unset OAuth/auth-token
 variables, `ANTHROPIC_UNIX_SOCKET` and `ANTHROPIC_BASE_URL=http://api.anthropic.com`.
@@ -70,14 +70,14 @@ requires preserving its own beta/body coupling, not treating it as this row.
 
 | Probe component | SHA-256 |
 | --- | --- |
-| `probe.py` | `f6577f89d25cf82a2d152f9925379a396d2a60ad4717499a52a508c8bebcecb6` |
+| `probe.py` | `c709761ab7c7ef8a106cc8cd0e9a06779a0434560bfcb046128ab2d74487d7fe` |
 | `socket_only.py` | `1b9d051798e12b8562aa14db5f46aca66d53ea23a44d07d9b9fd11d092632776` |
 
 The harness is derived from the original Unix-only recorder. Its only protocol
 observation extension walks decoded JSON in memory and emits sorted field paths,
 cache-control enum values, thinking/context-management structure and output
-configuration; string contents and metadata values are excluded. All executable
-bytes and harness digests are retained with the local evidence. A structural
+configuration; string contents and metadata values are excluded. Published harness
+bytes and digest provenance are sealed in `contracts/lab-v0/index.json`. A structural
 positive/negative control checks that scope/TTL paths are distinguished without
 emitting content. The observed GET and POST headers are asserted against the
 closed eleven-token profile, not accepted because two implementations agree.
@@ -90,12 +90,16 @@ compatibility remains an owner-run Q1 gate. Preserve genuine vendor errors.
 
 ## 5. Repository reproduction boundary
 
-**This wire profile cannot be reproduced from this repository.** The original
-`REPORT.md` and the digest-pinned `probe.py`/`socket_only.py` are externally held
-artifacts, not files published here; their line references name that external
-report. Digests bind identities, not availability or an executable reproduction.
-The structural observations above are retained evidence, not a repository-owned
-probe suite. C0 must publish reviewed exact-client harness/fixtures and a
-reproducible bounded invocation before freezing the release profile; absent
-those artifacts, the release gate stays closed. No new probe or upstream API
-qualification is claimed by this clarification.
+C0 publishes [the exact-client harness and reproduction commands](../contracts/lab-v0/probe/README.md),
+[the closed byte inventory](../contracts/lab-v0/README.md) and API-key fixtures.
+The original probe/report digests were verified before portable-path and hygiene
+changes; the unchanged seccomp launcher retains its original digest. The two
+changed artifacts have explicit old/new provenance in that directory and the
+content-pinned index. The historical report keeps its original line numbers;
+its old policy-injection proposal is superseded by credential-free lab GET.
+
+Reproduction means the pinned client, isolated no-network one-turn command,
+measured headers and structural paths, plus the adjacent genuine HTTP-400 stub
+control. Prompt/metadata bytes were not retained: the body fixture is explicitly
+reconstructed with public sentinels. No fixture, probe or C0 contract review is
+vendor API authorization, a live budget approval or production acceptance.

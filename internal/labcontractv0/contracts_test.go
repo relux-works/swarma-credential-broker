@@ -1,0 +1,884 @@
+package labcontractv0
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/relux-works/swarma-credential-broker/internal/wire"
+)
+
+const contractRoot = "../../contracts/lab-v0"
+const indexSHA256 = "9016f8076e25bfa6a33976984578f3a1913a56c47f3aef660782c950b0512b8b"
+
+type recordShape struct {
+	Format     string            `json:"format"`
+	Writer     string            `json:"writer"`
+	Readers    []string          `json:"readers"`
+	Acceptance []string          `json:"acceptance"`
+	MaxBytes   int               `json:"max_bytes"`
+	Fields     map[string]string `json:"fields"`
+}
+
+type contractSet struct {
+	Structures map[string]recordShape `json:"structures"`
+	Surfaces   []recordShape          `json:"surfaces"`
+}
+
+type contractCase struct {
+	Surface        string         `json:"surface"`
+	Valid          map[string]any `json:"valid"`
+	Negative       map[string]any `json:"negative"`
+	NegativeReason string         `json:"negative_reason"`
+}
+
+func readContract(test *testing.T, name string) []byte {
+	test.Helper()
+	data, err := os.ReadFile(filepath.Join(contractRoot, name))
+	if err != nil {
+		test.Fatal(err)
+	}
+	return data
+}
+
+func decodeContract(test *testing.T, name string, target any) {
+	test.Helper()
+	if err := json.Unmarshal(readContract(test, name), target); err != nil {
+		test.Fatal(err)
+	}
+}
+
+func canonicalObject(test *testing.T, object map[string]any) []byte {
+	test.Helper()
+	data, err := wire.Encode(object)
+	if err != nil {
+		test.Fatal(err)
+	}
+	return data
+}
+
+func cloneObject(test *testing.T, object map[string]any) map[string]any {
+	test.Helper()
+	data := canonicalObject(test, object)
+	var cloned map[string]any
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		test.Fatal(err)
+	}
+	return cloned
+}
+
+func hashContract(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func checkFields(object map[string]any, shape recordShape, set contractSet) error {
+	if len(object) != len(shape.Fields) {
+		return fmt.Errorf("field_set")
+	}
+	for name, fieldType := range shape.Fields {
+		value, present := object[name]
+		if !present || value == nil {
+			return fmt.Errorf("field_set: %s", name)
+		}
+		if err := checkValue(value, fieldType, set); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func checkValue(value any, fieldType string, set contractSet) error {
+	if strings.HasPrefix(fieldType, "[]") {
+		items, ok := value.([]any)
+		if !ok || len(items) > 256 {
+			return fmt.Errorf("array")
+		}
+		for _, item := range items {
+			if err := checkValue(item, fieldType[2:], set); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if strings.HasPrefix(fieldType, "@") {
+		shape, exists := set.Structures[fieldType[1:]]
+		object, ok := value.(map[string]any)
+		if !exists || !ok {
+			return fmt.Errorf("structure")
+		}
+		return checkFields(object, shape, set)
+	}
+	if strings.HasPrefix(fieldType, "=") {
+		if value != fieldType[1:] {
+			return fmt.Errorf("singleton")
+		}
+		return nil
+	}
+	if strings.Contains(fieldType, "|") {
+		text, ok := value.(string)
+		if !ok || !slices.Contains(strings.Split(fieldType, "|"), text) {
+			return fmt.Errorf("enum")
+		}
+		return nil
+	}
+	if fieldType == "time" {
+		text, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("time")
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, text)
+		if err != nil || parsed.UTC().Format(time.RFC3339Nano) != text || !parsed.After(time.Unix(0, 0)) {
+			return fmt.Errorf("time")
+		}
+		return nil
+	}
+	if fieldType == "bool" {
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("boolean")
+		}
+		return nil
+	}
+	patterns := map[string]string{"id": `^[\x21-\x7e]{1,128}$`, "digest": `^sha256:[0-9a-f]{64}$`, "operation": `^[0-9a-f]{32}$`, "uuid": `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, "commit": `^[0-9a-f]{40}$`, "material": `^[\x21-\x7e]+$`}
+	if pattern, exists := patterns[fieldType]; exists {
+		text, ok := value.(string)
+		if !ok || (fieldType == "material" && len(text) > 4096) || !regexp.MustCompile(pattern).MatchString(text) {
+			return fmt.Errorf("%s", fieldType)
+		}
+		return nil
+	}
+	number, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("integer: %s", fieldType)
+	}
+	minimum, maximum := int64(0), int64(9007199254740991)
+	switch fieldType {
+	case "uint":
+	case "positive":
+		minimum = 1
+	case "root":
+		maximum = 0
+	case "lifetime":
+		minimum, maximum = 1, 900
+	case "alignment":
+		maximum = 2
+	case "exit":
+		maximum = 255
+	case "poll":
+		minimum, maximum = 250, 250
+	case "capture-timeout":
+		minimum, maximum = 300, 300
+	default:
+		return fmt.Errorf("unknown grammar: %s", fieldType)
+	}
+	if number < minimum || number > maximum {
+		return fmt.Errorf("range: %s", fieldType)
+	}
+	return nil
+}
+
+func checkRecord(data []byte, shape recordShape, set contractSet) error {
+	if len(data) > shape.MaxBytes {
+		return fmt.Errorf("size")
+	}
+	object, err := wire.Parse(data)
+	if err != nil {
+		return fmt.Errorf("canonical")
+	}
+	return checkFields(object, shape, set)
+}
+
+func loadContracts(test *testing.T) (contractSet, []contractCase) {
+	test.Helper()
+	var set contractSet
+	decodeContract(test, "surfaces.json", &set)
+	var fixtures struct {
+		Cases []contractCase `json:"cases"`
+	}
+	decodeContract(test, "fixtures.json", &fixtures)
+	return set, fixtures.Cases
+}
+
+// Claim: every sealed artifact matches its bytes; changing an artifact without resealing is detected beside the valid seal.
+func TestLabContractContentPins(test *testing.T) {
+	index := readContract(test, "index.json")
+	if hashContract(index) != indexSHA256 {
+		test.Fatal("index seal changed")
+	}
+	var entries struct {
+		Files   map[string]string `json:"files"`
+		Sources map[string]string `json:"source_files"`
+	}
+	if err := json.Unmarshal(index, &entries); err != nil {
+		test.Fatal(err)
+	}
+	if len(entries.Files) < 12 {
+		test.Fatal("incomplete seal")
+	}
+	for name, expected := range entries.Files {
+		data := readContract(test, name)
+		if hashContract(data) != expected {
+			test.Fatalf("content pin: %s", name)
+		}
+		changed := append(bytes.Clone(data), '\n')
+		if hashContract(changed) == expected {
+			test.Fatalf("changed bytes admitted: %s", name)
+		}
+	}
+	if len(entries.Sources) != 6 {
+		test.Fatal("incomplete source seals")
+	}
+	for name, expected := range entries.Sources {
+		data, err := os.ReadFile(filepath.Join("../..", name))
+		if err != nil {
+			test.Fatal(err)
+		}
+		if hashContract(data) != expected {
+			test.Fatalf("source content pin: %s", name)
+		}
+		if hashContract(append(bytes.Clone(data), '\n')) == expected {
+			test.Fatal("changed source admitted")
+		}
+	}
+	if bytes.Contains(index, []byte("spec_commit")) {
+		test.Fatal("commit locator is not a content pin")
+	}
+}
+
+func checkInventory(wanted map[string]bool, set contractSet, fixtures []contractCase) error {
+	if len(wanted) != 24 || len(set.Surfaces) != len(wanted) || len(fixtures) != len(wanted) {
+		return fmt.Errorf("inventory size")
+	}
+	seen := map[string]bool{}
+	for position, shape := range set.Surfaces {
+		if !wanted[shape.Format] || seen[shape.Format] || fixtures[position].Surface != shape.Format {
+			return fmt.Errorf("inventory identity")
+		}
+		seen[shape.Format] = true
+		if shape.Writer == "" || len(shape.Readers) == 0 || len(shape.Acceptance) == 0 {
+			return fmt.Errorf("unowned contract")
+		}
+	}
+	return nil
+}
+
+// Claim: profile section 5.2 has exactly one closed schema/fixture per format; missing, duplicated and undeclared surfaces fail beside the complete valid inventory.
+func TestLabClosedInventory(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	profile, err := os.ReadFile("../../docs/lab-profile-v0.md")
+	if err != nil {
+		test.Fatal(err)
+	}
+	section := strings.Split(strings.Split(string(profile), "### 5.2 C0's closed byte inventory and consumer joins")[1], "Root mutating requests")[0]
+	names := regexp.MustCompile("`((?:swarma-(?:broker-lab|lab-release-set)|anthropic-api-key-lab)[a-z-]*/1)`").FindAllStringSubmatch(section, -1)
+	wanted := map[string]bool{}
+	for _, match := range names {
+		wanted[match[1]] = true
+	}
+	if err := checkInventory(wanted, set, fixtures); err != nil {
+		test.Fatalf("valid inventory refused: %v", err)
+	}
+	missing := set
+	missing.Surfaces = set.Surfaces[:23]
+	if checkInventory(wanted, missing, fixtures) == nil {
+		test.Fatal("missing surface admitted")
+	}
+	changed := set
+	changed.Surfaces = append([]recordShape{}, set.Surfaces...)
+	changed.Surfaces[1] = changed.Surfaces[0]
+	if checkInventory(wanted, changed, fixtures) == nil {
+		test.Fatal("duplicate surface admitted")
+	}
+	changed.Surfaces[1].Format = "undeclared-format"
+	if checkInventory(wanted, changed, fixtures) == nil {
+		test.Fatal("undeclared surface admitted")
+	}
+}
+
+// Claim: every lab surface admits its canonical own-format fixture and rejects unknown, missing, null, wrong-format and noncanonical variants.
+func TestLabClosedSurfacePairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		test.Run(shape.Format, func(test *testing.T) {
+			fixture := fixtures[position]
+			valid := canonicalObject(test, fixture.Valid)
+			if err := checkRecord(valid, shape, set); err != nil {
+				test.Fatalf("valid refused: %v", err)
+			}
+			if fixture.NegativeReason != "unknown_field" || checkRecord(canonicalObject(test, fixture.Negative), shape, set) == nil {
+				test.Fatal("unknown field admitted")
+			}
+			for name := range shape.Fields {
+				missing := cloneObject(test, fixture.Valid)
+				delete(missing, name)
+				if checkRecord(canonicalObject(test, missing), shape, set) == nil {
+					test.Fatalf("missing field admitted: %s", name)
+				}
+				null := cloneObject(test, fixture.Valid)
+				null[name] = nil
+				if checkRecord(canonicalObject(test, null), shape, set) == nil {
+					test.Fatalf("null field admitted: %s", name)
+				}
+			}
+			for _, format := range []string{"production", shape.Format + "-other", "swarma-broker-activation/1"} {
+				changed := cloneObject(test, fixture.Valid)
+				changed["format"] = format
+				if checkRecord(canonicalObject(test, changed), shape, set) == nil {
+					test.Fatal("foreign discriminator admitted")
+				}
+			}
+			if checkRecord(append(bytes.Clone(valid), '\n'), shape, set) == nil {
+				test.Fatal("trailing newline admitted")
+			}
+			duplicate := append([]byte(`{"format":"duplicate",`), valid[1:]...)
+			if checkRecord(duplicate, shape, set) == nil {
+				test.Fatal("duplicate member admitted")
+			}
+		})
+	}
+}
+
+func accessAdmitted(object map[string]any) bool {
+	endpoint := object["endpoint"].(map[string]any)
+	for _, value := range endpoint {
+		if value != true {
+			return false
+		}
+	}
+	for _, name := range []string{"guest_and_control_plane", "vendor_principals"} {
+		principals := object[name].([]any)
+		if len(principals) == 0 {
+			return false
+		}
+		for _, entry := range principals {
+			if entry.(map[string]any)["controller"] != "human" {
+				return false
+			}
+		}
+	}
+	vendor := object["vendor"].(map[string]any)
+	return vendor["audit_complete"] == true && vendor["roster_unchanged"] == true
+}
+
+// Claim: owner-only access metadata is valid; every endpoint exclusion, agent privilege and changed/incomplete vendor audit closes fixture admission, not native access proof.
+func TestLabAccessAttestationPairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		if shape.Format != "swarma-broker-lab-access-attestation/1" {
+			continue
+		}
+		valid, err := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+		if err != nil {
+			test.Fatal(err)
+		}
+		if !accessAdmitted(valid) {
+			test.Fatal("owner-only control refused")
+		}
+		for name := range valid["endpoint"].(map[string]any) {
+			changed, _ := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+			changed["endpoint"].(map[string]any)[name] = false
+			if accessAdmitted(changed) {
+				test.Fatalf("unsafe endpoint admitted: %s", name)
+			}
+		}
+		for _, name := range []string{"guest_and_control_plane", "vendor_principals"} {
+			changed, _ := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+			changed[name].([]any)[0].(map[string]any)["controller"] = "agent"
+			if accessAdmitted(changed) {
+				test.Fatalf("agent authority admitted: %s", name)
+			}
+		}
+		for _, name := range []string{"audit_complete", "roster_unchanged"} {
+			changed, _ := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+			changed["vendor"].(map[string]any)[name] = false
+			if accessAdmitted(changed) {
+				test.Fatalf("vendor change/gap admitted: %s", name)
+			}
+		}
+		return
+	}
+	test.Fatal("missing access fixture")
+}
+
+// Claim: exact amendment/API/join bytes are extracted from the reviewed profile, while a changed amendment is not that consent; actual C consent remains unrecorded.
+func TestLabCOpeningContentAndDecision(test *testing.T) {
+	profile, err := os.ReadFile("../../docs/lab-profile-v0.md")
+	if err != nil {
+		test.Fatal(err)
+	}
+	quoted := strings.Split(strings.Split(string(profile), "> For LAB PROFILE v0")[1], "\n### 4.3")[0]
+	blocks := strings.Split("> For LAB PROFILE v0"+quoted, "\n\n> DN-09 C qualification")
+	unquote := func(text string) []byte {
+		lines := strings.Split(strings.TrimSpace(text), "\n")
+		for position, line := range lines {
+			lines[position] = strings.TrimPrefix(strings.TrimPrefix(line, ">"), " ")
+		}
+		return []byte(strings.Join(lines, "\n") + "\n")
+	}
+	joins := strings.Split(strings.Split(string(profile), "### 4.3 Joined start, high-water and native obligations\n\n")[1], "\n## 5.")[0]
+	expected := map[string][]byte{"amendment.txt": unquote(blocks[0]), "api-exception.txt": unquote("> DN-09 C qualification" + blocks[1]), "joins.txt": []byte(strings.TrimRight(joins, "\n") + "\n")}
+	var decisions map[string]any
+	decodeContract(test, "decisions.json", &decisions)
+	for name, content := range expected {
+		if !bytes.Equal(content, readContract(test, name)) {
+			test.Fatalf("source text changed: %s", name)
+		}
+		key := strings.ReplaceAll(strings.TrimSuffix(name, ".txt"), "-", "_") + "_sha256"
+		if decisions[key] != "sha256:"+hashContract(content) {
+			test.Fatalf("decision text pin: %s", name)
+		}
+		if decisions[key] == "sha256:"+hashContract(append(bytes.Clone(content), '\n')) {
+			test.Fatal("changed amendment admitted")
+		}
+	}
+	if decisions["owner_acceptance"] != "not_recorded" || decisions["live_construction"] != "closed" || decisions["enrollment"] != "closed" || decisions["production_acceptance"] != false {
+		test.Fatal("fixture asserted owner or production acceptance")
+	}
+}
+
+func rootOutcomeValid(object map[string]any) bool {
+	state := object["state"].(string)
+	exits := map[string]int64{"committed": 0, "refused": 1, "not_committed:enrol_no_forward": 1, "unknown": 2, "attempted": 2, "not_started": 2, "syntax": 64, "closed": 69}
+	expected, exists := exits[state]
+	return exists && object["exit_code"] == expected && (object["phase"] == "result" || state == "not_started")
+}
+
+// Claim: root-control fixtures distinguish committed/no-forward/UNKNOWN exits and disallow a request claiming commitment; no native replay effect is claimed.
+func TestLabOperationOutcomePairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		if shape.Format != "swarma-broker-lab-root-control/1" {
+			continue
+		}
+		valid, err := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+		if err != nil {
+			test.Fatal(err)
+		}
+		if !rootOutcomeValid(valid) {
+			test.Fatal("valid result refused")
+		}
+		for state, exit := range map[string]int64{"committed": 0, "refused": 1, "not_committed:enrol_no_forward": 1, "unknown": 2, "attempted": 2, "not_started": 2, "syntax": 64, "closed": 69} {
+			valid["state"], valid["exit_code"] = state, exit
+			if !rootOutcomeValid(valid) {
+				test.Fatalf("valid state refused: %s", state)
+			}
+			valid["exit_code"] = (exit + 1) % 3
+			if rootOutcomeValid(valid) {
+				test.Fatalf("wrong exit admitted: %s", state)
+			}
+		}
+		valid["state"], valid["exit_code"], valid["phase"] = "committed", int64(0), "request"
+		if rootOutcomeValid(valid) {
+			test.Fatal("request claimed commitment")
+		}
+		valid["state"], valid["exit_code"] = "not_started", int64(2)
+		if !rootOutcomeValid(valid) {
+			test.Fatal("valid request refused")
+		}
+		return
+	}
+	test.Fatal("missing root-control fixture")
+}
+
+type wireFixture struct {
+	Name    string `json:"name"`
+	Admit   bool   `json:"admit"`
+	Request struct {
+		Method       string         `json:"method"`
+		Path         string         `json:"path"`
+		Headers      [][2]string    `json:"headers"`
+		Body         map[string]any `json:"body"`
+		SourceScheme string         `json:"source_scheme"`
+	} `json:"request"`
+}
+
+func structuralPaths(value any, prefix string, paths map[string]bool) {
+	switch child := value.(type) {
+	case map[string]any:
+		for name, nested := range child {
+			path := name
+			if prefix != "" {
+				path = prefix + "." + name
+			}
+			paths[path] = true
+			structuralPaths(nested, path, paths)
+		}
+	case []any:
+		for _, nested := range child {
+			structuralPaths(nested, prefix+"[]", paths)
+		}
+	}
+}
+
+func wireAdmitted(fixture wireFixture, beta string, allowedPaths map[string]bool) bool {
+	request := fixture.Request
+	if request.SourceScheme != "api-key" {
+		return false
+	}
+	headers := map[string]string{}
+	for _, header := range request.Headers {
+		name := strings.ToLower(header[0])
+		if _, exists := headers[name]; exists {
+			return false
+		}
+		if !slices.Contains([]string{"x-api-key", "anthropic-beta", "anthropic-version", "user-agent"}, name) {
+			return false
+		}
+		headers[name] = header[1]
+	}
+	if request.Method == "GET" {
+		return request.Path == "/api/claude_code/policy_limits" && len(request.Body) == 0 && len(headers) == 1 && headers["user-agent"] == "claude-code/2.1.328"
+	}
+	if request.Method != "POST" || request.Path != "/v1/messages?beta=true" || len(headers) != 4 || headers["x-api-key"] != "ssh-placeholder" || headers["anthropic-version"] != "2023-06-01" || headers["user-agent"] != "claude-cli/2.1.328 (external, sdk-cli)" {
+		return false
+	}
+	wanted := strings.Split(beta, ",")
+	seen := map[string]bool{}
+	for _, token := range strings.Split(headers["anthropic-beta"], ",") {
+		token = strings.Trim(token, " \t\r\n")
+		if seen[token] || !slices.Contains(wanted, token) {
+			return false
+		}
+		seen[token] = true
+	}
+	if len(seen) != len(wanted) {
+		return false
+	}
+	paths := map[string]bool{}
+	structuralPaths(request.Body, "", paths)
+	if len(paths) != len(allowedPaths) {
+		return false
+	}
+	for path := range paths {
+		if !allowedPaths[path] {
+			return false
+		}
+	}
+	body := request.Body
+	if body["stream"] != true || body["model"] != "claude-opus-5-5" || body["max_tokens"] != float64(128000) {
+		return false
+	}
+	for _, name := range []string{"thinking", "output_config", "context_management"} {
+		encoded, _ := json.Marshal(body[name])
+		wanted := map[string]string{"thinking": `{"display":"omitted","type":"adaptive"}`, "output_config": `{"effort":"medium"}`, "context_management": `{"edits":[{"keep":"all","type":"clear_thinking_20251015"}]}`}
+		if string(encoded) != wanted[name] {
+			return false
+		}
+	}
+	for _, name := range []string{"system", "messages"} {
+		for _, item := range body[name].([]any) {
+			object := item.(map[string]any)
+			if name == "messages" {
+				for _, content := range object["content"].([]any) {
+					if content.(map[string]any)["cache_control"].(map[string]any)["type"] != "ephemeral" {
+						return false
+					}
+				}
+			} else if object["cache_control"].(map[string]any)["type"] != "ephemeral" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Claim: the reconstructed API-key request matches measured field paths and all eleven flags; OAuth, duplicated/missing flags, forbidden bodies and credentialed GET refuse beside valid POST/GET.
+func TestLabAPIKeyWireFixturePairs(test *testing.T) {
+	var fixtures struct {
+		Cases         []wireFixture `json:"cases"`
+		Reconstructed bool          `json:"body_is_reconstructed"`
+		LiveBudget    bool          `json:"live_budget_approved"`
+	}
+	decodeContract(test, "wire-fixtures.json", &fixtures)
+	var observed struct {
+		Requests []struct {
+			Headers map[string]any `json:"headers"`
+			Shape   struct {
+				Paths []string `json:"paths"`
+			} `json:"body_shape"`
+		} `json:"requests"`
+	}
+	decodeContract(test, "probe/observed.json", &observed)
+	if len(observed.Requests) != 2 || !fixtures.Reconstructed || fixtures.LiveBudget {
+		test.Fatal("observation provenance changed")
+	}
+	paths := map[string]bool{}
+	for _, path := range observed.Requests[1].Shape.Paths {
+		paths[path] = true
+	}
+	beta := observed.Requests[1].Headers["anthropic-beta"].(string)
+	if len(strings.Split(beta, ",")) != 11 {
+		test.Fatal("eleven-token profile changed")
+	}
+	validCount, refusedCount := 0, 0
+	for _, fixture := range fixtures.Cases {
+		test.Run(fixture.Name, func(test *testing.T) {
+			if wireAdmitted(fixture, beta, paths) != fixture.Admit {
+				test.Fatal("wrong wire verdict")
+			}
+		})
+		if fixture.Admit {
+			validCount++
+		} else {
+			refusedCount++
+		}
+	}
+	if validCount != 2 || refusedCount != 17 {
+		test.Fatal("missing wire controls")
+	}
+}
+
+func ownersAccepted(object map[string]any) bool {
+	roles := object["roles"].([]any)
+	if len(roles) != 3 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, item := range roles {
+		role := item.(map[string]any)
+		name := role["role"].(string)
+		if seen[name] || role["accepted"] != true || !slices.Contains([]string{"repository", "time-contract", "user-manager"}, name) {
+			return false
+		}
+		seen[name] = true
+	}
+	return object["residual_accepted"] == true
+}
+
+// Claim: synthetic three-role consent has exact amendment/API/join pins, while absent/duplicate/unaccepted roles or residual-only consent cannot open C.
+func TestLabOwnerRolePairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		if shape.Format != "swarma-broker-lab-owner-decision/1" {
+			continue
+		}
+		valid, err := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+		if err != nil {
+			test.Fatal(err)
+		}
+		if !ownersAccepted(valid) {
+			test.Fatal("synthetic all-role consent refused")
+		}
+		for _, name := range []string{"amendment", "api-exception", "joins"} {
+			key := strings.ReplaceAll(name, "-", "_") + "_sha256"
+			if valid[key] != "sha256:"+hashContract(readContract(test, name+".txt")) {
+				test.Fatalf("wrong owner text pin: %s", name)
+			}
+		}
+		for _, mutation := range []string{"missing", "duplicate", "unaccepted", "residual-only"} {
+			changed, _ := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+			roles := changed["roles"].([]any)
+			switch mutation {
+			case "missing":
+				changed["roles"] = roles[:2]
+			case "duplicate":
+				roles[2] = roles[0]
+			case "unaccepted":
+				roles[0].(map[string]any)["accepted"] = false
+			case "residual-only":
+				changed["roles"] = []any{}
+			}
+			if ownersAccepted(changed) {
+				test.Fatalf("bad consent admitted: %s", mutation)
+			}
+		}
+		return
+	}
+	test.Fatal("missing owner-decision fixture")
+}
+
+func contractInstant(value any) time.Time {
+	parsed, err := time.Parse(time.RFC3339Nano, value.(string))
+	if err != nil {
+		panic(err)
+	}
+	return parsed
+}
+
+// Claim: lease ceilings include 1 and 900 only, and every earlier authority deadline clips the synthetic lease without discarding subsecond precision.
+func TestLabLeaseDeadlinePairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		if shape.Format != "anthropic-api-key-lab/1" {
+			continue
+		}
+		valid, err := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+		if err != nil {
+			test.Fatal(err)
+		}
+		bounds := valid["bounds"].(map[string]any)
+		deadlineValid := func() bool {
+			issued, lifetime := contractInstant(bounds["issued_at"]), bounds["lifetime_seconds"].(int64)
+			if lifetime < 1 || lifetime > 900 {
+				return false
+			}
+			deadline := issued.Add(time.Duration(lifetime) * time.Second)
+			for _, name := range []string{"authority_until", "caller_until", "time_until", "qualification_until"} {
+				if contractInstant(bounds[name]).Before(deadline) {
+					deadline = contractInstant(bounds[name])
+				}
+			}
+			return contractInstant(bounds["authorized_until"]).Equal(deadline) && deadline.After(issued)
+		}
+		if !deadlineValid() {
+			test.Fatal("valid bound refused")
+		}
+		for _, lifetime := range []int64{1, 900, 0, 901} {
+			bounds["lifetime_seconds"], bounds["authorized_until"] = lifetime, contractInstant(bounds["issued_at"]).Add(time.Duration(lifetime)*time.Second).Format(time.RFC3339Nano)
+			if deadlineValid() != (lifetime >= 1 && lifetime <= 900) {
+				test.Fatalf("ceiling pair: %d", lifetime)
+			}
+		}
+		bounds["lifetime_seconds"] = int64(900)
+		for _, name := range []string{"authority_until", "caller_until", "time_until", "qualification_until"} {
+			original := bounds[name]
+			clipped := contractInstant(bounds["issued_at"]).Add(time.Nanosecond)
+			bounds[name], bounds["authorized_until"] = clipped.Format(time.RFC3339Nano), clipped.Format(time.RFC3339Nano)
+			if !deadlineValid() {
+				test.Fatalf("clipped bound refused: %s", name)
+			}
+			bounds["authorized_until"] = clipped.Add(time.Nanosecond).Format(time.RFC3339Nano)
+			if deadlineValid() {
+				test.Fatalf("earliest deadline ignored: %s", name)
+			}
+			bounds[name] = original
+		}
+		return
+	}
+	test.Fatal("missing lease fixture")
+}
+
+func matcherSummaryAllowed(object map[string]any) bool {
+	verdict := object["verdict"]
+	if verdict == "incomplete" {
+		return true
+	}
+	if verdict == "match" {
+		return object["hold_result"] == "committed"
+	}
+	if verdict != "clean" || object["complete"] != true || object["hold_result"] != "not_required" || len(object["issued_versions"].([]any)) == 0 {
+		return false
+	}
+	wanted := map[string]bool{"raw/false/0": true, "json/false/0": true, "percent/false/0": true}
+	for _, name := range []string{"base64", "base64url"} {
+		for _, padded := range []bool{true, false} {
+			for alignment := range 3 {
+				wanted[fmt.Sprintf("%s/%t/%d", name, padded, alignment)] = true
+			}
+		}
+	}
+	for _, item := range object["encodings"].([]any) {
+		encoding := item.(map[string]any)
+		key := fmt.Sprintf("%s/%t/%d", encoding["name"], encoding["padded"], encoding["alignment"])
+		if !wanted[key] || encoding["initialized"] != true {
+			return false
+		}
+		delete(wanted, key)
+	}
+	return len(wanted) == 0
+}
+
+// Claim: complete full-version/all-alignment matcher metadata may be clean, while missing version/alignment, incomplete initialization and unknown hold cannot claim clean/match.
+func TestLabMatcherSummaryPairs(test *testing.T) {
+	set, fixtures := loadContracts(test)
+	for position, shape := range set.Surfaces {
+		if shape.Format != "swarma-broker-lab-match/1" {
+			continue
+		}
+		valid, err := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+		if err != nil {
+			test.Fatal(err)
+		}
+		if !matcherSummaryAllowed(valid) {
+			test.Fatal("complete valid summary refused")
+		}
+		for _, mutation := range []string{"no-versions", "missing-alignment", "not-initialized", "incomplete", "unknown-hold"} {
+			changed, _ := wire.Parse(canonicalObject(test, fixtures[position].Valid))
+			switch mutation {
+			case "no-versions":
+				changed["issued_versions"] = []any{}
+			case "missing-alignment":
+				changed["encodings"] = changed["encodings"].([]any)[:14]
+			case "not-initialized":
+				changed["encodings"].([]any)[0].(map[string]any)["initialized"] = false
+			case "incomplete":
+				changed["complete"] = false
+			case "unknown-hold":
+				changed["verdict"], changed["hold_result"] = "match", "unknown"
+			}
+			if matcherSummaryAllowed(changed) {
+				test.Fatalf("bad summary admitted: %s", mutation)
+			}
+		}
+		valid["verdict"], valid["hold_result"] = "match", "committed"
+		if !matcherSummaryAllowed(valid) {
+			test.Fatal("durable-match metadata refused")
+		}
+		return
+	}
+	test.Fatal("missing matcher fixture")
+}
+
+// Claim: every embedded synthetic approval hashes an acyclic complete target image, and changing an approved input invalidates that digest.
+func TestLabApprovalTargetPairs(test *testing.T) {
+	_, fixtures := loadContracts(test)
+	checked := 0
+	for _, fixture := range fixtures {
+		for _, name := range []string{"approval", "owner_approval"} {
+			approval, present := fixture.Valid[name].(map[string]any)
+			if !present {
+				continue
+			}
+			record := cloneObject(test, fixture.Valid)
+			delete(record, name)
+			target := map[string]any{"domain": "swarma-broker-lab-approval-target/1", "record": record}
+			expected := "sha256:" + hashContract(canonicalObject(test, target))
+			if approval["approved_sha256"] != expected {
+				test.Fatalf("approval target mismatch: %s", fixture.Surface)
+			}
+			record["format"] = "unapproved-input"
+			if approval["approved_sha256"] == "sha256:"+hashContract(canonicalObject(test, target)) {
+				test.Fatal("changed approval subject admitted")
+			}
+			checked++
+		}
+	}
+	if checked != 5 {
+		test.Fatalf("approval target inventory: %d", checked)
+	}
+}
+
+// Claim: the lab journal head binds its complete metadata snapshot without self-reference; changing a lease/tombstone without a new head is detected.
+func TestLabJournalHeadPairs(test *testing.T) {
+	_, fixtures := loadContracts(test)
+	for _, fixture := range fixtures {
+		if fixture.Surface != "swarma-broker-lab-service-journal/1" {
+			continue
+		}
+		record, err := wire.Parse(canonicalObject(test, fixture.Valid))
+		if err != nil {
+			test.Fatal(err)
+		}
+		head := record["head"].(map[string]any)
+		delete(record, "head")
+		target := map[string]any{"domain": "swarma-broker-lab-journal-head/1", "record": record}
+		if head["sequence"] != int64(len(record["entries"].([]any))) || head["sha256"] != "sha256:"+hashContract(canonicalObject(test, target)) {
+			test.Fatal("valid snapshot head refused")
+		}
+		record["leases"].([]any)[0].(map[string]any)["status"] = "revoked"
+		if head["sha256"] == "sha256:"+hashContract(canonicalObject(test, target)) {
+			test.Fatal("unsealed changed lease admitted")
+		}
+		return
+	}
+	test.Fatal("missing journal fixture")
+}

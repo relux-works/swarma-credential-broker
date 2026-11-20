@@ -179,6 +179,16 @@ immutable units. It grants no production currentness or durable recovery authori
 
 ## Tools
 
+The lab-only [C0 contract and fixtures](contracts/lab-v0/README.md) freeze bytes,
+not runtime admission. In an isolated checkout run
+`go test -count=1 -v ./internal/labcontractv0 ./internal/assemblyv0` and
+`python3 contracts/lab-v0/probe/test_probe.py -v`. The
+[probe guide](contracts/lab-v0/probe/README.md) gives exact Python 3,
+libseccomp, strace and timeout entrypoints, plus curl/tar/SHA-512/sha256sum
+verification of the pinned public client without package install hooks. All
+logs, new HOME/caches and synthetic observations stay in absolute task-owned
+scratch; no live credential or production acceptance is exercised.
+
 The [protected-reader mutation driver](internal/protectedio/testdata/mutation/README.md)
 replays ordinary decision mutations with `go run ./internal/protectedio/testdata/mutation`
 (the linked instructions specify mandatory scratch/output flags). Its separate

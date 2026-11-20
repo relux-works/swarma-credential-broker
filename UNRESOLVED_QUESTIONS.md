@@ -327,3 +327,12 @@ The whole-class handoff remains stopped pending an authorized isolated
 qualification environment or an explicit acceptance-scope decision. No new
 production seam is introduced merely to make the tests pass; the production
 implementation remains unchanged and no production defect is asserted.
+
+## Lab C0 execution gates
+
+The [closed lab contract](contracts/lab-v0/README.md) supplies inert construction
+bytes only. C-OPEN-OWNERS, native joined-start/NTS/protection evidence, the exact
+owner-approved live model/output/spend bounds and released consumer assemblies
+remain unsupplied execution gates. The recorded 2026-11-20 direction/residual act
+is not consent for all owner roles. No production acceptance or live Q result is
+inferred from a content seal, synthetic fixture or local exact-client probe.

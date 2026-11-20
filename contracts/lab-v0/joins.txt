@@ -1,0 +1,48 @@
+On the dedicated lab VM this means all of the following, not merely "chrony is synchronized":
+
+1. Infra supplies the protected complete chrony source/configuration inventory,
+   NTS certificate/bootstrap and authenticated-source evidence. Every selected
+   source is an approved NTS source; plain NTP, unlisted/dynamic source, missing
+   evidence or stale uncertainty closes widening/use. Reuse `timeconf.Production`
+   collection and policy (`B:docs/time-policy.md:16`, `B:docs/time-policy.md:79`).
+2. B2 supplies and natively qualifies a **lab-only** local durable witness and
+   consumer path, including fsync/CAS, settlement, boot/monotonic predicates and
+   sticky incident/hold/watermark continuity. NTS alone does not supply this:
+   `NewConsumer` currently installs `ClosedWitness` and has no qualified production
+   path (`B:timeconf/consume_linux.go:66`, `B:timeconf/consume_linux.go:84`).
+   Neither `NewFixtureConsumer`, a sample-only adapter nor `time.Now` is a lab
+   credential-use authority. New lab construction is behind `broker_lab`;
+   production `ClosedWitness` remains unchanged.
+3. Before **every manual start**, root compares exact final heads and the manager
+   consumer high-water with an owner-kept off-VM record, checks an independent
+   off-VM clock against the fixed qualification expiry, then publishes a new
+   one-use start fence outside the broker home. Its lab-format record pins the
+   installation, machine/VM evidence, qualification revision/expiry, start
+   generation, state, revocation sequence and all authority/service/time/floor
+   heads. First start is explicitly fresh; later starts require acknowledged
+   orderly-stop heads. Missing/crash/unknown evidence never gets blessed by
+   copying the guest's current heads.
+4. Persist the manager journal count/head in broker custody **before** material
+   publication, requiring exact prefix extension, not merely head equality with
+   a current projection. Preserve it and time watermark/holds over restart and
+   reboot. Missing/corrupt/nonextending history refuses; no observed-state reset.
+   A fenced diagnostics-only startup and identity-only unbind/hold remain possible.
+5. **No restore:** do not snapshot/revert a credential-bearing lab or restore a
+   VM, store, manager state or authority file to resume qualification. Detected
+   clone/restore/regression burns the installation. The owner vendor-revokes the old
+   API key; Infra retires the installation/time scope off-VM and reprovisions;
+   use a new never-reused installation and scope, fresh authority and fresh key.
+   Import no old lease/grant/hold/checkpoint. An ordinary time incident is not
+   permission to erase history, release a sticky hold or extend the time-box.
+6. **The owner accepted the live whole-VM snapshot/rollback residual for this lab
+   on 2026-11-20**, recorded as OD-LAB-2026-11-20 below. A live revert can roll back daemon, outside-home
+   fence, store, high-water and time witness together and revive removed authority
+   until vendor key revocation; local NTS and matching guest bytes do not detect
+   that. Off-VM stop/start records help at the next manual boundary only. Preserve
+   this explicit risk, the exact reviewed revision/VM/account and time-box in
+   the owner's off-VM approval. No production promotion of any C result or witness.
+
+The protected `test_api_key=true` marker, the dedicated lab VM's independently
+verified identity and qualification expiry are mandatory at enrollment, bind, issue,
+renewal and final use. Other accounts/VMs/revisions refuse. No hard-coded hostname
+or locally self-asserted machine-id alone proves the qualified VM.

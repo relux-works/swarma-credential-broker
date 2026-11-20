@@ -1,0 +1,56 @@
+For LAB PROFILE v0 under explicitly accepted DN-09 C only, a witness sharing
+the whole-VM rollback domain with its history may qualify consumption solely
+for the dedicated capped API-key account on the independently verified qualified
+VM, within the protected qualification revision and expiry. Home-level restore
+remains fenced; any restore requires fresh-install recovery. Undetected live
+whole-VM snapshot revert is an explicitly owner-accepted residual, not detected
+rollback protection. This exception never qualifies production consumption,
+another VM/account, or an unaccepted/expired revision.
+
+C1 fresh-install recovery, including after a detected restore, permanently
+retires the burned installation and its enrolled time scope. The old history
+must never be consumed again. C1 means section 4.3 of
+spec/operator-and-activation-v0.md at the accepted qualification_revision;
+recovery requires restore, clone or regression evidence recorded off-VM,
+not an ordinary time hold or a wish to reset history. This exception is only
+for the dedicated capped API-key account on the qualified VM within the protected
+revision and expiry. The authority/clock scope has no consumer other than
+that broker lab installation. Another consumer sharing it refuses C1:
+retirement cannot partition the shared history or admit another consumer
+through the new scope (time-contract.md:204-205 and :218-219 at the source pin).
+Only after vendor revocation of the old API key
+and replacement of every old root, grant and binding may an installer enroll
+a fresh, initially empty history for a new never-reused installation_id and
+consumer/continuity scope bound to that installation on the same qualified
+VM. Record old-scope retirement and old/new identities off-VM before enabling
+the new scope; retain the recovered old time history and surviving records
+off-VM as evidence, without claiming lost high-water or holds recovered.
+No old lease, grant, binding, watermark or hold is imported into, or used to
+admit, the new history, revived or released. Any recoverable retired W or
+hold bound, and the off-VM retirement instant, act only as refusal floors for
+the new scope's first consumption and time-box predicate; they never admit
+anything or initialize the new checkpoint/watermark. The first trusted
+interval's lower bound must be strictly beyond each applicable floor; a
+missing required comparison refuses. Expiry is checked against the maximum
+of trusted now, the new watermark and those floors; reaching the protected
+qualification_expires_at refuses. C1 is not a hold-release route: a retired
+scope's unreleased sticky hold or unresolved time incident prevents
+consumption from the same source until the protected recovery policy
+qualifies it under the current or a newly accepted qualification revision;
+a new revision alone does not release the source. Off-VM pre-start approval
+also checks the unchanged
+qualification_expires_at against an off-VM clock and these refusal floors;
+reaching expiry or unknown/untrusted clock evidence refuses approval.
+The new authoritative checkpoint and broker
+watermark are established from fresh qualified NTS evidence under their
+respective settlement rules before consumption, never from retired history.
+This is not migration, a hold release or a repair of the old scope by a good
+report; that scope remains permanently closed. Without this exact accepted
+C1 exception, replacement or empty-history rebinding still refuses.
+
+Within each admitted history, and everywhere outside these explicit C-only
+exceptions, all settlement, authenticated-time, watermark and sticky-hold
+rules remain mandatory. Restart/reboot within a scope retains its high-water
+and holds; neither reinstall nor a new operation extends the accepted
+qualification expiry or admits production. The ordinary
+production consumer remains closed; fixtures alone qualify no backend.

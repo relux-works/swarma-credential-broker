@@ -1,0 +1,4 @@
+DN-09 C qualification requires its separately accepted machine-bound lab
+implementation and deployment evidence. Existing fixture constructors or test
+tags do not select that profile or qualify it, and no C result activates or
+qualifies the ordinary production consumer.
