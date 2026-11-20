@@ -470,15 +470,19 @@ func TestLabGeneratedWireEnvelopePairs(test *testing.T) {
 				}
 			}
 			for index, header := range valid.Request.Headers {
-				for _, mutation := range literalMutations(header[0]) {
+				for _, mutation := range headerNameCases(header[0]) {
 					test.Run(fmt.Sprintf("header-name-%d/%s", index, mutation.Name), func(test *testing.T) {
 						if !wireAdmitted(valid, beta, paths) {
 							test.Fatal("generated wire valid control refused")
 						}
 						changed := cloneWire(test, valid)
 						changed.Request.Headers[index][0] = mutation.Value.(string)
-						if wireAdmitted(changed, beta, paths) != strings.EqualFold(mutation.Value.(string), header[0]) {
-							test.Fatal("generated header name verdict")
+						expected := "envelope"
+						if asciiHeaderCaseEqual(mutation.Value.(string), header[0]) {
+							expected = ""
+						}
+						if reason := wireRefusal(changed, beta, paths); reason != expected {
+							test.Fatalf("generated header name verdict: reason=%s expected=%s", reason, expected)
 						}
 					})
 				}
@@ -498,7 +502,7 @@ func TestLabGeneratedWireEnvelopePairs(test *testing.T) {
 							changed.Request.Headers[index][1] = strings.Join(items, ",")
 							admit := mutation.Admit
 							if header[0] == "anthropic-beta" {
-								admit = strings.Trim(mutation.Value.(string), " \t\r\n") == value
+								admit = strings.Trim(mutation.Value.(string), " \t") == value
 							}
 							if wireAdmitted(changed, beta, paths) != admit {
 								test.Fatalf("generated header verdict: admit=%v", admit)

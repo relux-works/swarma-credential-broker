@@ -281,9 +281,9 @@ Unfinished/resumed lines fail closed and may require a new clean observation.
 
 ## Normative negative operator catalogue
 
-Revision 4 freezes the following **finite operator catalogue**, not a claim to
+Revision 5 freezes the following **finite operator catalogue**, not a claim to
 exhaust all possible adversaries. `literalMutations`, `separatorMutations`,
-`scalarMutations` and `labelCases` in `internal/labcontractv0` implement it.
+`scalarMutations`, `labelCases` and `headerNameCases` in `internal/labcontractv0` implement it.
 Traversal applies every applicable operator to every grammar node, enum member,
 root/nested member slot, measured body occurrence, body member, envelope/header
 literal and beta token/separator. Each generated case runs its unchanged valid
@@ -293,17 +293,23 @@ part of the catalogue, not exemptions silently selected by the implementation.
 | Element | Required operators and controls | Intended gate / test |
 | --- | --- | --- |
 | Fixed literal or label, including the digest label and JSON names | Whole upper/lower/inverted ASCII case; each letter's case; leading/trailing `x`; paired and single-sided double/single quotes, square/curly/round brackets, space, tab, CRLF, vertical tab and form feed; empty token; each byte deleted or replaced by the near neighbour `x` (`y` for `x`). Labels additionally get fullwidth ASCII and combining-accent forms. | Grammar node in `TestLabGeneratedGrammarPairs`; exact `field_set` in `TestLabGeneratedClosedFieldPairs`; `body_fields` in `TestLabGeneratedWireClosurePairs`; envelope in `TestLabGeneratedWireEnvelopePairs`. |
+| Every measured header name | Every label operator, including fullwidth and combining forms; insert every byte 0..255 at every boundary and substitute every byte at every position; replace each applicable `i` by dotted/dotless i, `k` by Kelvin sign, and `s` by long s. Only ASCII case variants of the measured name pass. Separately check all 256 bytes against the complete RFC `tchar` alphabet, with uppercase and empty-token controls, independent of the measured-name allowlist. | `envelope` in `TestLabGeneratedWireEnvelopePairs`; token grammar in `TestLabASCIIHeaderTokenPairs`. |
+| Beta byte class and OWS | Insert NUL, CR, LF, all other non-HTAB C0 controls, DEL and each byte 128..255 at **every** byte boundary, including both ends and each side of every comma; all refuse. At each boundary insert SP and HTAB: admitted only outside token interiors. Each group includes admitted SP/HTAB at a token boundary and every negative includes the unchanged request control. Existing token wrappers and separator operators classify CR/LF/CRLF as negatives, never valid OWS. | `beta` in `TestLabGeneratedBetaOWSBytePairs`, `TestLabGeneratedBetaSeparatorPairs` and `TestLabGeneratedWireEnvelopePairs`. |
 | Every separator occurrence | Delete, duplicate, replace by **each other** character in `TZ_,.-:/;= ?&()[]{}\"` plus backslash, tab, CR and LF; surround by space, tab or CRLF. Time's `T` and `Z` are separators too. The ten beta commas receive the same operations. | Scalar grammar; `beta` in `TestLabGeneratedBetaSeparatorPairs`. |
 | Hex group and length/count/byte bound | Alphabet on both sides (`/`, `0`, `9`, `:`, backtick, `a`, `f`, `g`, `A`); every group's length one below/above; whole-value literal operators, including UUID braces and `urn:uuid:`; min-1/min/min+1/max-1/max/max+1 where representable; arrays 0/1/255/256/257; every frozen payload ceiling at limit and one above. Open ASCII values use both character boundaries and byte lengths, not fixed-literal restrictions. | `TestLabGeneratedGrammarPairs`, `TestLabPayloadLimitPairs`, `TestLabExactLimitRecordPairs`, `TestLabArrayLimitPairs`. |
 | Integer spelling and canonical bytes | At both in-range endpoints and zero/nonzero lexical seeds: one/two leading zeros, plus/minus sign, `.0`/`.00`/`.5`, Cartesian `e`/`E` × absent/plus/minus sign × `0`/`00`/`1` exponent, beside canonical integer bytes. Numeric range and wrong-kind refusals are separate from lexical refusals. Out-of-range lexical seeds use the nearest valid bound as their control; singleton endpoints are deliberately exercised twice. | CCJ parser then range in `TestLabGeneratedNumberLexemePairs`; `TestLabGeneratedCanonicalBytePairs` also rejects whitespace and redundant escapes without changing decoded values. |
 | Canonical time | Epoch and four-digit-year bounds on both sides; calendar-component bounds; 0/1/8/9/10 fraction digits; all-zero fractions of lengths 1..10; nonzero fractions with/without trailing zero at lengths 1..9; significant leading fractional zeros with/without redundant trailing zeros; signed/leading-zero year, signed/exponent fraction, non-UTC offset; literal and every time-separator operator. Canonical significant leading zeros **remain valid**; `.10Z`, `.120Z`, `.100000000Z` and `.000000010Z` refuse. | Exact time grammar in `TestLabGeneratedGrammarPairs`. |
 | Every typed value | Null and each of the other five JSON kinds, excluding only its required kind; fixed Boolean opposite where the measured value is fixed. | Direct grammar node, `TestLabGeneratedWirePairs`, `TestLabGeneratedWireJSONTypePairs`. |
-| Every closed object/member | Missing member, extra plain member, rename and extra alias for **every label operator**, duplicate member bytes, wrapper/wrong nesting. Duplicate tests act before decoding into maps; no last-wins projection is used as evidence. | `field_set` / `body_fields`, and parser duplicate refusal in `TestLabGeneratedObjectBytePairs`. |
+| Every closed object/member | Missing member, extra plain member, rename and extra alias for **every label operator**, duplicate member bytes, wrapper/wrong nesting. Duplicate tests use the test-local raw parser before map projection; they do not prove end-to-end wire-reader duplicate refusal. | `field_set` / `body_fields`, and parser duplicate refusal in `TestLabGeneratedObjectBytePairs`. |
 | Paired principal roles and closed owner set | Each principal kind swapped independently and both swapped; each tuple component shared. For **each** owner role: unaccept, remove, duplicate/replace by every other role, add unknown/extra role; independently unaccept residual consent. | `TestLabPrincipalDisjointPairs`, `TestLabGeneratedOwnerSetPairs`. |
 
-HTTP header names are case-insensitive, beta order is immaterial and ASCII OWS
-around a beta token is allowed: these variants are **valid controls**, not
-negatives. Open text/user-id/diagnostic strings are not fixed literal tokens.
+HTTP header names are nonempty ASCII RFC 9110 section 5.6.2 `tchar` tokens,
+compared using ASCII-only case folding (section 5.1). Unicode case-mapping aliases
+are not header names. Beta order is immaterial; optional whitespace (OWS,
+section 5.6.3) is **SP or HTAB only**, around a token, never inside it. Those ASCII
+case, order and SP/HTAB variants are **valid controls**, not negatives. CR, LF,
+NUL, every other control byte (including DEL), and every non-ASCII byte anywhere
+in the beta value refuse at `beta`; no replacement or unfolding is performed. Open text/user-id/diagnostic strings are not fixed literal tokens.
 HTTP JSON is not CCJ: this catalogue does not impose CCJ numeric spelling on
 forwarded body bytes. The reference wire member reader is recursive and exact;
 measured path names are not an ambiguous dotted-set decoder. The cache `scope`

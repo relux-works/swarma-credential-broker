@@ -192,3 +192,15 @@ the handoff records each actual result. The earlier equivalent `wire-body-subset
 overlay remains explicitly bounded: recursive closure and typed readers enforce
 the same required paths; it is not counted as killed. Production readers, native
 qualification and the owner-only admission gates remain outside C0 acceptance.
+
+
+## Revision 5 HTTP byte-class regression
+
+| Rule | Generated cases / valid controls | Intended refusal and narrowing overlay |
+| --- | --- | --- |
+| ASCII header-name token and fold | `headerNameCases` applies label/Unicode operators plus every byte insertion/substitution to each POST/GET header; uppercase measured names remain valid. `TestLabASCIIHeaderTokenPairs` independently checks every byte against all RFC `tchar` characters. | `TestLabGeneratedWireEnvelopePairs`, `envelope`; `header-unicode-fold-restored`. `TestLabASCIIHeaderTokenPairs`, token refusal; `header-token-byte-guard-off`. |
+| Beta SP/HTAB-only OWS | `TestLabGeneratedBetaOWSBytePairs` inserts each forbidden control/non-ASCII byte at every position, beside SP/HTAB token-boundary controls; SP/HTAB inside tokens refuse too. Existing token-wrapper and separator cases now classify CR/LF as negatives. | `beta` in `TestLabGeneratedBetaOWSBytePairs`, `TestLabGeneratedBetaSeparatorPairs` and `TestLabGeneratedWireEnvelopePairs`; `beta-crlf-as-ows`. |
+
+Only ASCII case folding applies to header names. SP and HTAB, not CR/LF, are
+beta OWS. The reference sees decoded fixture maps: raw duplicate-member checks
+remain test-local parser evidence, not end-to-end wire-reader acceptance.

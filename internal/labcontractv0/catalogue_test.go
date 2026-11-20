@@ -215,7 +215,7 @@ func TestLabGeneratedWireClosurePairs(test *testing.T) {
 	}
 }
 
-// Claim: all ten beta-list separators receive every separator operator; order and ASCII OWS remain admitted, missing/duplicate/foreign delimiters refuse at beta.
+// Claim: all ten beta-list separators receive every separator operator; order and SP/HTAB OWS remain admitted, missing/duplicate/foreign delimiters refuse at beta.
 func TestLabGeneratedBetaSeparatorPairs(test *testing.T) {
 	valid, beta, paths := wireControls(test)
 	index := -1
@@ -235,7 +235,7 @@ func TestLabGeneratedBetaSeparatorPairs(test *testing.T) {
 	}
 	for position := range cases {
 		changed := cases[position].Value.(string)
-		cases[position].Admit = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(changed, " ", ""), "\t", ""), "\r", ""), "\n", "") == beta
+		cases[position].Admit = strings.ReplaceAll(strings.ReplaceAll(changed, " ", ""), "\t", "") == beta
 	}
 	tokens := strings.Split(beta, ",")
 	slices.Reverse(tokens)
@@ -688,5 +688,110 @@ func TestLabGeneratedCanonicalBytePairs(test *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func asciiHeaderCaseEqual(candidate, measured string) bool {
+	if len(candidate) != len(measured) {
+		return false
+	}
+	for index := range measured {
+		if candidate[index] != measured[index] && !(measured[index] >= 'a' && measured[index] <= 'z' && candidate[index] == measured[index]-('a'-'A')) {
+			return false
+		}
+	}
+	return true
+}
+
+func headerNameCases(name string) []grammarMutation {
+	cases := labelCases(name)
+	for offset := 0; offset <= len(name); offset++ {
+		for value := 0; value <= 255; value++ {
+			inserted := name[:offset] + string([]byte{byte(value)}) + name[offset:]
+			cases = append(cases, grammarMutation{fmt.Sprintf("byte-%d-insert-%02x", offset, value), inserted, false})
+			if offset < len(name) {
+				replaced := name[:offset] + string([]byte{byte(value)}) + name[offset+1:]
+				cases = append(cases, grammarMutation{fmt.Sprintf("byte-%d-replace-%02x", offset, value), replaced, asciiHeaderCaseEqual(replaced, name)})
+			}
+		}
+		if offset < len(name) {
+			for position, alias := range map[byte][]string{'i': {"\u0131", "\u0130"}, 'k': {"\u212a"}, 's': {"\u017f"}}[name[offset]] {
+				cases = append(cases, grammarMutation{fmt.Sprintf("unicode-alias-%d-%d", offset, position), name[:offset] + alias + name[offset+1:], false})
+			}
+		}
+	}
+	return cases
+}
+
+// Claim: the header-name primitive accepts exactly nonempty ASCII tchar tokens and folds only ASCII letters, independently of the measured-name allowlist.
+func TestLabASCIIHeaderTokenPairs(test *testing.T) {
+	alphabet := "!#$%&'*+-.^_`|~0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	for value := 0; value <= 255; value++ {
+		test.Run(fmt.Sprintf("byte-%02x", value), func(test *testing.T) {
+			if folded, ok := foldHeaderName("X-API-KEY"); !ok || folded != "x-api-key" {
+				test.Fatal("ASCII header valid control refused")
+			}
+			candidate := "A" + string([]byte{byte(value)}) + "Z"
+			folded, ok := foldHeaderName(candidate)
+			allowed := strings.ContainsAny(string([]byte{byte(value)}), alphabet)
+			if ok != allowed {
+				test.Fatalf("header token alphabet verdict: byte=%02x admit=%v", value, allowed)
+			}
+			if allowed {
+				expected := "a" + strings.ToLower(string([]byte{byte(value)})) + "z"
+				if folded != expected {
+					test.Fatal("ASCII header fold differs from token control")
+				}
+			}
+		})
+	}
+	if _, ok := foldHeaderName(""); ok {
+		test.Fatal("empty header token admitted")
+	}
+}
+
+// Claim: every beta byte position rejects every non-HTAB control and non-ASCII byte; SP/HTAB pass only at token boundaries, beside unchanged valid requests.
+func TestLabGeneratedBetaOWSBytePairs(test *testing.T) {
+	valid, beta, paths := wireControls(test)
+	index := slices.IndexFunc(valid.Request.Headers, func(header [2]string) bool { return header[0] == "anthropic-beta" })
+	if index < 0 {
+		test.Fatal("missing beta control")
+	}
+	for offset := 0; offset <= len(beta); offset++ {
+		test.Run(fmt.Sprintf("position-%d", offset), func(test *testing.T) {
+			boundary := offset == 0 || offset == len(beta) || beta[offset-1] == ',' || beta[offset] == ','
+			controlOffset := strings.LastIndex(beta[:offset], ",") + 1
+			for _, whitespace := range []byte{' ', '\t'} {
+				control := cloneWire(test, valid)
+				control.Request.Headers[index][1] = beta[:controlOffset] + string(whitespace) + beta[controlOffset:]
+				if reason := wireRefusal(control, beta, paths); reason != "" {
+					test.Fatalf("SP/HTAB OWS control refused: %s", reason)
+				}
+				changed := cloneWire(test, valid)
+				changed.Request.Headers[index][1] = beta[:offset] + string(whitespace) + beta[offset:]
+				expected := "beta"
+				if boundary {
+					expected = ""
+				}
+				if reason := wireRefusal(changed, beta, paths); reason != expected {
+					test.Fatalf("SP/HTAB position verdict: reason=%s expected=%s", reason, expected)
+				}
+			}
+			for value := 0; value <= 255; value++ {
+				if value == '\t' || value >= ' ' && value < 127 {
+					continue
+				}
+				test.Run(fmt.Sprintf("forbidden-byte-%02x", value), func(test *testing.T) {
+					if wireRefusal(valid, beta, paths) != "" {
+						test.Fatal("beta byte valid control refused")
+					}
+					changed := cloneWire(test, valid)
+					changed.Request.Headers[index][1] = beta[:offset] + string([]byte{byte(value)}) + beta[offset:]
+					if reason := wireRefusal(changed, beta, paths); reason != "beta" {
+						test.Fatalf("forbidden beta byte admitted or wrong step: byte=%02x reason=%s", value, reason)
+					}
+				})
+			}
+		})
 	}
 }

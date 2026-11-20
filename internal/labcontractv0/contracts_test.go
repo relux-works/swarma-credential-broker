@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "532a985d4ef047bb4a87710c069f88826614a2c16f986bb2981d969f88afa19d"
+const indexSHA256 = "4f9a81562d391153764b5ae75d7914cf83f03c1bb3d956461211d8eb36f6e7d8"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -558,6 +558,21 @@ func wireAdmitted(fixture wireFixture, beta string, allowedPaths map[string]bool
 	return wireRefusal(fixture, beta, allowedPaths) == ""
 }
 
+func foldHeaderName(name string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	folded := []byte(name)
+	for index, char := range folded {
+		if char >= 'A' && char <= 'Z' {
+			folded[index] = char + ('a' - 'A')
+		} else if !(char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", rune(char))) {
+			return "", false
+		}
+	}
+	return string(folded), true
+}
+
 func wireRefusal(fixture wireFixture, beta string, allowedPaths map[string]bool) string {
 	request := fixture.Request
 	if request.SourceScheme != "api-key" {
@@ -565,7 +580,10 @@ func wireRefusal(fixture wireFixture, beta string, allowedPaths map[string]bool)
 	}
 	headers := map[string]string{}
 	for _, header := range request.Headers {
-		name := strings.ToLower(header[0])
+		name, token := foldHeaderName(header[0])
+		if !token {
+			return "envelope"
+		}
 		if _, exists := headers[name]; exists {
 			return "envelope"
 		}
@@ -586,7 +604,7 @@ func wireRefusal(fixture wireFixture, beta string, allowedPaths map[string]bool)
 	wanted := strings.Split(beta, ",")
 	seen := map[string]bool{}
 	for _, token := range strings.Split(headers["anthropic-beta"], ",") {
-		token = strings.Trim(token, " \t\r\n")
+		token = strings.Trim(token, " \t")
 		if seen[token] || !slices.Contains(wanted, token) {
 			return "beta"
 		}
