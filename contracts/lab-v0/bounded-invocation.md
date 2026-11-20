@@ -58,6 +58,14 @@ An input, quote or authoritative charge that cannot be safely bounded is UNKNOWN
    target digest; Context, heads, release set, access attestation and start
    generation match protected current observations. Its existing embedded
    Approval binds every A field using the existing approval-target domain.
+   The section 6 release approval R is the complete swarma-lab-release-set/1:
+   R.invocation_sha256 MUST equal this SAME target digest, and its owner_approval
+   seals R using the existing approval-target domain. R.context equals P.context.
+   A.release_set_sha256 equals digest(ALL canonical R bytes), not an unrelated
+   release label; authenticate both owner records and their unexpired windows.
+   Thus section 6 selects the bounds via target -> sealed R -> sealed A -> P -> D
+   -> launch L. No second invocation/budget approval or digest cycle is implied.
+   R's contract-index pin is the frozen approved index, not a digest of P or A.
    Authentication/provenance is an external owner gate, not a channel string or
    a hash. Require approved_at <= off_vm_now <= now < expires_at and unexpired qualification;
    unknown freshness/provenance is UNKNOWN, explicit revocation refuses.
@@ -97,6 +105,20 @@ An input, quote or authoritative charge that cannot be safely bounded is UNKNOWN
 Before effects, the executor verifies **every** shape/approval/client/profile/
 launch/release/access/context join above. It also verifies demonstrable controls
 for the selected model, aggregate output, cost and both monotonic deadlines.
+Before EVERY ordinal, including later attempts in the same group, revalidate
+owner authentication, the release R and A approval windows, explicit revocation,
+qualification expiry, and ALL current release/access/context joins. Require
+approved_at <= now < expires_at for BOTH approvals and now < qualification expiry;
+no initial-check cache or extension is valid. Expiry/revocation is a reached
+bound: stop the group before the next ordinal, with no forwarding or refund.
+During an active attempt schedule expiry/qualification stops at the earliest
+known expiry (converted with qualified monotonic continuity); monitor revocation
+and access/currentness with the existing <=1-second end-to-end removal bound
+(profile section 3.2), AND inside every remaining per-attempt/total deadline.
+Whichever arrives first closes use and stops/reaps in those bounds; unknown
+freshness/monitoring is sticky UNKNOWN, not grace or another attempt. Retain
+all consumed ordinals/debits/reservations. A later renewed approval cannot reopen
+this stopped group; reconciliation/new owner admission remains required.
 Missing controls, incomplete accounting/clock evidence or a changed approved
 input prohibit launch. An advisory CLI spend flag, best-effort kill, post-hoc
 usage estimate or vendor alert alone is not proof of a hard bound. B5's vendor
@@ -118,7 +140,8 @@ before admission, covering input, output/thinking, cache and every billable
 component under the approved price/control policy. If this cannot be established,
 return UNKNOWN without forwarding. Reservations consume available budget but
 are not actual spend: an attempt whose reservation exactly fits the remaining
-budget may run inside that allocation; no additional attempt may start.
+budget may run inside that allocation; no additional attempt may start
+while that reservation is outstanding.
 Settle/release a reservation only against complete authoritative evidence.
 An uncertain response/charge keeps the reservation and consumed ordinal; never
 refund it as zero, retry to discover its outcome, or rely on a soft USD estimate.

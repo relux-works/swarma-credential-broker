@@ -211,8 +211,6 @@ remain test-local parser evidence, not end-to-end wire-reader acceptance.
 | Surface / rule | Cases and adjacent valid control | Intended gate / test | Source-overlay control |
 | --- | --- | --- | --- |
 | `swarma-broker-lab-bounded-invocation/1`, B5 → M1/B4 | Every required root/Context member; catalogue labels, missing/extra/alias/null/wrong kind, duplicate and wrong nesting; foreign format; 65536/65537-byte preflight | `TestLabClosedSurfacePairs`, `TestLabGeneratedClosedFieldPairs`, `TestLabGeneratedObjectBytePairs`, `TestLabPayloadLimitPairs` | `c0b-discriminator`, `c0b-closure`, `c0b-payload-limit` |
-| `swarma-broker-lab-observation-request/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-observation-request/1`; adjacent canonical valid fixture | `c0c-request-discriminator`, `c0c-request-closure`, `c0c-request-payload` |
-| `swarma-broker-lab-observation-response/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-observation-response/1`; adjacent canonical valid fixture | `c0c-response-discriminator`, `c0c-response-closure`, `c0c-response-payload` |
 | All 15 field grammars | Existing catalogue traversal includes each new field and Context; new count 1..256, output 1..128000 and wall 1..900000 endpoints and neighbors, number-lexeme operators | `TestLabFieldGrammarPairs`, `TestLabGeneratedGrammarPairs`, `TestLabGeneratedNumberLexemePairs` | `c0b-count-range`, `c0b-output-range`, `c0b-wall-range` |
 | Positive canonical USD | Independent big-integer/byte oracle; min-1/min/min+1/max-1/max/max+1, every literal and decimal-separator operator, both leading/redundant-zero sides, scale, sign, exponent, non-ASCII, null/all wrong kinds | `TestLabBoundedUSDPairs`, `TestLabGeneratedGrammarPairs`, intended `usd` grammar gate | `c0b-usd-zero`, `c0b-usd-upper`, `c0b-usd-scale`, `c0b-usd-leading-zero` |
 | No default approval; exact owner target/full digest | Published 22-case corpus; false/unverified/revoked/expired and mismatch witnesses; every mutable plan bound/pin/context/operation/generation retaining original approval | `TestLabBoundedAdmissionPairs`, `TestLabBoundedJoinPairs` | `c0b-approval-flag`, `c0b-owner`, `c0b-revocation`, `c0b-approval-digest`, `c0b-approval-seal`, `c0b-target`, `c0b-full-plan` |
@@ -242,7 +240,7 @@ lock/fsync, protected journal currentness or real publication is proved here.
 | Exact three-member request; closed response/nested types; every label/null/type/missing/alias/duplicate/wrong nesting | TestLabClosedSurfacePairs; TestLabNestedClosurePairs; TestLabGeneratedClosedFieldPairs; TestLabGeneratedObjectBytePairs | c0c-request-closure; c0c-response-closure |
 | Both lab discriminators, every literal/case/separator; own formats only | TestLabClosedSurfacePairs; TestLabGeneratedGrammarPairs | c0c-request-discriminator; c0c-response-discriminator |
 | Request 4096 / response 65536: at-limit and over-limit; zero/truncated/multiple-frame facts | TestLabPayloadLimitPairs; TestLabObservationTransportPairs | c0c-request-payload; c0c-response-payload; c0c-frame-size; c0c-one-frame |
-| Every receipt/debit/invalidation array 0/1/255/256/257; null and wrong types | TestLabGeneratedGrammarPairs | c0c-array-count |
+| Every receipt/debit/invalidation/stop array 0/1/255/256/257; null and wrong types | TestLabGeneratedGrammarPairs | c0c-array-count |
 | Native request/start/owner/manager IDs: every catalogue operator and all byte positions/classes; 0/1/2/63/64/65 | TestLabGeneratedGrammarPairs | c0c-native-id-first; c0c-native-id-length |
 | Native executor/profile IDs: fixed lowercase/first character, separators and all byte classes; 0/1/2/31/32/33 | TestLabGeneratedGrammarPairs | c0c-native-executor-case; c0c-native-executor-length |
 | Shared native lock provenance, never a second mutex | TestLabObservationLockPair; TestLabObservationTransportPairs | c0c-native-lock; c0c-lock-provenance |
@@ -265,3 +263,67 @@ readback and UID isolation, actual same-inode native locking, ledger decoding
 through the new endpoint, fsync/crash behavior, release installation and live
 Q/production acceptance. They remain required implementation/qualification
 obligations, not exclusions from their A03/A05 acceptance rows.
+
+
+## C0b/C0c review corrections: intended-step pairs
+
+The release corpus explicitly carries the sealed section 6 release and its
+protected expected digest; no admission helper fabricates approval. Phase is
+observed state, never a protected static pin. The response adds only stops and
+sequence_generation; the request remains three members. The recursive C0
+catalogue reaches each new member/type at its own grammar/closure gate.
+
+| Rule / generated cases | Named paired test | Source-overlay witness |
+| --- | --- | --- |
+| stops: labels/aliases/missing/null/all wrong kinds, array 0/1/255/256/257; every native stop field and phase literal/case/separator | TestLabNestedClosurePairs; TestLabGeneratedClosedFieldPairs; TestLabGeneratedObjectBytePairs; TestLabGeneratedGrammarPairs | r1-stop-closure; r1-stop-array-count; r1-stop-phase-case |
+| sequence_generation: operation alphabet, length, case, literal/separator, null/wrong kinds; labels/aliases/missing/duplicates/nesting | TestLabGeneratedGrammarPairs; TestLabGeneratedClosedFieldPairs; TestLabGeneratedObjectBytePairs | r1-sequence-generation-grammar |
+| adds a terminal-launch exception with no protected phase pin (negative), unchanged admitted control | TestLabObservationStopPairs | r1-terminal-admission |
+| ignores pending stops but retains terminal-stop refusal (negative), unchanged admitted control | TestLabObservationStopPairs | r1-pending-stop |
+| ignores terminal stops but retains pending-stop refusal (negative), unchanged admitted control | TestLabObservationStopPairs | r1-terminal-stop |
+| matches only execution ID, discarding the generation join (negative), unchanged admitted control | TestLabObservationStopPairs | r1-stop-generation |
+| matches only generation, discarding the execution join (negative), unchanged admitted control | TestLabObservationStopPairs | r1-stop-execution |
+| omits only the locked current-account conjunct (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-locked |
+| omits only the found current-account conjunct (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-found |
+| omits only the latest current-account conjunct (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-latest |
+| omits only the account-terminal current-account conjunct (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-account-terminal |
+| omits only the active-check current-account conjunct (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-active-check |
+| omits only the row-uid current-account conjunct (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-row-uid |
+| omits only the account-uid current-account conjunct (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-account-uid |
+| omits only the row-generation current-account conjunct (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-row-generation |
+| omits only the account-generation current-account conjunct (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-account-generation |
+| adds pending as a current-account state (negative), unchanged admitted control | TestLabObservationCurrentnessPairs | r1-current-state |
+| retains only the upper concurrency bound (negative), unchanged admitted control | TestLabObservationLoadPairs | r1-concurrency |
+| admits negative hold time -1 (negative), unchanged admitted control | TestLabObservationLoadPairs | r1-hold-negative |
+| admits 25 ms at the closed hold deadline (negative), unchanged admitted control | TestLabObservationLoadPairs | r1-hold-ceiling |
+| admits hold equal to the native wait budget (negative), unchanged admitted control | TestLabObservationLoadPairs | r1-native-wait |
+| admits an acquisition one ms before cooldown (negative), unchanged admitted control | TestLabObservationLoadPairs | r1-cooldown |
+| adds a cross-installation sequence-generation exception (negative), unchanged admitted control | TestLabObservationSnapshotSequencePairs | r1-sequence-scope |
+| adds a cross-installation durable-counter exception (negative), unchanged admitted control | TestLabObservationSnapshotSequencePairs | r1-counter-scope |
+| compares generation only, not the remaining native snapshot proof (negative), unchanged admitted control | TestLabObservationSnapshotSequencePairs | r1-snapshot-unchanged |
+| omits reauthorization at boundedStart while retaining budget checks (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-boundedStart-authority |
+| omits reauthorization at boundedObserve while retaining budget checks (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-boundedObserve-authority |
+| omits only the owner authority gate (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-authority-owner |
+| omits only the clock authority gate (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-authority-clock |
+| omits only the access authority gate (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-authority-access |
+| omits only the approval-start authority gate (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-authority-approval-start |
+| admits the release approval one unit before its start (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-authority-release-start |
+| omits only the revocation group stop (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-authority-revocation |
+| omits only the approval-expiry group stop (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-authority-approval-expiry |
+| omits only the release-expiry group stop (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-authority-release-expiry |
+| admits equality at qualification expiry (negative), unchanged admitted control | TestLabBoundedAuthorityPairs | r1-authority-qualification-expiry |
+| narrows the target release join to a documented mismatched exception (negative), unchanged admitted control | TestLabBoundedReleasePairs | r1-release-target |
+| narrows the context release join to a documented mismatched exception (negative), unchanged admitted control | TestLabBoundedReleasePairs | r1-release-context |
+| narrows the seal release join to a documented mismatched exception (negative), unchanged admitted control | TestLabBoundedReleasePairs | r1-release-seal |
+| narrows the expected release join to a documented mismatched exception (negative), unchanged admitted control | TestLabBoundedReleasePairs | r1-release-expected |
+| narrows the digest release join to a documented mismatched exception (negative), unchanged admitted control | TestLabBoundedReleasePairs | r1-release-digest |
+| admits release approval one nanosecond before its opening boundary (negative), unchanged admitted control | TestLabBoundedReleasePairs | r1-release-before |
+| admits release approval at expiry equality (negative), unchanged admitted control | TestLabBoundedReleasePairs | r1-release-expiry |
+| omits only the four-field ObservationStop closure gate (negative), unchanged admitted control | TestLabNestedClosurePairs | r1-stop-closure |
+| admits after budget/client/launch gates but omits the release chain (negative), unchanged admitted control | TestLabBoundedReleaseIntegrationPair | r1-release-integration |
+| omits the stop-array ceiling, retains element validation (negative), unchanged admitted control | TestLabGeneratedGrammarPairs | r1-stop-array-count |
+| adds uppercase ADMITTED as a native stop-phase exception (negative), unchanged admitted control | TestLabGeneratedGrammarPairs | r1-stop-phase-case |
+| admits uppercase in the counter-generation grammar (negative), unchanged admitted control | TestLabGeneratedGrammarPairs | r1-sequence-generation-grammar |
+
+All witnesses concern test-only reference functions, not an installed executor,
+server or client. M1/B1/B4 must supply real enforcement evidence; no native or
+production acceptance is inferred. The existing out-of-contract list applies.

@@ -1,4 +1,4 @@
-# Lab contract C0 with C0b/C0c addenda, revision 7
+# Lab contract C0 with C0b/C0c addenda, revision 8
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
@@ -281,7 +281,7 @@ Unfinished/resumed lines fail closed and may require a new clean observation.
 
 ## Normative negative operator catalogue
 
-Revision 7 retains the following **finite operator catalogue**, not a claim to
+Revision 8 retains the following **finite operator catalogue**, not a claim to
 exhaust all possible adversaries. `literalMutations`, `separatorMutations`,
 `scalarMutations`, `labelCases` and `headerNameCases` in `internal/labcontractv0` implement it.
 Traversal applies every applicable operator to every grammar node, enum member,
@@ -303,6 +303,7 @@ part of the catalogue, not exemptions silently selected by the implementation.
 | Every typed value | Null and each of the other five JSON kinds, excluding only its required kind; fixed Boolean opposite where the measured value is fixed. | Direct grammar node, `TestLabGeneratedWirePairs`, `TestLabGeneratedWireJSONTypePairs`. |
 | Every closed object/member | Missing member, extra plain member, rename and extra alias for **every label operator**, duplicate member bytes, wrapper/wrong nesting. Duplicate tests use the test-local raw parser before map projection; they do not prove end-to-end wire-reader duplicate refusal. | `field_set` / `body_fields`, and parser duplicate refusal in `TestLabGeneratedObjectBytePairs`. |
 | Paired principal roles and closed owner set | Each principal kind swapped independently and both swapped; each tuple component shared. For **each** owner role: unaccept, remove, duplicate/replace by every other role, add unknown/extra role; independently unaccept residual consent. | `TestLabPrincipalDisjointPairs`, `TestLabGeneratedOwnerSetPairs`. |
+| C0b/C0c state predicates | Independently negate each conjunct of managed-account currentness; admitted/terminal launch and stop phases, each matching selector independently changed and both changed; absent/partial/full stop sets. Check both sides of each concurrency/hold/cooldown bound, both approval/qualification window endpoints, revocation/current-access and unknown authority before every ordinal AND in flight. Join target, sealed release, sealed A, full plan and launch pins after re-sealing mutated subjects. Sequence and counter generation differ independently and together; sequence reservation must leave every native snapshot member unchanged. Each semantic negative must reach its named gate beside a valid control; re-seal to avoid a stale-digest mask. | `TestLabObservationStopPairs`, `TestLabObservationCurrentnessPairs`, `TestLabObservationLoadPairs`, `TestLabObservationSnapshotSequencePairs`, `TestLabBoundedAuthorityPairs`, `TestLabBoundedReleasePairs`; shape fields still receive EVERY recursive operator above. |
 
 HTTP header names are nonempty ASCII RFC 9110 section 5.6.2 `tchar` tokens,
 compared using ASCII-only case folding (section 5.1). Unicode case-mapping aliases

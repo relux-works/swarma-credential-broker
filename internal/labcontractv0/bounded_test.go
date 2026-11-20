@@ -91,6 +91,8 @@ type boundedCase struct {
 	Plan                 map[string]any `json:"plan"`
 	Approval             map[string]any `json:"approval"`
 	Launch               map[string]any `json:"launch_plan"`
+	Release              map[string]any `json:"release_set"`
+	ExpectedRelease      string         `json:"expected_release_sha256"`
 	ExpectedPlan         string         `json:"expected_plan_sha256"`
 	OwnerVerified        bool           `json:"owner_verified"`
 	Revoked              bool           `json:"revoked"`
@@ -122,6 +124,7 @@ func boundedClone(test *testing.T, original boundedCase) boundedCase {
 	original.Plan = cloneObject(test, original.Plan)
 	original.Approval = cloneObject(test, original.Approval)
 	original.Launch = cloneObject(test, original.Launch)
+	original.Release = cloneObject(test, original.Release)
 	return original
 }
 
@@ -137,6 +140,14 @@ func boundedTarget(test *testing.T, plan map[string]any) string {
 
 func boundedRebind(test *testing.T, candidate *boundedCase) {
 	test.Helper()
+	releaseWasCurrent := candidate.Approval["release_set_sha256"] == boundedDigest(test, candidate.Release)
+	candidate.Release["invocation_sha256"] = boundedTarget(test, candidate.Plan)
+	candidate.Release["context"] = cloneObject(test, candidate.Plan["context"].(map[string]any))
+	resealClosure(test, candidate.Release)
+	candidate.ExpectedRelease = boundedDigest(test, candidate.Release)
+	if releaseWasCurrent {
+		candidate.Approval["release_set_sha256"] = candidate.ExpectedRelease
+	}
 	candidate.Approval["invocation_sha256"] = boundedTarget(test, candidate.Plan)
 	resealClosure(test, candidate.Approval)
 	candidate.Plan["approval_record_sha256"] = boundedDigest(test, candidate.Approval)
@@ -144,6 +155,7 @@ func boundedRebind(test *testing.T, candidate *boundedCase) {
 	pins := candidate.Launch["pins"].(map[string]any)
 	pins["invocation_sha256"] = candidate.Approval["invocation_sha256"]
 	pins["off_vm_approval_sha256"] = candidate.Plan["approval_record_sha256"]
+	pins["release_set_sha256"] = candidate.Approval["release_set_sha256"]
 	for _, raw := range candidate.Launch["input_pins"].([]any) {
 		pin := raw.(map[string]any)
 		switch pin["name"] {
@@ -223,7 +235,11 @@ func boundedAdmission(test *testing.T, candidate boundedCase, baseline boundedCa
 		return "approval_freshness"
 	}
 	for _, name := range []string{"context", "heads", "release_set_sha256", "access_attestation_sha256", "start_generation"} {
-		if !reflect.DeepEqual(approval[name], normalizedBounded(test, baseline.Approval)[name]) {
+		expectedCurrent := normalizedBounded(test, baseline.Approval)[name]
+		if name == "release_set_sha256" {
+			expectedCurrent = candidate.ExpectedRelease
+		}
+		if !reflect.DeepEqual(approval[name], expectedCurrent) {
 			return "approval_current"
 		}
 	}
@@ -281,7 +297,7 @@ func boundedAdmission(test *testing.T, candidate boundedCase, baseline boundedCa
 			return "plan_join"
 		}
 	}
-	return "admitted"
+	return boundedReleaseAdmission(test, candidate)
 }
 
 func normalizedBounded(test *testing.T, object map[string]any) map[string]any {
@@ -451,9 +467,12 @@ func limitsFromPlan(test *testing.T, candidate boundedCase) boundedLimits {
 	return boundedLimits{plan["max_invocations"].(int64), plan["max_output_tokens_per_invocation"].(int64), cost, plan["max_wall_time_per_invocation_ms"].(int64), plan["max_wall_time_total_ms"].(int64)}
 }
 
-func boundedStart(state *boundedLedger, limit boundedLimits, plan, operation string, quote, elapsed int64, quoteVerified bool) string {
+func boundedStart(state *boundedLedger, authority boundedAuthority, limit boundedLimits, plan, operation string, quote, elapsed int64, quoteVerified bool) string {
 	if state.Unknown {
 		return "unknown"
+	}
+	if verdict := boundedReauthorize(state, authority); verdict != "current" {
+		return verdict
 	}
 	if state.PlanDigest != plan || state.Operation != operation {
 		return "ledger_join"
@@ -489,9 +508,12 @@ func boundedStart(state *boundedLedger, limit boundedLimits, plan, operation str
 	return "started"
 }
 
-func boundedObserve(state *boundedLedger, limit boundedLimits, output, cost, attemptMS, totalMS int64, evidenceComplete bool) string {
+func boundedObserve(state *boundedLedger, authority boundedAuthority, limit boundedLimits, output, cost, attemptMS, totalMS int64, evidenceComplete bool) string {
 	if state.Unknown {
 		return "unknown"
+	}
+	if verdict := boundedReauthorize(state, authority); verdict != "current" {
+		return verdict
 	}
 	if !state.Active {
 		return "status_only"
@@ -541,7 +563,7 @@ func TestLabBoundedExecutorPairs(test *testing.T) {
 	}
 	start := func(test *testing.T, state *boundedLedger, quote int64) {
 		test.Helper()
-		if result := boundedStart(state, limit, control.ExpectedPlan, state.Operation, quote, 0, true); result != "started" {
+		if result := boundedStart(state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, quote, 0, true); result != "started" {
 			test.Fatalf("executor valid control: %s", result)
 		}
 	}
@@ -553,7 +575,7 @@ func TestLabBoundedExecutorPairs(test *testing.T) {
 				state := fresh()
 				if bound == "count" {
 					state.Attempts = limit.Count + delta
-					result := boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 1, 0, true)
+					result := boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 1, 0, true)
 					want := "exhausted"
 					if delta < 0 {
 						want = "started"
@@ -583,7 +605,7 @@ func TestLabBoundedExecutorPairs(test *testing.T) {
 				if delta > 0 {
 					want = "violation"
 				}
-				if result := boundedObserve(&state, limit, output, cost, per, total, true); result != want {
+				if result := boundedObserve(&state, validBoundedAuthority(), limit, output, cost, per, total, true); result != want {
 					test.Fatalf("first bound: %s want %s", result, want)
 				}
 				if bound == "cost" && state.Cost != cost {
@@ -591,7 +613,7 @@ func TestLabBoundedExecutorPairs(test *testing.T) {
 				}
 				if delta >= 0 {
 					attempts := state.Attempts
-					if result := boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 1, total, true); result != "exhausted" || state.Attempts != attempts || state.Active {
+					if result := boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 1, total, true); result != "exhausted" || state.Attempts != attempts || state.Active {
 						test.Fatalf("retry after bound: %s", result)
 					}
 				}
@@ -607,38 +629,38 @@ func TestLabBoundedExecutorPairs(test *testing.T) {
 			var result string
 			switch mode {
 			case "zero-quote":
-				result = boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 0, 0, true)
+				result = boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 0, 0, true)
 			case "unknown-quote":
-				result = boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 1, 0, false)
+				result = boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 1, 0, false)
 			case "over-remaining":
 				want = "budget"
-				result = boundedStart(&state, limit, control.ExpectedPlan, state.Operation, limit.Cost+1, 0, true)
+				result = boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, limit.Cost+1, 0, true)
 			case "changed-plan":
 				want = "ledger_join"
-				result = boundedStart(&state, limit, "PUBLIC-OTHER", state.Operation, 1, 0, true)
+				result = boundedStart(&state, validBoundedAuthority(), limit, "PUBLIC-OTHER", state.Operation, 1, 0, true)
 			case "changed-operation":
 				want = "ledger_join"
-				result = boundedStart(&state, limit, control.ExpectedPlan, "PUBLIC-OTHER", 1, 0, true)
+				result = boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, "PUBLIC-OTHER", 1, 0, true)
 			case "gap-at-total-bound":
 				want = "exhausted"
-				result = boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 1, limit.TotalMS, true)
+				result = boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 1, limit.TotalMS, true)
 			default:
 				quote := limit.Cost
 				if mode == "charge-exceeds-reservation" {
 					quote = 10
 				}
 				start(test, &state, quote)
-				if result := boundedObserve(&state, limit, 2, 2, 2, 2, true); result != "running" {
+				if result := boundedObserve(&state, validBoundedAuthority(), limit, 2, 2, 2, 2, true); result != "running" {
 					test.Fatal("observe valid control")
 				}
 				switch mode {
 				case "active-retry":
 					want = "status_only"
-					result = boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 1, 2, true)
+					result = boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 1, 2, true)
 				case "unknown-settlement":
 					result = boundedSettle(&state, false)
 				case "clock-regression":
-					result = boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 1, 1, true)
+					result = boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 1, 1, true)
 				default:
 					output, cost, per, total := int64(3), int64(3), int64(3), int64(3)
 					switch mode {
@@ -653,7 +675,7 @@ func TestLabBoundedExecutorPairs(test *testing.T) {
 					case "charge-exceeds-reservation":
 						cost = 11
 					}
-					result = boundedObserve(&state, limit, output, cost, per, total, mode != "unknown-response")
+					result = boundedObserve(&state, validBoundedAuthority(), limit, output, cost, per, total, mode != "unknown-response")
 				}
 			}
 			if result != want {
@@ -667,7 +689,7 @@ func TestLabBoundedExecutorPairs(test *testing.T) {
 				if result := boundedSettle(&state, true); result != "unknown" {
 					test.Fatal("unknown settlement cleared")
 				}
-				if result := boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 1, state.TotalMS, true); result != "unknown" || state.Reserved != reservation || state.Attempts != attempts {
+				if result := boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 1, state.TotalMS, true); result != "unknown" || state.Reserved != reservation || state.Attempts != attempts {
 					test.Fatal("unknown debit or ordinal lost")
 				}
 			}
@@ -700,7 +722,7 @@ func TestLabBoundedExecutorPairs(test *testing.T) {
 				state.Cost, want = limit.Cost, "exhausted"
 			}
 			attempts, reservation := state.Attempts, state.Reserved
-			if result := boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 1, elapsed, true); result != want || state.Attempts != attempts || state.Reserved != reservation {
+			if result := boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 1, elapsed, true); result != want || state.Attempts != attempts || state.Reserved != reservation {
 				test.Fatalf("active first-bound/status: %s want %s", result, want)
 			}
 			if want == "exhausted" && (!state.Stopped || state.Active) {
@@ -717,16 +739,16 @@ func TestLabBoundedExecutorPairs(test *testing.T) {
 		if state.Attempts != 1 || state.Reserved != limit.Cost || !state.Active {
 			test.Fatal("start not reserved/counted")
 		}
-		if boundedObserve(&state, limit, 1, 10, 1, 1, true) != "running" || state.Reserved != limit.Cost-10 {
+		if boundedObserve(&state, validBoundedAuthority(), limit, 1, 10, 1, 1, true) != "running" || state.Reserved != limit.Cost-10 {
 			test.Fatal("reservation accounting")
 		}
 		if boundedSettle(&state, true) != "settled" || state.Reserved != 0 || state.Cost != 10 || state.Attempts != 1 {
 			test.Fatal("settlement lost debit")
 		}
-		if boundedStart(&state, limit, control.ExpectedPlan, state.Operation, limit.Cost-10, 2, true) != "started" || state.Attempts != 2 {
+		if boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, limit.Cost-10, 2, true) != "started" || state.Attempts != 2 {
 			test.Fatal("equal remaining reservation refused")
 		}
-		if boundedSettle(&state, true) != "settled" || boundedStart(&state, limit, control.ExpectedPlan, state.Operation, 1, 3, true) != "exhausted" {
+		if boundedSettle(&state, true) != "settled" || boundedStart(&state, validBoundedAuthority(), limit, control.ExpectedPlan, state.Operation, 1, 3, true) != "exhausted" {
 			test.Fatal("count reset after settlement")
 		}
 	})

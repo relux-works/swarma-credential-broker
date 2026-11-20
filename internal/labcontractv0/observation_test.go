@@ -72,6 +72,7 @@ type observationFixture struct {
 	Request      map[string]any `json:"request"`
 	Response     map[string]any `json:"response"`
 	Invalidation map[string]any `json:"invalidation"`
+	Stop         map[string]any `json:"stop"`
 	Expected     map[string]any `json:"expected"`
 }
 
@@ -82,6 +83,7 @@ func observationControl(test *testing.T) observationFixture {
 	fixture.Request = normalizedBounded(test, fixture.Request)
 	fixture.Response = normalizedBounded(test, fixture.Response)
 	fixture.Invalidation = normalizedBounded(test, fixture.Invalidation)
+	fixture.Stop = normalizedBounded(test, fixture.Stop)
 	fixture.Expected = normalizedBounded(test, fixture.Expected)
 	return fixture
 }
@@ -119,6 +121,9 @@ func observationAdmission(test *testing.T, fixture observationFixture, nativeLoc
 	if response["complete"] != true {
 		return "completeness"
 	}
+	if response["sequence_generation"] != store["generation"] {
+		return "sequence_generation"
+	}
 	if response["sequence"].(int64) <= expected["sequence_high_water"].(int64) {
 		return "sequence"
 	}
@@ -127,8 +132,16 @@ func observationAdmission(test *testing.T, fixture observationFixture, nativeLoc
 	if before > observed || observed > after || after < before || after-before >= 250 {
 		return "interval"
 	}
-	if !reflect.DeepEqual(start, expected["start"]) || start["phase"] != "admitted" {
+	pins := cloneObject(test, start)
+	delete(pins, "phase")
+	if !reflect.DeepEqual(normalizedBounded(test, pins), expected["start"]) {
 		return "start_join"
+	}
+	if start["phase"] != "admitted" {
+		return "start_phase"
+	}
+	if len(response["stops"].([]any)) != 0 {
+		return "stop"
 	}
 	receipts, debits, invalidations := response["receipts"].([]any), response["debits"].([]any), response["invalidations"].([]any)
 	if len(receipts) != 1 {
@@ -165,10 +178,11 @@ type observationTransport struct {
 	ClientUID, DaemonUID, ServerUID, SocketOwnerUID               int64
 	TrustedServer, ProtectedPath, NativeLock, WriteEOF, Ancillary bool
 	RequestBytes, ResponseBytes, Requests, Responses, ElapsedMS   int64
+	InFlight, LockHoldMS, NativeWaitMS, CooldownMS                int64
 }
 
 func validObservationTransport() observationTransport {
-	return observationTransport{ClientUID: 4001, DaemonUID: 4001, ServerUID: 0, SocketOwnerUID: 0, TrustedServer: true, ProtectedPath: true, NativeLock: true, WriteEOF: true, RequestBytes: 4096, ResponseBytes: 65536, Requests: 1, Responses: 1, ElapsedMS: 249}
+	return observationTransport{ClientUID: 4001, DaemonUID: 4001, ServerUID: 0, SocketOwnerUID: 0, TrustedServer: true, ProtectedPath: true, NativeLock: true, WriteEOF: true, RequestBytes: 4096, ResponseBytes: 65536, Requests: 1, Responses: 1, ElapsedMS: 249, InFlight: 1, LockHoldMS: 24, NativeWaitMS: 25, CooldownMS: 250}
 }
 
 func observationTransportAdmission(input observationTransport) string {
@@ -177,6 +191,9 @@ func observationTransportAdmission(input observationTransport) string {
 	}
 	if input.ServerUID != 0 || input.SocketOwnerUID != 0 || !input.TrustedServer || !input.ProtectedPath {
 		return "server_peer"
+	}
+	if verdict := observationLoad(input); verdict != "valid" {
+		return verdict
 	}
 	if input.RequestBytes < 1 || input.RequestBytes > 4096 || input.ResponseBytes < 1 || input.ResponseBytes > 65536 {
 		return "frame_size"
@@ -206,7 +223,7 @@ func publishObservation(test *testing.T, state *observationPublication, first, f
 	if observationAdmission(test, first, true) != "valid" || observationAdmission(test, final, true) != "valid" {
 		return "unknown_observation"
 	}
-	if !fresh || final.Expected["before_monotonic_ms"].(int64) < first.Expected["after_monotonic_ms"].(int64) {
+	if !fresh || final.Expected["before_monotonic_ms"].(int64)-first.Expected["after_monotonic_ms"].(int64) < 250 {
 		return "unknown_freshness"
 	}
 	sequence := final.Response["sequence"].(int64)
@@ -293,7 +310,7 @@ func TestLabObservationJoinPairs(test *testing.T) {
 			fixture.Expected["after_monotonic_ms"] = fixture.Expected["before_monotonic_ms"].(int64) + value
 		})
 	}
-	for _, field := range []string{"owner", "generation", "epoch", "uid", "executor", "plan_sha256", "profile_id", "profile_sha256", "phase"} {
+	for _, field := range []string{"owner", "generation", "epoch", "uid", "executor", "plan_sha256", "profile_id", "profile_sha256"} {
 		run("start-pin-"+field, "start_join", func(fixture *observationFixture) {
 			start := fixture.Response["start"].(map[string]any)
 			switch field {
@@ -543,8 +560,8 @@ func TestLabObservationNativeBoundaries(test *testing.T) {
 func freshObservationPair(test *testing.T) (observationFixture, observationFixture) {
 	first, final := observationControl(test), observationControl(test)
 	final.Response["sequence"] = int64(9)
-	final.Response["observed_monotonic_ms"] = int64(2102)
-	final.Expected["before_monotonic_ms"], final.Expected["after_monotonic_ms"] = int64(2101), int64(2103)
+	final.Response["observed_monotonic_ms"] = int64(2352)
+	final.Expected["before_monotonic_ms"], final.Expected["after_monotonic_ms"] = int64(2351), int64(2353)
 	return first, final
 }
 
@@ -555,14 +572,14 @@ func TestLabObservationPublicationPairs(test *testing.T) {
 		test.Run(name, func(test *testing.T) {
 			first, final := freshObservationPair(test)
 			state := observationPublication{Floor: 7}
-			if got := publishObservation(test, &state, first, final, validObservationTransport(), 2103, true, true); got != "published" || !state.Published || state.Floor != 9 {
+			if got := publishObservation(test, &state, first, final, validObservationTransport(), 2353, true, true); got != "published" || !state.Published || state.Floor != 9 {
 				test.Fatalf("valid publication: %s", got)
 			}
 			first, final = freshObservationPair(test)
 			state = observationPublication{Floor: 7}
 			original := state
 			transport := validObservationTransport()
-			elapsed := int64(2103)
+			elapsed := int64(2353)
 			fresh, cas := true, true
 			want := "unknown_observation"
 			switch name {
@@ -597,7 +614,7 @@ func TestLabObservationPublicationPairs(test *testing.T) {
 				transport.ElapsedMS = 250
 				want = "unknown_transport"
 			case "delayed":
-				elapsed = 2351
+				elapsed = 2601
 				want = "unknown_deadline"
 			case "clock-regression":
 				elapsed = 2102
