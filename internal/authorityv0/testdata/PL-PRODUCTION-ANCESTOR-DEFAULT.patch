@@ -1,0 +1,7 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -4,0 +5 @@
++	"cmp"
+@@ -137 +138 @@
+-		if reader.files.CheckDirectory(ctx, entry.path, entry.file, entry.ancestorUID) != nil {
++		if reader.files.CheckDirectory(ctx, entry.path, entry.file, cmp.Or(entry.ancestorUID, entry.file.UID)) != nil {

@@ -15,9 +15,15 @@ configuration options. The landed authority vector payload is unchanged.
 The shared fixture preflight names unsafe temporary ancestry before a control
 can run; both CI temp variables use the checked private root. Ownership-table
 tests use distinct synthetic paths and root/broker IDs, not privileged host
-provisioning. The separate composed recorder maps IDs only when delegating
-to the real filesystem reader and real configuration gate; its exact trace
-assertion remains in the synthetic identity domain.
+provisioning. The synthetic composed recorder maps IDs only when delegating
+to the real filesystem reader and real configuration gate. The production
+composition starts with New and replaces only its two I/O seams: it records
+every production path, policy and ancestor UID before strict fixture-path
+and owner remapping. Its literal expected trace retains root UID/GID zero;
+all three windows include final rechecks, and authority refusal returns no
+startup output or callback. The first window constructs the lazy gate;
+subsequent windows reuse it. This pins production policy values at every
+call site through New, not privileged provisioning or arbitrary rebinding.
 
 | Acceptance row | Named executable witnesses | Killed narrowing plant | Bound |
 | --- | --- | --- | --- |
@@ -34,6 +40,7 @@ assertion remains in the synthetic identity domain.
 | Composed ownership-policy binding | `TestSourcePolicyCallSites/Load`; `/WithPinned`; `/WithIdentity` | PL-DATA-ROW-SWAP, PL-STORE-ROW-SWAP, PL-LOCK-CALL-POLICY, PL-AUTHORITY-CALL-POLICY, PL-CONFIGURATION-CALL-OWNER, PL-CONFIGURATION-CALL-ANCESTOR, PL-PASSWD-CALL-POLICY, PL-GROUP-CALL-POLICY | Exact ordered lock/directory/read calls and final rechecks; each source refusal yields no startup result or callback. Synthetic IDs are mapped only for real filesystem delegation, not asserted as privileged owner provisioning. |
 | Production ownership-seam wiring | `TestNewBindsProductionSeam` | PL-SEAM-GATE-WIRING, PL-SEAM-READER-WIRING | Exact concrete reader and gate factory installed by New; a policy-rewriting adapter cannot hide behind a correctly recorded call-site trace. |
 | Composed production constructor contract | `TestNewProductionPolicies`; `TestNewPreservesConfiguration`; `TestNewInitialState` | PL-NEW-ROOT-OWNERS, PL-NEW-ROOT-UID, PL-NEW-ROOT-GID, PL-NEW-AUTHORITY-PATH, PL-NEW-BROKER-CAPTURE | Override-free literal production paths, root/process owners, modes, links, bounds and ancestors with a distinct configured broker UID; all configuration values, duplicate-field slice copies, process/root IDs, zero mutex and initially absent lazy gate are pinned. Concrete seams are covered by the preceding row. |
+| Composed production call-site values | `TestNewComposedProductionCalls` | PL-PRODUCTION-ANCESTOR-DEFAULT, PL-PRODUCTION-LOCK-DEFAULT, PL-PRODUCTION-AUTHORITY-DEFAULT; retained MR1-MR4 | Literal production paths, owners (including root zero), modes, links, size bounds and ancestor owners through New and every public window; strict path remapping happens only after recording. No Reader field except its two I/O seams is replaced. |
 | Uninitialized reader refusal | `TestUninitializedReaderRefuses` | PL-UNINITIALIZED-READER | Nil, zero-value and missing-seam readers refuse all public windows without panic, callback or startup output beside a valid real-filesystem control. |
 | Fixture root under supported umasks | `TestTempDirUmask022`; `TestTempDirUmask002` | PL-FIXTURE-UMASK, PL-FIXTURE-FRESH-LEAF | Deterministic 0700 fresh leaf and unchanged reader under 022 and 002; widened leaves still refuse without a skip. |
 | Actual fixture temporary ancestry | `TestTempDirUsesGoTempRoot` | PL-FIXTURE-TEMP-ROOT | Preflight checks the actual returned tree, not TMPDIR alone; this separate control is run under 022 and makes no ambient-002 claim. |
@@ -92,11 +99,14 @@ claimed as a kill.
 | `testdata/PL-RUNTIME-AUTHORITYV0.patch` | Runtime importer of the inactive authority reader | `TestInactiveImportGraph` | `inactive import boundary violated` |
 | `testdata/PL-SEAM-GATE-WIRING.patch` | Gate adapter substitutes the process UID for the required owner | `TestNewBindsProductionSeam` | `production lock gate rebound` |
 | `testdata/PL-SEAM-READER-WIRING.patch` | Reader adapter substitutes the process UID for file/directory owners and ancestors | `TestNewBindsProductionSeam` | `production protected reader rebound` |
-| `testdata/PL-NEW-ROOT-OWNERS.patch` | MR1: constructor substitutes process UID and GID for root ownership | `TestNewProductionPolicies` | `production New() source table differs` |
-| `testdata/PL-NEW-ROOT-UID.patch` | MR2: constructor substitutes process UID for root ownership | `TestNewProductionPolicies` | `production New() source table differs` |
-| `testdata/PL-NEW-ROOT-GID.patch` | MR3: constructor substitutes process GID for root ownership | `TestNewProductionPolicies` | `production New() source table differs` |
-| `testdata/PL-NEW-AUTHORITY-PATH.patch` | MR4: constructor moves authority into the broker-owned data root | `TestNewProductionPolicies` | `production New() source table differs` |
+| `testdata/PL-NEW-ROOT-OWNERS.patch` | MR1: constructor substitutes process UID and GID for root ownership | `TestNewProductionPolicies`; `TestNewComposedProductionCalls` | `production New() source table differs`; `composed production call binding differs` |
+| `testdata/PL-NEW-ROOT-UID.patch` | MR2: constructor substitutes process UID for root ownership | `TestNewProductionPolicies`; `TestNewComposedProductionCalls` | `production New() source table differs`; `composed production call binding differs` |
+| `testdata/PL-NEW-ROOT-GID.patch` | MR3: constructor substitutes process GID for root ownership | `TestNewProductionPolicies`; `TestNewComposedProductionCalls` | `production New() source table differs`; `composed production call binding differs` |
+| `testdata/PL-NEW-AUTHORITY-PATH.patch` | MR4: constructor moves authority into the broker-owned data root | `TestNewProductionPolicies`; `TestNewComposedProductionCalls` | `production New() source table differs`; `composed production call binding differs` |
 | `testdata/PL-NEW-BROKER-CAPTURE.patch` | Configured broker UID replaces the process UID at construction | `TestNewProductionPolicies` | `production New() source table differs` |
+| `testdata/PL-PRODUCTION-ANCESTOR-DEFAULT.patch` | Z1: zero ancestor UID defaults to the leaf owner | `TestNewComposedProductionCalls` | `composed production call binding differs` |
+| `testdata/PL-PRODUCTION-LOCK-DEFAULT.patch` | Z2: root-zero lock UID defaults to the broker UID | `TestNewComposedProductionCalls` | `composed production call binding differs` |
+| `testdata/PL-PRODUCTION-AUTHORITY-DEFAULT.patch` | Z3: root-zero authority UID defaults to the broker UID | `TestNewComposedProductionCalls` | `composed production call binding differs` |
 | `testdata/PL-UNINITIALIZED-READER.patch` | Uninitialized seams bypass the clean public-window refusal | `TestUninitializedReaderRefuses` | `uninitialized reader panicked` |
 | `../testutil/protectedfixture/testdata/PL-FIXTURE-FRESH-LEAF.patch` | Fresh umask-002 leaf is checked before its deterministic chmod | `TestTempDirUmask002` | `protected_fixture_temp_ancestry: unsafe ancestor` |
 

@@ -25,10 +25,15 @@ owner IDs, modes, link counts, size bounds and ancestor owners to the literal
 spec 4.1/4.3 table, with a configured broker UID distinct from the non-root
 process. `TestNewPreservesConfiguration` pins configuration preservation and
 the operational duplicate-field copies; `TestNewInitialState` pins process
-and root IDs, the zero mutex and the initially absent lazy gate. Together
-these assertions cover the current constructor fields and the separately
-recorded call-site policies, not privileged provisioning or arbitrary later
-rebinding inside a window. A nil, zero-value or incompletely initialized reader
+and root IDs, the zero mutex and the initially absent lazy gate.
+`TestNewComposedProductionCalls` pins the production policy values at every
+call site through `New()`, including root UID/GID zero, against the literal
+spec 4.1/4.3 table. It changes only the two I/O seams, records production
+paths and policies before fixture remapping, and runs `Load`, `WithPinned`
+and `WithIdentity`, including their final rechecks and authority refusal.
+The lazy gate is constructed on the first window and reused thereafter.
+This claims production policy-value binding at those call sites, not
+privileged provisioning or arbitrary later rebinding inside a window. A nil, zero-value or incompletely initialized reader
 refuses every public window without invoking its callback or returning pins.
 The `/etc/group` protection extends the spec 4.1 passwd row by analogy;
 it is not presented as an additional normative source row.

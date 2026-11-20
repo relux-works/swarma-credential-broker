@@ -76,6 +76,15 @@ type protectedCall struct {
 type recordingReader struct {
 	calls  []protectedCall
 	refuse string
+	paths  map[string]string
+}
+
+func (recorder *recordingReader) mappedPath(path string) (string, bool) {
+	if recorder.paths == nil {
+		return path, true
+	}
+	mapped, ok := recorder.paths[path]
+	return mapped, ok
 }
 
 func (recorder *recordingReader) mapped(policy protectedio.FilePolicy) protectedio.FilePolicy {
@@ -85,26 +94,107 @@ func (recorder *recordingReader) mapped(policy protectedio.FilePolicy) protected
 
 func (recorder *recordingReader) Read(ctx context.Context, path string, policy protectedio.FilePolicy) (protectedio.Identity, []byte, error) {
 	recorder.calls = append(recorder.calls, protectedCall{kind: "read", path: path, policy: policy})
-	if path == recorder.refuse {
+	mapped, ok := recorder.mappedPath(path)
+	if !ok || path == recorder.refuse {
 		return protectedio.Identity{}, nil, protectedio.ErrProtection
 	}
-	return (protectedio.Reader{}).Read(ctx, path, recorder.mapped(policy))
+	return (protectedio.Reader{}).Read(ctx, mapped, recorder.mapped(policy))
 }
 
 func (recorder *recordingReader) CheckDirectory(ctx context.Context, path string, policy protectedio.FilePolicy, ancestorUID uint32) error {
 	recorder.calls = append(recorder.calls, protectedCall{kind: "directory", path: path, policy: policy, ancestorUID: ancestorUID})
-	if path == recorder.refuse {
+	mapped, ok := recorder.mappedPath(path)
+	if !ok || path == recorder.refuse {
 		return protectedio.ErrProtection
 	}
-	return (protectedio.Reader{}).CheckDirectory(ctx, path, recorder.mapped(policy), uint32(os.Getuid()))
+	return (protectedio.Reader{}).CheckDirectory(ctx, mapped, recorder.mapped(policy), uint32(os.Getuid()))
 }
 
 func (recorder *recordingReader) newGate(ctx context.Context, path string, policy protectedio.FilePolicy) (protectedio.ConfigGate, error) {
 	recorder.calls = append(recorder.calls, protectedCall{kind: "lock", path: path, policy: policy})
-	if path == recorder.refuse {
+	mapped, ok := recorder.mappedPath(path)
+	if !ok || path == recorder.refuse {
 		return nil, protectedio.ErrProtection
 	}
-	return protectedio.NewConfigGate(ctx, path, recorder.mapped(policy))
+	return protectedio.NewConfigGate(ctx, mapped, recorder.mapped(policy))
+}
+
+// Claim: through New and all three public windows, every production call-site path/policy equals the literal spec 4.1/4.3 table, including root zero; only the two I/O seams map to real fixture paths/owners after recording.
+// Lock construction occurs once and subsequent windows reuse that gate. Authority-path refusal yields no startup output or callback beside each valid window; this does not provision privileged owners or rule out arbitrary lazy rebinding.
+func TestNewComposedProductionCalls(test *testing.T) {
+	fixture := newFixture(test)
+	validWindow(test, fixture)
+	uid, gid := uint32(os.Geteuid()), uint32(os.Getegid())
+	if uid == 0 || gid == 0 {
+		test.Fatal("production composition requires distinct non-root process IDs")
+	}
+	production := New(fixture.reader.config)
+	recorder := &recordingReader{paths: map[string]string{
+		"/etc/swarma/credential-broker/authority.lock":        fixture.reader.paths.lock,
+		"/etc/swarma/credential-broker":                       fixture.reader.paths.directory,
+		"/opt/swarma/services/swarma-credential-broker":       fixture.reader.paths.data,
+		"/opt/swarma/services/swarma-credential-broker/store": fixture.reader.paths.store,
+		"/etc/swarma/credential-broker/authority-v0.json":     fixture.reader.paths.authority,
+		"/etc/passwd": fixture.reader.paths.passwd,
+		"/etc/group":  fixture.reader.paths.group,
+	}}
+	production.files, production.newGate = recorder, recorder.newGate
+	lock := protectedCall{kind: "lock", path: "/etc/swarma/credential-broker/authority.lock", policy: protectedio.FilePolicy{UID: 0, GID: gid, Mode: 0640, Links: 1}}
+	current := []protectedCall{
+		{kind: "directory", path: "/etc/swarma/credential-broker", policy: protectedio.FilePolicy{UID: 0, GID: gid, Mode: 0750}, ancestorUID: 0},
+		{kind: "directory", path: "/opt/swarma/services/swarma-credential-broker", policy: protectedio.FilePolicy{UID: uid, GID: gid, Mode: 0700}, ancestorUID: 0},
+		{kind: "directory", path: "/opt/swarma/services/swarma-credential-broker/store", policy: protectedio.FilePolicy{UID: uid, GID: gid, Mode: 0700}, ancestorUID: uid},
+		{kind: "read", path: "/etc/swarma/credential-broker/authority-v0.json", policy: protectedio.FilePolicy{UID: 0, GID: gid, Mode: 0640, Links: 1, MaxBytes: 1 << 20}},
+		{kind: "read", path: "/etc/passwd", policy: protectedio.FilePolicy{UID: 0, GID: 0, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
+		{kind: "read", path: "/etc/group", policy: protectedio.FilePolicy{UID: 0, GID: 0, Mode: 0644, Links: 1, MaxBytes: 1 << 20}},
+	}
+	var pins StartupPins
+	for _, method := range []string{"Load", "WithPinned", "WithIdentity"} {
+		test.Run(method, func(test *testing.T) {
+			invoke := func() (bool, error) {
+				called := false
+				switch method {
+				case "Load":
+					document, loaded, err := production.Load(context.Background())
+					if err != nil && (!reflect.DeepEqual(document, assemblyv0.AuthorityDocument{}) || !reflect.DeepEqual(loaded, StartupPins{})) {
+						test.Fatal("refused production startup leaked a result")
+					}
+					if err == nil {
+						pins, called = loaded, true
+					}
+					return called, err
+				case "WithPinned":
+					err := production.WithPinned(context.Background(), pins, func(context.Context, assemblyv0.AuthorityDocument) error { called = true; return nil })
+					return called, err
+				default:
+					err := production.WithIdentity(context.Background(), func(context.Context, assemblyv0.AuthorityDocument) error { called = true; return nil })
+					return called, err
+				}
+			}
+			recorder.calls = nil
+			called, err := invoke()
+			var expected []protectedCall
+			if method == "Load" {
+				expected = append(expected, lock)
+			}
+			expected = append(expected, current...)
+			expected = append(expected, current...)
+			if !reflect.DeepEqual(recorder.calls, expected) {
+				test.Fatalf("composed production call binding differs: got %+v want %+v", recorder.calls, expected)
+			}
+			if err != nil || !called {
+				test.Fatalf("valid production composition refused: %v result=%v", err, called)
+			}
+			recorder.calls, recorder.refuse = nil, "/etc/swarma/credential-broker/authority-v0.json"
+			if called, err := invoke(); !errors.Is(err, ErrIdentityChanged) || called {
+				test.Fatalf("production source refusal escaped composed window: %v result=%v", err, called)
+			}
+			if !reflect.DeepEqual(recorder.calls, current[:4]) {
+				test.Fatalf("production refusal call binding differs: got %+v want %+v", recorder.calls, current[:4])
+			}
+			recorder.refuse = ""
+		})
+	}
 }
 
 func replaceBrokerFacts(test *testing.T, fixture *authorityFixture, uid, gid uint32) {

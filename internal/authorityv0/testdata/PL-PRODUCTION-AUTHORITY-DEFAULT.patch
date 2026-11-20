@@ -1,0 +1,6 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -155,0 +156,3 @@
++	if policies.authority.file.UID == 0 {
++		policies.authority.file.UID = reader.brokerUID
++	}

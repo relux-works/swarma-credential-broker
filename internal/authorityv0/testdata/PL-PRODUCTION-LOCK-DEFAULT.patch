@@ -1,0 +1,6 @@
+--- a/internal/authorityv0/reader_linux.go
++++ b/internal/authorityv0/reader_linux.go
+@@ -120,0 +121,3 @@
++		if lock.file.UID == 0 {
++			lock.file.UID = reader.brokerUID
++		}
