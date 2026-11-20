@@ -23,6 +23,37 @@ Additional A06 fix-round gate coverage:
 | `TestLabUnverifiedJournalRefusal`, `TestLabPublicVerifiedForkBurn`, `TestLabBurnPersistenceRefusal` | journal-unknown-burn, journal-complete-first, journal-regression-burn, burn-persistence, heads-after-burn |
 | `TestLabPublicStickyRestart`, `TestLabConsumerStickyRestart` | sticky-floor |
 
+Fix-round-2 public constructor joins (each negative has a restored valid
+construction/use control):
+
+| Public constructor gate | Named test / subcase | Narrowing overlay |
+|---|---|---|
+| lab authority ID | `TestLabPublicConstructorEnrollmentJoins/authority-id` | enroll-authority-id |
+| authority version | `TestLabPublicConstructorEnrollmentJoins/authority-version` | enroll-authority-version |
+| start owner decision equals receipt-named enrollment decision | `TestLabPublicConstructorEnrollmentJoins/decision-pin` | enroll-decision-pin |
+| amendment trust root | `TestLabPublicConstructorEnrollmentJoins/trust-root` | enroll-trust-root |
+| machine scope | `TestLabPublicConstructorEnrollmentJoins/machine` | enroll-machine |
+| consumer scope | `TestLabPublicConstructorEnrollmentJoins/consumer` | enroll-consumer |
+| broker-lab purpose | `TestLabPublicConstructorEnrollmentJoins/purpose` | enroll-purpose |
+| continuity scope | `TestLabPublicConstructorEnrollmentJoins/continuity-scope` | enroll-continuity-scope |
+| loaded fence still current | `TestLabPublicConstructorCurrentJoin` | construct-current |
+| NTS-authdata source | `TestLabPublicConstructorInputJoins/source` | construct-source |
+| operator resync | `TestLabPublicConstructorInputJoins/resync` | construct-resync |
+| separate roots | `TestLabPublicConstructorInputJoins/roots` | construct-roots |
+| inventory digest grammar | `TestLabPublicConstructorInputJoins/inventory` | construct-inventory-format |
+| inventory equality, without unverified burn | `TestLabPublicConstructorInventoryRefusal` | inventory-join, inventory-burn |
+| spent start refuses before stale-head burn | `TestLabPublicConstructorSpentStart` | spent-start-first |
+| prepare history verified before genesis writes | `TestLabPublicPrepareJournalJoin` | prepare-journal, prepare-journal-before-write |
+
+These are A06/A07 constructor acceptance witnesses. For redundant enrollment
+and input guards, a private test-only runtime-selection counter pins rejection
+before runtime/store access; a killed deletion is not automatically a use
+bypass. The decision-pin case uses a provisioned D1 enrollment and valid later
+D2 start; it cannot be masked by changing the enrollment's store binding. The
+nil-Start negative shares the currentness guard, not a separate field join.
+All earlier test names are retained. C0b/C0c's independent coverage map and
+sealed contract index are preserved exactly from `eef0f9f3`.
+
 ## Per-mutant evidence
 
 The checked-in `tests/lab-b2/mutants.py` specifies each exact replacement,

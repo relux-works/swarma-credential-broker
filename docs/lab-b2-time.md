@@ -6,6 +6,11 @@ It is not live construction, native qualification, enrollment or production
 activation. **C-OPEN-OWNERS is not recorded.** No credential, vendor request,
 root operation, VM restore or installed service is exercised by these tests.
 
+Fix round 2 rebases this slice onto `eef0f9f3`, preserving all C0b bounded
+invocation and C0c manager observation addenda, their sealed index and coverage
+map. Those other-unit surfaces are construction contracts, not new B2 writers
+or runtime authority. The five B2 byte surfaces remain unchanged.
+
 ## Contract disposition
 
 Same: reuse the book chapters **OS user and network**
@@ -122,6 +127,42 @@ decoded state differing from independent off-VM pins does burn. An inconsistent
 two-pointer floor publication remains closed/unknown, not a burn inferred from
 an ordinary crash. No code automatically restores or resets that state.
 Physical crash persistence and root/VM rollback exclusion remain native obligations.
+
+Public construction rejects every authority/enrollment/start field mismatch
+before selecting the runtime or opening its store. The regression suite varies
+authority ID/version, amendment, decision digest and all four scope fields
+independently. Its D1/D2 case keeps the provisioned enrollment naming D1 while
+presenting a freshly sealed, later-expiring D2 start. Construction must refuse
+without burning or spending that start; a restored D1 control constructs and
+releases a receipt naming D1 inside its own approval window. Test-only runtime
+selection counters distinguish the early joins from redundant downstream
+store-binding refusals; their kills do not claim every deletion admits use.
+Replaced/removed fences are also varied between Start loading and construction.
+Policy source/resync, overlapping roots and inventory grammar have separate
+public-path negatives. Nil Start refuses, with the currentness guard as its
+shared structural protection.
+
+A caller-supplied, syntactically valid inventory mismatch is not independent
+off-VM burn evidence: it refuses without burn or a spent marker. Supplying the
+original pinned inventory afterward can admit that same start. Replaying a
+spent start is checked before the stale-head join, so replay after a valid use
+also refuses without burning the original consumer. The later exclusive marker
+write remains mandatory; the early read is not a replacement for it.
+
+Unverified manager history at PrepareLabTime now refuses before genesis writes,
+leaving fresh roots empty for a corrected complete-history attempt. Settled
+approval checks necessarily follow collection/provisioning: their refusal can
+still leave nonempty roots, which must not be retried, reset or silently adopted.
+An expired approval during use advances the time settlement before failing
+closed; Heads then refuses. B5 must seal an orderly stop BEFORE the earliest
+Start.Deadline(), or treat expiry as an unsealed stop and use the independently
+approved C1/reprovisioning procedure, never guess a stop seal from stale heads.
+
+The tagged timeconf seam remains broad, including the durability fault hook.
+No production entry calls it, but the import graph alone is not a symbol-use
+gate. RB/assembly must forbid timeconf.Lab* calls at production admission in
+addition to rejecting the lab tag. Implementing that cross-unit symbol scanner
+or changing the already-sanctioned seam is deferred, not claimed by B2 fixtures.
 
 `CheckRecovery` is a metadata predicate, not a restore command or a hold-release
 API. C1 requires distinct never-reused installation and time scope, empty new

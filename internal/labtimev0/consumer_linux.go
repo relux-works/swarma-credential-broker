@@ -161,12 +161,12 @@ func PrepareLabTime(ctx context.Context, decisionRaw []byte, scope Context, enro
 	}
 	configureLab(consumer, &labWitness{witnessRoot}, runtime)
 	lab := &LabConsumer{consumer: consumer, context: scope, inventory: inventory, root: root, runtime: runtime}
-	if err := lab.provision(ctx, witnessRoot); err != nil {
-		return Heads{}, err
-	}
 	manager, err := ManagerExtension(journal, Head{SHA256: "sha256:" + strings.Repeat("0", 64)})
 	if err != nil {
 		return Heads{}, ErrUnavailable
+	}
+	if err := lab.provision(ctx, witnessRoot); err != nil {
+		return Heads{}, err
 	}
 	raw, err := consumer.ConsumeBeforePin(ctx, request)
 	if err != nil {
@@ -213,6 +213,17 @@ func NewLabConsumer(ctx context.Context, start *Start, enrollment Enrollment, po
 	runtime := labRuntimeFor(inventoryDigest)
 	configureLab(consumer, &labWitness{witnessRoot}, runtime)
 	lab := &LabConsumer{consumer: consumer, start: start, context: scope, inventory: inventoryDigest, root: root, runtime: runtime}
+	marker, err := consumer.LabStore().LabOpen()
+	if err != nil {
+		return nil, err
+	}
+	name := "lab-start-" + strconv.FormatUint(start.Generation(), 10)
+	var stat unix.Stat_t
+	markerErr := unix.Fstatat(int(marker.LabDir().Fd()), name, &stat, unix.AT_SYMLINK_NOFOLLOW)
+	marker.LabClose()
+	if markerErr != unix.ENOENT {
+		return nil, ErrUnavailable
+	}
 	if err := lab.checkStartHeads(ctx, start.Heads()); err != nil {
 		return nil, err
 	}
@@ -221,7 +232,6 @@ func NewLabConsumer(ctx context.Context, start *Start, enrollment Enrollment, po
 		return nil, err
 	}
 	defer session.LabClose()
-	name := "lab-start-" + strconv.FormatUint(start.Generation(), 10)
 	if session.LabWrite(ctx, name, []byte(FenceFormat), "lab-start") != nil {
 		return nil, ErrUnavailable
 	}
@@ -253,7 +263,10 @@ func (lab *LabConsumer) checkStartHeads(ctx context.Context, expected Heads) err
 	if err != nil || floorErr != nil || headErr != nil || floorDecodeErr != nil || checkpointErr != nil || Decode(checkpointRaw, &checkpoint) != nil || ctx.Err() != nil {
 		return ErrUnavailable
 	}
-	if sum(checkpointRaw) != floor.Checkpoint || checkpoint.Context != lab.context || checkpoint.Scope != lab.context.Installation || checkpoint.Inventory != lab.inventory || checkpoint.Watermark != floor.Watermark || floor.Context != lab.context || !floor.Persisted || (Head{Sequence: head.Generation, SHA256: head.RecordDigest}) != expected.Time || floorHead != expected.Floor || floor.Manager != expected.Manager {
+	if checkpoint.Inventory != lab.inventory {
+		return ErrUnavailable
+	}
+	if sum(checkpointRaw) != floor.Checkpoint || checkpoint.Context != lab.context || checkpoint.Scope != lab.context.Installation || checkpoint.Watermark != floor.Watermark || floor.Context != lab.context || !floor.Persisted || (Head{Sequence: head.Generation, SHA256: head.RecordDigest}) != expected.Time || floorHead != expected.Floor || floor.Manager != expected.Manager {
 		return lab.burn(ctx)
 	}
 	return nil
