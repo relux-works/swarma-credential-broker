@@ -23,7 +23,6 @@ var updateVectors = flag.Bool("update-assembly-vectors", false, "rewrite synthet
 const (
 	vectorDirectory     = "testdata/construction-v0"
 	specificationPath   = "spec/operator-and-activation-v0.md"
-	specificationCommit = "ca520990ff4a390864a8d8f2155e6a0eff9f1d8f"
 	specificationSHA256 = "feacdfe6e6cb551b9f175800ccd45eb8e09b299533bfad86e2607dace2834eb4"
 	fixtureInstallation = "fixture-installation-v0"
 	fixtureAccount      = "fixture/claude/subscription"
@@ -51,7 +50,6 @@ type vectorEntry struct {
 type vectorIndex struct {
 	BaselineSpecSHA256 string        `json:"baseline_spec_sha256"`
 	Construction       string        `json:"construction"`
-	SpecCommit         string        `json:"spec_commit"`
 	SpecSHA256         string        `json:"spec_sha256"`
 	Unresolved         []string      `json:"unresolved"`
 	Vectors            []vectorEntry `json:"vectors"`
@@ -264,7 +262,7 @@ func TestConstructionVectors(test *testing.T) {
 	sort.Strings(names)
 	index := vectorIndex{
 		BaselineSpecSHA256: baselineSpecificationSHA256,
-		Construction:       "C0-inactive", SpecCommit: specificationCommit, SpecSHA256: specificationSHA256,
+		Construction:       "C0-inactive", SpecSHA256: specificationSHA256,
 		Unresolved: []string{"O-01: publication/acceptance", "O-07: enrollment result/reply", "O-09: producer/principal/effect/replacement", "O-19: engineering acceptance", "O-21: C excluded"},
 	}
 	for _, name := range names {

@@ -24,7 +24,7 @@ Seccomp runs before exec, closes inherited descriptors and forbids non-Unix
 sockets and io_uring. Its valid Unix socket control and AF_INET/EPERM negative
 both passed (exit 0). The exact-client probe exited 0 with synthetic `ok`;
 strace records syscall metadata, not request buffers. No real key, login,
-external request, broker or the dedicated lab VM action occurred.
+external request, broker action or action on the dedicated lab VM occurred.
 
 ## 2. Measured requests
 

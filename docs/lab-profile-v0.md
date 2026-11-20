@@ -93,13 +93,16 @@ external control planes. No agent identity, agent-held credential, automation
 session or agent-controlled elevation path may hold root, sudo, console,
 hypervisor or snapshot authority. The repository owner verifies Infra's complete
 roster and human/operator attribution, approves it off-VM **before key creation**
-and controls the window until vendor revocation. Record the vendor creation
-instant and the attestation window; a window starting later refuses enrollment. An agent's unprivileged worker UID is not privileged access.
+and controls the window until vendor revocation. The enforced order is fresh
+access verification, authenticated prompt, then vendor creation, all inside that
+window; no pre-prompt check claims to know a future creation instant. After
+enrollment or abort, the owner records the actual creation instant and window
+off-VM. An agent's unprivileged worker UID is not privileged access.
 
 The same `swarma-broker-lab-access-attestation/1` has two mandatory off-VM
 sections, approved by the owner rather than inferred from guest UID checks:
 
-- **Owner endpoint, creation through committed enrollment:** the owner attests
+- **Owner endpoint, every owner root session through vendor revocation:** the owner attests
   a nonrecording endpoint and vendor-console browser profile and terminal with
   no agent process, browser automation or extension with page access, screen
   capture, remote desktop, screen-control or computer-use session. Clipboard
@@ -108,7 +111,9 @@ sections, approved by the owner rather than inferred from guest UID checks:
   one-time display to the authenticated no-echo prompt is allowed. Clear the
   clipboard and close the one-time display immediately after input or abort.
   A key exposed to, displayed in or reachable from an agent context is
-  **ineligible and vendor-revoked**, never admitted after cleanup. The production
+  **ineligible and vendor-revoked**, never admitted after cleanup. After enrollment,
+  each root session remains inside this trusted boundary; re-attest it before
+  activation, each Q group and every later widening act. The production
   endpoint exclusion and ineligible-credential rules remain the basis:
   `B:spec/operator-and-activation-v0.md:304` and
   `B:spec/operator-and-activation-v0.md:621`.
@@ -121,6 +126,10 @@ sections, approved by the owner rather than inferred from guest UID checks:
   group**; compare with the owner-approved roster, workspace and limit. Any
   change invalidates admission and quiesces use. Missing visibility or doubt
   means no creation/use, or revoke and recreate after exclusion is re-established.
+  The owner freezes changes and reviews the vendor organisation's audit log
+  off-VM from the approved baseline through revocation, detecting grants or cap
+  changes made and reverted between readbacks. A gap in audit coverage is
+  incomplete admission, not proof that no change occurred.
 
 B3/B4 admission fixtures pair an owner-only endpoint and vendor roster valid
 control with **endpoint-agent-reachable** and **vendor-agent-admin** negatives
@@ -198,7 +207,7 @@ Freeze the **API-key-mode** eleven-token profile, not the OAuth profile.
 The landed gate is `G:experiments/model-proxy/service/intake_linux.go:126`, its
 fourteen-token OAuth set is at
 `G:experiments/model-proxy/service/intake_linux.go:138`, its use at `G:experiments/model-proxy/service/intake_linux.go:283`, and
-header copying at `G:experiments/model-proxy/service/intake_linux.go:358`. That gate is useful machinery but is not the lab API-key allowlist.
+header copying at `G:experiments/model-proxy/service/intake_linux.go:359`. That gate is useful machinery but is not the lab API-key allowlist.
 The API-key wire row and body-field table are committed in
 `W:docs/lab-wire-profile-v0.md:34` and `W:docs/lab-wire-profile-v0.md:50`.
 The set is exactly:
@@ -260,8 +269,8 @@ claude-code-20250219,interleaved-thinking-2025-05-14,context-management-2025-06-
 C0 freezes the exact model, output/cost bounds and invocation before release;
 the probe's observed default `max_tokens:128000` is **not** a live budget approval.
 G1 must not reuse the landed single-value beta check: it checks only
-`values[0]` at `G:experiments/model-proxy/service/intake_linux.go:282`, while
-copying every value at `G:experiments/model-proxy/service/intake_linux.go:358`.
+`values[0]` at `G:experiments/model-proxy/service/intake_linux.go:283`, while
+copying every value at `G:experiments/model-proxy/service/intake_linux.go:359`.
 `TestLabAPIKeyDuplicateBetaFields` must reject two Anthropic-Beta fields before
 forwarding beside the valid single-field measured request; A02 owns this case.
 G1/M1 tests pair the valid measured API-key request, all eleven flags retained
@@ -444,7 +453,7 @@ amend production acceptance or infer missing owner decisions from root access.
 | OD-LAB-2026-11-20 | On 2026-11-20 the repository owner selected lab path B for the dedicated lab VM, a dedicated capped API key enrolled personally, NTS/no restore, and accepted the live whole-VM snapshot/rollback residual for this lab. This paragraph records that owner act. | Recorded lab direction and residual acceptance only; not a release/activation approval. |
 | C-OPEN-OWNERS | Repository, time-contract and user-manager owners accept the exact API-key variant in 4.2, qualified-time API text, joined start/high-water rules, protected VM/account/revision/expiry and residual. A single act may cover roles only if it explicitly names authority for each; an override must explicitly establish that authority and scope. | **Not recorded** by OD-LAB-2026-11-20; mandatory before B2's live construction/qualification or any enrollment/use. |
 | C-OPEN-JOINS | Every-start outside-home fence and off-VM clock/final-head approval; exact manager journal prefix persisted before release, never observed-state reset. | Specified below; implementation/native evidence still required. |
-| C-OPEN-PROTECTION | Complete guest/control-plane exclusion for the key life, owner-endpoint exclusion from creation through committed enrollment, and agent-free vendor-organisation workspace/cap/key administration roster, read back before creation and every Q group. The owner approves those observations, cap readback, exact release/invocation/VM identity and fixed expiry off-VM; any change invalidates admission. | Required execution inputs, not supplied by this proposal. |
+| C-OPEN-PROTECTION | Complete guest/control-plane exclusion for the key life, owner-endpoint exclusion for every owner root session through vendor revocation, and agent-free vendor-organisation workspace/cap/key administration roster, read back before creation and every Q group. The owner approves those observations, cap readback, exact release/invocation/VM identity and fixed expiry off-VM; any change invalidates admission. | Required execution inputs, not supplied by this proposal. |
 
 C0 freezes a `swarma-broker-lab-owner-decision/1` record naming all three owner
 roles, the amendment/API/join digests and installation, independently verified
@@ -573,8 +582,8 @@ On the dedicated lab VM this means all of the following, not merely "chrony is s
    this explicit risk, the exact reviewed revision/VM/account and time-box in
    the owner's off-VM approval. No production promotion of any C result or witness.
 
-The protected `test_api_key=true` marker, independently verified the dedicated lab VM VM
-identity and qualification expiry are mandatory at enrollment, bind, issue,
+The protected `test_api_key=true` marker, the dedicated lab VM's independently
+verified identity and qualification expiry are mandatory at enrollment, bind, issue,
 renewal and final use. Other accounts/VMs/revisions refuse. No hard-coded hostname
 or locally self-asserted machine-id alone proves the qualified VM.
 
@@ -591,9 +600,9 @@ coverage or native qualification already exists.
 | A01 | Tagged lab records/build graph work; production/lab activation, authority, custody, journal, fence and floor cross-read/import or production-store adoption refuses. | C0, B1, B2, B3, G1, M1, B5, B4, RB, RG, RM, Q |
 | A02 | Measured API-key mapping injects exactly x-api-key and retains all eleven non-OAuth flags/required body fields; OAuth/unknown/duplicate/case-variant flag, two beta header fields, missing beta, wrong scheme, redirect and fake policy success refuse; credential-free policy-limits GET works, worker-supplied authentication on GET refuses. | C0, B1, G1, M1, B4, RG, Q |
 | A03 | Current kernel gateway and managed caller execution work; worker/stale or reused UID, wrong class/placement, root JSON spoof and legacy material route refuse. | C0, B1, B3, G1, M1, B4, Q |
-| A04 | Owner-only no-echo bounded capture with clean endpoint and unchanged human-only vendor roster works; endpoint-agent-reachable, vendor-agent-admin or changed roster, privileged agent reach, interim copy, spill, non-TTY/nonroot input, successor residue and second prompt for committed/UNKNOWN operation refuse. | C0, B3, M1, B5, B4, Q |
+| A04 | Owner-only no-echo bounded capture with clean endpoint and unchanged human-only vendor roster works; endpoint-agent-reachable, vendor-agent-admin or changed roster, privileged agent reach, interim copy, spill, non-TTY/nonroot input, successor residue and second prompt for spent/committed/UNKNOWN operation refuse; prompt expiry and abort with no forwarded bytes conclusively close the spent ID without enrollment, beside timely committed input and read-only reconciliation controls. | C0, B3, M1, B5, B4, Q |
 | A05 | Fresh committed account/journal and exact-ID status reconcile; orphan/missing-as-empty, contradictory retry, UNKNOWN replay and lost narrowing reserve refuse. | C0, B1, B3, B4, Q |
-| A06 | Accepted exact C opening record plus native NTS/fence/prefix floor admits enrollment/activation/use; missing owner role/amendment/join decision, plain NTP, fixture witness, rewind or expired approval closes use. | C0, B2, B3, M1, B5, B4, Q |
+| A06 | Accepted exact C opening record plus native NTS/fence/prefix floor admits enrollment/activation/use; missing owner role/amendment/join decision, plain NTP, fixture witness, rewind or expired approval closes use; fresh post-bind access readback admits activation, while stale or changed readback after bind refuses activation without a marker/fence write or gateway start. | C0, B2, B3, M1, B5, B4, Q |
 | A07 | Issue/renew obeys 1..900 and earliest deadline; gateway ceiling mismatch, >900, stale/replayed/retargeted or UNKNOWN duplicate effect refuses. | C0, B1, B2, G1, B4, Q |
 | A08 | Whole-needle leak match durably holds the account; local-only/ack-loss reopening, nonowner or wrong-ID lift and ended-lease resurrection fail. | C0, B1, B3, G1, B4, Q |
 | A09 | Root unbind/current control works; poll removal closes all affected streams/connections/listener within 1 s, and 500-ms watchdog plus closure within another 500 ms is independently measured; slow in-time current checks do not trigger teardown. | C0, B1, B3, G1, M1, B4, Q |
@@ -616,7 +625,7 @@ coverage or native qualification already exists.
 | RB | swarma-credential-broker | Main-owned lab build/release profile and expected inventory, future signed broker tag, independent second build, checksums/provenance/fragment and release review. Production admission rejects lab tags; lab admission builds lab-only targets. | B4 | A01,A11 | 0.5 |
 | RG | swarma-chain-lab | Main-owned gateway lab archive/input policy and future signed tag; correct tagged binary/members/unit plus independent rebuild/review/checksums. Disjoint lab tag admission/provenance; cut only after B4 integrated verification. | B4 | A01,A02,A11 | 0.5 |
 | RM | swarma-user-manager | Future signed manager tag including native cgo NSS probe, launcher, isolated setup/executor and exact Claude dependency; native closure and independent rebuild/review/checksums. Disjoint lab tag admission/provenance; cut only after B4 integrated verification. | B4 | A01,A10,A11 | 0.5 |
-| Q | swarma-credential-broker | Owner-run the dedicated lab VM Q1–Q6 with sanitized evidence, independent record review and second evidence read. No credential or privileged host access by an agent. | RB,RG,RM; owner/Infra gates | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 0.5 |
+| Q | swarma-credential-broker | Owner-run Q1–Q6 on the dedicated lab VM with sanitized evidence, independent record review and second evidence read. No credential or privileged host access by an agent. | RB,RG,RM; owner/Infra gates | A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12 | 0.5 |
 
 Total estimated effort is **12 LU**. The precedence-only critical path is
 **6.5 LU**: C0 → B1 → B3 → B5 → B4 → RB → Q. The implementation graph is:
@@ -688,11 +697,13 @@ not session identifiers or credentials and are never reused for another act.
 All mutation verbs, including install/prepare/enrol/bind/activate/unbind/lift,
 next/quiesce/stop sealing, take `--operation-from FILE`. The enrollment CLI
 records attempted use durably before prompting and refuses a second prompt for
-that ID after attempted, committed or UNKNOWN state. Unknown delivery is not
+that ID after attempted, conclusively aborted, committed or UNKNOWN state. Unknown delivery is not
 absence; status never initializes state. The concrete read-only command is
 `status --operation-from FILE`: exit 0 means the exact act is committed, exit 2
 means UNKNOWN/incomplete/not-started and grants no authority; definitive refusal
-returns exit **1**. Invalid syntax returns **64**, authorization/closed admission
+returns exit **1**, including a durably fenced `not_committed:enrol_no_forward`
+result after an enrollment abort with conclusively zero bytes forwarded. That
+result closes and spends the old ID; it is not authority to retry it. Invalid syntax returns **64**, authorization/closed admission
 returns **69**. All outcomes retain their real command exits. Contradictory same-ID content refuses without mutation or prompt. Only
 conclusive reconciliation and a separately approved recovery/next operation can
 advance; retyping a key to resolve UNKNOWN is forbidden.
@@ -756,7 +767,7 @@ include **all** product digests in `swarma-lab-release-set/1`, including hashes 
 checksum files/fragments, unit/config/schema/helper/executor assets and every
 archive member's mode/target. Include Claude Code 2.1.328's exact vendor artifact,
 source/origin verification and digest as an approved dependency of the manager
-set; a version string is not an executable pin. Pin the the dedicated lab VM OS/architecture,
+set; a version string is not an executable pin. Pin the dedicated lab VM's OS/architecture,
 libc/NSS backend, chrony/NTS source policy and exact native preflight evidence.
 No real host pins or artifact digests are supplied by this document.
 
@@ -932,7 +943,9 @@ dedicated capped key in the owner's own vendor browser session and paste it
 **immediately from the one-time display at that prompt**. There is no interim
 copy or holder: no file, notes, password manager, clipboard history/sync or open
 key display across approval/preparation steps. Clear the transient clipboard and
-close the display immediately after input or abort. If the prompt/channel,
+close the display immediately after input or abort. Any key created but not
+entered because of timeout, refusal or abort is vendor-revoked, even without
+suspected exposure; it is never saved for a later prompt. If the prompt/channel,
 endpoint exclusion or vendor roster is uncertain, do not enter it; vendor-revoke
 any newly created key and recreate only after exclusion is verified.
 
@@ -956,6 +969,15 @@ prompt and the native lab entry must be corrected, not claimed safe by ancestry.
 B3 verifies a root peer, approved preparation/VM/account, genuine terminal FD0,
 no recorder, bounded raw no-echo capture (1..4096 printable ASCII bytes, a single
 line), nondumpability, locked sensitive buffers and configured memory limits.
+The authenticated prompt has one absolute monotonic **300 s** wait/capture bound,
+shortened by preparation or attestation-window expiry; input never resets it.
+Timeout/abort discards queued input and retires the channel. B3 must durably
+fence the operation against future delivery before classifying a zero-forward
+abort as `not_committed:enrol_no_forward`; merely losing the CLI is not proof.
+`TestLabEnrollmentPromptDeadline` pairs expiry/no effect with timely valid input;
+`TestLabEnrollmentNoForwardAbort` pairs conclusive zero-forward closure with an
+uncertain partial/delivered request that stays UNKNOWN. B3/B4 own these A04/A05
+controls; B5 owns the separately approved next-envelope path.
 It authenticates the broker peer **before capture**, sends one bounded request
 to the root-control socket, zeroes owned buffers, discards queued input and
 retires the SSH channel on success/failure/interruption. No automatic token retry
@@ -984,8 +1006,13 @@ retyping the key, initializing an empty record or starting a new preparation.
 A second enrol on committed or UNKNOWN input refuses **before a prompt**; pair
 that negative with committed status as the valid A04/A05 control. Persist the
 attempt before capture so a lost reply cannot masquerade as a fresh request.
-Only explicit owner recovery after conclusive reconciliation can create another
-operation; it cannot use re-entry to discover whether the old key was committed.
+Exit 1 with `not_committed:enrol_no_forward` is the ordinary conclusive-abort
+path: after any created key is vendor-revoked and that act is recorded off-VM,
+B5 may issue a fresh enrollment envelope from current committed preparation
+heads for separate owner approval. The spent ID never prompts again. A new key
+is created only at the next authenticated prompt. Every other ambiguous result
+stays UNKNOWN and requires explicit owner recovery, never re-entry to discover
+whether the old key was committed.
 After committed enrollment the lab controller may be built; material use stays
 closed until bind and activation.
 
@@ -1019,11 +1046,18 @@ OPS='/etc/swarma/lab/operations/REPLACE_APPROVED_START_GENERATION'
 After bind commits, B5 generates `activate.json` from its returned authority
 heads and the owner approves it off-VM, together with the joined start approval.
 B3 owns `activate`; no activation envelope exists with guessed pre-bind heads.
-Then run:
+Re-attest the current endpoint and vendor roster/audit after this off-VM pause.
+B3 refuses activation without a fresh `verify-access` result bound to the
+current approved window, generation and unchanged three-surface observations,
+rechecked before any activation effect. The pre-bind result is insufficient.
+A06's `TestLabActivationAccessWindow` pairs fresh post-bind admission with stale
+or changed access during approval: refusal leaves the lab marker/fence and
+gateway state unchanged. Then run:
 
 ```sh
 set -eu
 OPS='/etc/swarma/lab/operations/REPLACE_APPROVED_START_GENERATION'
+/opt/swarma/lab/bin/swarma-lab-qualify verify-access --attestation /etc/swarma/lab/access-attestation.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab verify-start --off-vm-approval /etc/swarma/lab/start-approval.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab activate --decision /etc/swarma/lab/owner-decision.json --operation-from "$OPS/activate.json"
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from "$OPS/activate.json"
@@ -1253,6 +1287,14 @@ set -eu
 /opt/swarma/libexec/swarma-user-manager-lab-setup prepare-next --plan /etc/swarma/lab/next-qualification-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup create-identities --plan /etc/swarma/lab/next-qualification-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup verify-identities --plan /etc/swarma/lab/next-qualification-plan.json
+```
+
+After the manager returns committed identity/journal heads, B5 generates
+`next-after-q4.json` from those heads and the owner approves it off-VM.
+Only then run the broker transition; no envelope predates that predecessor:
+
+```sh
+set -eu
 /opt/swarma/lab/bin/swarma-credential-broker-lab prepare-next --plan /etc/swarma/lab/next-qualification-plan.json --operation-from /etc/swarma/lab/operations/next-after-q4.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from /etc/swarma/lab/operations/next-after-q4.json
 ```
@@ -1282,6 +1324,7 @@ off-VM before the following act. No future hold ID is guessed:
 
 ```sh
 set -eu
+/opt/swarma/lab/bin/swarma-lab-qualify verify-access --attestation /etc/swarma/lab/access-attestation.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab hold-lift --account lab/anthropic --hold-file /etc/swarma/lab/current-hold.json --operation-from /etc/swarma/lab/operations/hold-lift-q5.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from /etc/swarma/lab/operations/hold-lift-q5.json
 /opt/swarma/lab/bin/swarma-lab-qualify q5 --case owner-lift-readback
@@ -1313,6 +1356,14 @@ set -eu
 /opt/swarma/libexec/swarma-user-manager-lab-setup prepare-next --plan /etc/swarma/lab/next-after-q5-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup create-identities --plan /etc/swarma/lab/next-after-q5-plan.json
 /opt/swarma/libexec/swarma-user-manager-lab-setup verify-identities --plan /etc/swarma/lab/next-after-q5-plan.json
+```
+
+After the manager returns committed identity/journal heads, B5 generates
+`next-after-q5.json` from those heads and the owner approves it off-VM.
+Only then run the broker transition; no envelope predates that predecessor:
+
+```sh
+set -eu
 /opt/swarma/lab/bin/swarma-credential-broker-lab prepare-next --plan /etc/swarma/lab/next-after-q5-plan.json --operation-from /etc/swarma/lab/operations/next-after-q5.json
 /opt/swarma/lab/bin/swarma-credential-broker-lab status --operation-from /etc/swarma/lab/operations/next-after-q5.json
 ```

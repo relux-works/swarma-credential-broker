@@ -75,6 +75,39 @@ func checkSourceExcerpt(source sourceReference, data []byte) error {
 	return nil
 }
 
+// Claim: source pins verify file content without Git history or a rebase-sensitive commit reference; this is not source-authenticity evidence.
+func TestConstructionSourceContentPins(test *testing.T) {
+	stored, err := os.ReadFile(filepath.Join(vectorDirectory, "index.json"))
+	if err != nil {
+		test.Fatal(err)
+	}
+	var metadata map[string]json.RawMessage
+	if err := json.Unmarshal(stored, &metadata); err != nil {
+		test.Fatal(err)
+	}
+	if _, exists := metadata["spec_commit"]; exists {
+		test.Fatal("commit-dependent source pin forbidden")
+	}
+	var index vectorIndex
+	if err := json.Unmarshal(stored, &index); err != nil {
+		test.Fatal(err)
+	}
+	for _, source := range []struct {
+		path   string
+		digest string
+	}{
+		{"spec/broker.md", index.BaselineSpecSHA256},
+		{specificationPath, index.SpecSHA256},
+	} {
+		test.Run(source.path, func(test *testing.T) {
+			data, err := os.ReadFile(filepath.Join("..", "..", source.path))
+			if err != nil || string(digestBytes(data)) != "sha256:"+source.digest {
+				test.Fatal("source content pin changed")
+			}
+		})
+	}
+}
+
 // Claim: every sealed citation resolves to its expected exact LF-inclusive excerpt in the current source, independently of whole-file pins.
 func TestConstructionSourceCitations(test *testing.T) {
 	stored, err := os.ReadFile(filepath.Join(vectorDirectory, "index.json"))

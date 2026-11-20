@@ -153,22 +153,35 @@ C1 boundaries.
 
 ## Non-semantic lab cross-reference source pins
 
-The lab cross-reference revision of 2026-11-20 places each pointer after all
-pre-existing specification text. Every original line and sealed excerpt is
-byte-identical to the DN-05 source above; no existing citation moves. The
-whole-file digests necessarily change, so the test constants and index metadata
-select the following exact source revision instead of accepting
-unsealed source changes:
+The repository owner's 2026-11-20 authorization for the lab profile and its
+non-semantic source-pin correction is the authority for this metadata revision,
+not production acceptance or lab activation.
 
-| Source | Source commit | SHA-256 | Change |
+The lab cross-references remain after all pre-existing specification text.
+Every original line and sealed excerpt is byte-identical to the DN-05 source
+above; no existing citation moves. The index identifies the current files by
+these whole-file SHA-256 content pins, not by a commit belonging to the lab
+change:
+
+| Source | Index field | SHA-256 | Change |
 | --- | --- | --- | --- |
-| `spec/broker.md` | `ca520990ff4a390864a8d8f2155e6a0eff9f1d8f` | `e45be31c8b3701806b628d9fe6ca011c8a55e17969892a2e2f95b29bdeeeea87` | Non-normative lab link at EOF only |
-| `spec/operator-and-activation-v0.md` | `ca520990ff4a390864a8d8f2155e6a0eff9f1d8f` | `feacdfe6e6cb551b9f175800ccd45eb8e09b299533bfad86e2607dace2834eb4` | Non-normative lab link at EOF of section 9 only |
+| `spec/broker.md` | `baseline_spec_sha256` | `e45be31c8b3701806b628d9fe6ca011c8a55e17969892a2e2f95b29bdeeeea87` | Non-normative lab link at EOF only |
+| `spec/operator-and-activation-v0.md` | `spec_sha256` | `feacdfe6e6cb551b9f175800ccd45eb8e09b299533bfad86e2607dace2834eb4` | Non-normative lab link at EOF of section 9 only |
 
-The current index's `spec_commit` names that revision. Only
-`baseline_spec_sha256`, `spec_commit` and `spec_sha256` change in the index; all
-vector payloads, source spans and excerpt seals remain unchanged. The literal
-whole-file comparisons in `TestConstructionVectors`, and the valid and
-line-shift refusal controls in `TestConstructionSourceCitations` and
-`TestConstructionSourceCitationLineShift`, remain enforced. This metadata
-revision neither amends the production grammar nor accepts the lab exception.
+The test-only index no longer has a `spec_commit` field or a matching commit
+constant. `TestConstructionSourceContentPins` rejects that legacy field and
+hashes both current files directly against the index, independently of the
+literal constants. `TestConstructionVectors` still checks the complete index,
+literal whole-file hashes and every vector byte. All vector payloads, source
+spans and excerpt seals remain unchanged; the valid and line-shift refusal
+controls in `TestConstructionSourceCitations` and
+`TestConstructionSourceCitationLineShift` remain enforced.
+
+A signed rebase changes commit identity, not these file contents, so no repin is
+needed when the bytes are unchanged. The tests also run from a source export
+without Git history. A rebase that changes either specification's bytes fails
+closed and requires a reviewed content-pin/citation revision; signing alone
+cannot bless changed content. The historical DN-05 publishing commit above
+remains historical provenance, not the current index's source locator. This
+metadata correction neither amends the production grammar nor accepts the lab
+exception.
