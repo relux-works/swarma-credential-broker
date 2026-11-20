@@ -174,7 +174,7 @@ func encodeRecovery(state wire.ServiceState, external map[string]any) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	return wire.Encode(map[string]any{"format": recoveryFormat, "installation_id": state.Installation, "revision": state.Revision, "previous_revision": state.Revision - 1, "external": external, "external_sha256": digest(external), "state": encoded})
+	return wire.Encode(map[string]any{"format": recoveryFormat, "installation_id": state.Installation, "revision": state.Revision, "previous_revision": state.Revision - 1, "external": external, "external_sha256": digest(external), "state": encoded, "observation": []any{}})
 }
 
 func readRecovery(raw []byte, installation string) (wire.ServiceState, map[string]any, error) {
@@ -186,7 +186,10 @@ func readRecovery(raw []byte, installation string) (wire.ServiceState, map[strin
 	revision := envelope["revision"].(int64)
 	external := envelope["external"].(map[string]any)
 	encoded := envelope["state"].(map[string]any)
-	if revision > 9007199254740990 || envelope["previous_revision"].(int64)+1 != revision || encoded["revision"] != revision || envelope["installation_id"] != installation || encoded["installation_id"] != installation || external["context"].(map[string]any)["installation_id"] != installation || digest(external) != envelope["external_sha256"] {
+	if !validObservationRecovery(envelope["observation"].([]any)) {
+		return state, nil, fmt.Errorf("recovery_observation")
+	}
+	if revision > 9007199254740990 || envelope["previous_revision"].(int64)+1 != revision || encoded["revision"].(int64) > revision || envelope["installation_id"] != installation || encoded["installation_id"] != installation || external["context"].(map[string]any)["installation_id"] != installation || digest(external) != envelope["external_sha256"] {
 		return state, nil, fmt.Errorf("recovery_join")
 	}
 	public, err := wire.Encode(external)

@@ -356,7 +356,7 @@ func TestLabFiniteNarrowingReserve(test *testing.T) {
 	if !reserveFits(state, journal, 1000) {
 		test.Fatal("valid reserve refused")
 	}
-	for _, change := range []string{"count", "reserve", "private-bytes", "public-bytes", "revision"} {
+	for _, change := range []string{"count", "physical-cap", "reserve", "private-bytes", "public-bytes", "revision"} {
 		test.Run(change, func(test *testing.T) {
 			candidate := state
 			external, _ := object(journal)
@@ -364,6 +364,13 @@ func TestLabFiniteNarrowingReserve(test *testing.T) {
 			switch change {
 			case "count":
 				external["operation_limit"] = int64(7)
+			case "physical-cap":
+				external["operation_limit"] = int64(9007199254740991)
+				candidate.Operations = make([]wire.ServiceOperation, 248)
+				if !reserveFits(candidate, external, size) {
+					test.Fatal("physical reserve boundary control")
+				}
+				candidate.Operations = append(candidate.Operations, wire.ServiceOperation{})
 			case "reserve":
 				external["narrowing_reserve"] = int64(1)
 			case "private-bytes":

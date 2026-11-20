@@ -541,8 +541,36 @@ test/mutant map, including surviving one-layer frame/CAS plants, is in
 | C0c fresh initial/final sequence and whole-snapshot revalidation | TestLabObservationSequenceFloor; TestLabObservationClientPairs | observation-initial-floor; observation-final-sequence; observation-final-snapshot |
 | Required current-RPC/watchdog budget composition | TestLabObservationCurrentRPCBudget; TestLabObservationComposedCurrentBudget; TestLabObservationRecurringWatchdogBudget | observation-no-half-close detects a dead valid control; no timing acceptance claim |
 
-All seven allocated B1 acceptance rows remain incomplete. The native-access
-decision is resolved; [STOP:C0C_CURRENT_RPC_BUDGET](../../docs/lab-b1-observation-budget-stop.md)
-requires a coherent owner timing/consumption decision. The sufficient-budget
-controls are diagnostics, not compliant A09 valid controls. Atomic high-water
-publication, a real managed factory and an accepting daemon remain absent.
+All seven allocated B1 acceptance rows remain incomplete. Both the native-access
+and historical current-RPC budget decisions are resolved by C0c/C0d. The old
+pair-per-current witnesses above are historical diagnostics, not C0d acceptance.
+The current construction implements private atomic S/F recovery, fresh pairs,
+periodic singles and independent fencing; see the current B1 coverage map below.
+The accepting daemon still requires the independently approved protected
+installation binding; no native factory or full A09 qualification is claimed.
+
+## B1 C0d client consumption construction
+
+| Gate | Paired controls | Narrowing mutant / named failure |
+| --- | --- | --- |
+| Fresh publication pair, durable F/S and restart refusal | `TestLabObservationConsumptionDurablePairs` | `periodic-floor`, `restart-admission`, `publication-fresh-final`; same test |
+| Final full-snapshot revalidation and atomic CAS/UNKNOWN | `TestLabObservationPublicationAtomicPairs` | `publication-final-proof`; same test/revalidation-mismatch |
+| Periodic complete current join without publication | `TestLabObservationPeriodicAdversarialPairs`, `TestLabObservationComposedPeriodicCurrent` | `periodic-proof`; first test/moved-proof |
+| Independent native-age closer and scheduling deadline | `TestLabObservationIndependentAgeFence` | `independent-age-fence`; same test/absent-single |
+| Exact terminal narrowing, never admitted-use resurrection | `TestLabObservationNarrowingPublicationPairs` | `narrowing-operation`, `narrowing-pending`, `narrowing-stays-closed`; same test |
+| Existing-engine hold during a pair never queues behind cooldown/native I/O | `TestLabObservationContainmentDoesNotQueue` | `containment-no-queue`; same test fails at the queued-hold assertion, not its valid pair control |
+| Private recovery counters/generation/nested-size | `TestLabObservationRecoveryCounterPairs` | `recovery-observation-floor`, `recovery-observation-generation`, `recovery-observation-size`; same test |
+| Protected native gateway/worker projection and exact manager head | `TestLabManagedAuthorityPairs` | `managed-cold-worker-kind`, `managed-worker-class`, `managed-manager-head`; same test |
+
+Every named kill and the two bounded survivors are recorded in
+[`docs/lab-b1-construction-coverage.md`](../../docs/lab-b1-construction-coverage.md).
+C0e remains the gateway's per-attempt gate; B1 adds no attempt counter. These
+are library/fake-server controls, not installation or native qualification.
+[STOP:C0C_PROTECTED_INSTALLATION_BINDING](../../docs/lab-b1-installation-binding-stop.md)
+identifies the missing exact protected B5-to-B1 expected binding. No B1 acceptance
+row is treated as out of contract or waived.
+
+B1 physical reserve clarification: `TestLabFiniteNarrowingReserve/physical-cap`
+uses a larger approved scalar limit beside exactly-eight/only-seven physical
+slots; `physical-operation-reserve` removes the 256-entry cap and fails that
+named test. This enforces the existing frozen array bound, not a new surface.

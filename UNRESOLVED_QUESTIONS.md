@@ -373,3 +373,16 @@ both approval expiries against every fresh settled upper/W. Missing/corrupt
 metadata and uncertain two-pointer publication refuse without inferring burn
 or a replacement baseline. The non-native reboot, load and home-alias/root
 qualification observations remain open; fixture tests do not close them.
+
+
+## B1 protected installation binding
+
+**STOP:C0C_PROTECTED_INSTALLATION_BINDING.** PR #82 resolves the old
+C0C_CURRENT_RPC_BUDGET stop. The thirty frozen external records do not define
+the independently approved B5-to-B1 manager-instance/native-store/daemon
+installation binding required by C0c. Identify an existing accepted exact
+record and source or authorize that C0 addendum; do not use a first observation
+as expected pins or change the private recovery writer/readers. See
+`docs/lab-b1-installation-binding-stop.md` for the exact clauses, inventory,
+rejected forced fits and retained bounded construction. No accepting factory
+or native execution is claimed.

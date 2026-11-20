@@ -1,6 +1,10 @@
-# B1 C0c observation/current-check budget stop
+# Historical B1 C0c observation/current-check budget diagnostic
 
-Status: **STOP:C0C_CURRENT_RPC_BUDGET**. The native evidence access decision is
+Status: **RESOLVED by PR #82, main 9f1f90fa (C0d)**. The requirements and
+decision request below are historical, not current gates. Fresh pairs now
+serve admission/publication only; recurring checks use receipt-anchored single
+observations and independent freshness fences. See the current construction
+coverage map and protected installation binding gap. The native evidence access decision is
 resolved by PR #81, broker main `eef0f9f3388c3b35ce562f126540fc333370ec43`.
 This stop concerns composition of the newly frozen observation protocol with
 the unchanged current-RPC and watchdog requirements, not native read access.

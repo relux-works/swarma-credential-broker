@@ -30,6 +30,7 @@ type observationFixtureServer struct {
 	response, stop map[string]any
 	invalidation   map[string]any
 	mode           string
+	modeMu         sync.Mutex
 	requests       atomic.Int64
 	workers        sync.WaitGroup
 	released       int64
@@ -89,10 +90,23 @@ func newObservationFixtureServer(test *testing.T, mode string) *observationFixtu
 	return server
 }
 
+func (server *observationFixtureServer) setMode(mode string, enabled bool) {
+	server.modeMu.Lock()
+	defer server.modeMu.Unlock()
+	if enabled {
+		server.mode = mode
+	} else {
+		server.mode = "valid"
+	}
+}
+
 func (server *observationFixtureServer) serve(connection *net.UnixConn) {
+	server.modeMu.Lock()
+	mode := server.mode
+	server.modeMu.Unlock()
 	defer connection.Close()
 	connection.SetDeadline(time.Now().Add(time.Second))
-	if !observationPeer(connection, uint32(os.Geteuid())) || server.mode == "deny-client" {
+	if !observationPeer(connection, uint32(os.Geteuid())) || mode == "deny-client" {
 		return
 	}
 	request, err := io.ReadAll(io.LimitReader(connection, 4101))
@@ -108,7 +122,7 @@ func (server *observationFixtureServer) serve(connection *net.UnixConn) {
 		return
 	}
 	ordinal := server.requests.Add(1)
-	if server.mode == "timeout" {
+	if mode == "timeout" {
 		time.Sleep(300 * time.Millisecond)
 		return
 	}
@@ -118,7 +132,38 @@ func (server *observationFixtureServer) serve(connection *net.UnixConn) {
 	response["debits"].([]any)[0].(map[string]any)["committed_ms"] = int64(1)
 	start := response["start"].(map[string]any)
 	store := response["store"].(map[string]any)
-	switch server.mode {
+	switch mode {
+	case "terminal-stop", "terminal-wrong-stop", "terminal-pending-stop", "terminal-invalidation", "terminal-wrong-invalidation", "terminal-missing", "terminal-final-mismatch":
+		start["phase"] = "terminal"
+		if mode == "terminal-invalidation" || mode == "terminal-wrong-invalidation" {
+			invalidation, _ := object(server.invalidation)
+			invalidation["invalidated_ms"] = int64(1)
+			if mode == "terminal-wrong-invalidation" {
+				invalidation["generation"] = "dddddddddddddddddddddddddddddddd"
+			}
+			response["invalidations"] = []any{invalidation}
+		} else if mode != "terminal-missing" {
+			stop, _ := object(server.stop)
+			stop["phase"] = "terminal"
+			if mode == "terminal-wrong-stop" {
+				stop["operation_id"] = "another-stop"
+			}
+			if mode == "terminal-pending-stop" {
+				stop["phase"] = "admitted"
+			}
+			response["stops"] = []any{stop}
+			if mode == "terminal-final-mismatch" && ordinal%2 == 0 {
+				store["effects_sha256"] = digest("moved-native-proof")
+			}
+		}
+	case "slow-valid":
+		time.Sleep(190 * time.Millisecond)
+	case "moved-proof":
+		store["effects_sha256"] = digest("moved-native-proof")
+	case "revalidation-mismatch":
+		if ordinal%2 == 0 {
+			store["effects_sha256"] = digest("moved-native-proof")
+		}
 	case "stale-generation":
 		start["generation"] = "dddddddddddddddddddddddddddddddd"
 	case "wrong-start-uid":
@@ -170,7 +215,7 @@ func (server *observationFixtureServer) serve(connection *net.UnixConn) {
 	if wire.Write(&encoded, response) != nil {
 		return
 	}
-	switch server.mode {
+	switch mode {
 	case "truncated":
 		connection.Write(encoded.Bytes()[:encoded.Len()/2])
 		return
@@ -188,7 +233,7 @@ func (server *observationFixtureServer) serve(connection *net.UnixConn) {
 		return
 	}
 	connection.Write(encoded.Bytes())
-	if server.mode == "delayed-eof" {
+	if mode == "delayed-eof" {
 		time.Sleep(300 * time.Millisecond)
 	}
 }
@@ -290,7 +335,7 @@ func TestLabObservationPathChanges(test *testing.T) {
 	}
 }
 
-// Claim: two fresh observations per successful use and the global cooldown leave no recurring success margin below the 500 ms watchdog; a 750 ms diagnostic control succeeds, whereas a 500 ms window from the previous receipt yields UNKNOWN.
+// Claim (historical pre-C0d diagnostic, not current acceptance): two fresh observations per successful use and the global cooldown leave no recurring success margin below the 500 ms watchdog; a 750 ms diagnostic control succeeds, whereas a 500 ms window from the previous receipt yields UNKNOWN.
 func TestLabObservationRecurringWatchdogBudget(test *testing.T) {
 	for _, budget := range []time.Duration{750 * time.Millisecond, 500 * time.Millisecond} {
 		test.Run(budget.String(), func(test *testing.T) {
@@ -346,7 +391,7 @@ func TestLabObservationKernelPeerAndPath(test *testing.T) {
 	}
 }
 
-// Claim: a complete initial/final pair works with a one-second caller budget, but the unchanged 200 ms current-RPC budget necessarily expires in the mandatory cooldown before a second request; no usable result is returned.
+// Claim (historical pre-C0d diagnostic, not current acceptance): a complete initial/final pair works with a one-second caller budget, but the unchanged 200 ms current-RPC budget necessarily expires in the mandatory cooldown before a second request; no usable result is returned.
 func TestLabObservationCurrentRPCBudget(test *testing.T) {
 	observationPairControl(test)
 	server := newObservationFixtureServer(test, "valid")
@@ -376,7 +421,7 @@ func (authority observationBudgetAuthority) WithCurrent(ctx context.Context, cal
 	return authority.base.WithCurrent(ctx, callback)
 }
 
-// Claim: the actual existing-engine revocation-check path can publish not_revoked after the full fake observation pair with a one-second budget, but never under the specified 200 ms budget; the negative makes no journal change or publication.
+// Claim (historical pre-C0d diagnostic, not current acceptance): the existing-engine revocation-check path can publish not_revoked after a fake pair with one second, but never under the historical 200 ms diagnostic budget; the negative makes no journal change or publication.
 func TestLabObservationComposedCurrentBudget(test *testing.T) {
 	for _, budget := range []time.Duration{time.Second, 200 * time.Millisecond} {
 		test.Run(budget.String(), func(test *testing.T) {

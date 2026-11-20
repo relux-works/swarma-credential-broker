@@ -27,6 +27,8 @@ type Account struct {
 	context      map[string]any
 	project      func(wire.ServiceState, map[string]any) (map[string]any, error)
 	unknown      bool
+	revision     uint64
+	observation  []any
 }
 
 func newAccount(records *store.Account, approvedContext map[string]any, project func(wire.ServiceState, map[string]any) (map[string]any, error)) (*Account, error) {
@@ -110,6 +112,12 @@ func (account *Account) load() (wire.ServiceState, map[string]any, error) {
 	if err != nil || !labcontract.Equal(external["context"], account.context) {
 		return wire.ServiceState{}, nil, ErrUnknown
 	}
+	envelope, err := labcontract.ReadRecovery(raw)
+	if err != nil {
+		return wire.ServiceState{}, nil, ErrUnknown
+	}
+	account.revision = uint64(envelope["revision"].(int64))
+	account.observation = envelope["observation"].([]any)
 	metadata, err := account.readMetadata()
 	if err != nil || metadata["status"] != "enrolled" || metadata["context"] == nil {
 		return wire.ServiceState{}, nil, ErrUnknown
@@ -195,8 +203,19 @@ func (account *Account) StoreServiceState(candidate wire.ServiceState) error {
 	if err != nil {
 		return ErrUnknown
 	}
+	envelope["revision"] = account.revision + 1
+	envelope["previous_revision"] = account.revision
+	envelope["observation"] = account.observation
+	joinedBytes, err := wire.Encode(envelope)
+	if err != nil || len(joinedBytes) > 524288 || account.revision >= 9007199254740990 {
+		account.unknown = true
+		return ErrUnknown
+	}
+	if len(candidate.Operations) > len(previous.Operations) && !terminalMethod(candidate.Operations[len(candidate.Operations)-1].Method) && (!reserveFits(state, joined, len(joinedBytes)) || account.revision+1 > 9007199254740990-uint64(joined["narrowing_reserve"].(int64))) {
+		return ErrReserve
+	}
 	account.unknown = true
-	if account.records.Put(stateName, previous.Revision, envelope) != nil {
+	if account.records.Put(stateName, account.revision, envelope) != nil {
 		return ErrUnknown
 	}
 	account.unknown = false
@@ -204,7 +223,7 @@ func (account *Account) StoreServiceState(candidate wire.ServiceState) error {
 }
 
 func reserveFits(state wire.ServiceState, external map[string]any, encodedBytes int) bool {
-	liabilities := 2
+	liabilities := int64(2)
 	for _, binding := range state.Bindings {
 		if binding.State == "active" {
 			liabilities++
@@ -215,10 +234,10 @@ func reserveFits(state wire.ServiceState, external map[string]any, encodedBytes 
 			liabilities++
 		}
 	}
-	reserve := int(external["narrowing_reserve"].(int64))
-	remaining := int(external["operation_limit"].(int64)) - len(state.Operations)
+	reserve := external["narrowing_reserve"].(int64)
+	remaining := min(int64(256), external["operation_limit"].(int64)) - int64(len(state.Operations))
 	public, err := wire.Encode(external)
-	return err == nil && reserve >= liabilities && remaining >= reserve && state.Revision <= 9007199254740990-uint64(reserve) && encodedBytes+reserve*8192 <= 524288 && len(public)+reserve*2048 <= 65536
+	return err == nil && reserve >= liabilities && remaining >= reserve && state.Revision <= 9007199254740990-uint64(reserve) && int64(encodedBytes)+67584+reserve*8192 <= 524288 && int64(len(public))+reserve*2048 <= 65536
 }
 
 func (account *Account) Snapshot() ([]byte, error) {

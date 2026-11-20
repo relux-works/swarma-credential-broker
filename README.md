@@ -14,11 +14,14 @@ test authorities and clocks are not installed or admitted by a daemon.
 The [construction coverage map](docs/lab-b1-construction-coverage.md) lists every
 incomplete B1 acceptance row and the named mutation controls.
 The C0c manager-owned capability resolves the former native access stop.
-The tagged Unix observation client and C0b shape reader now have paired
-adversarial construction tests. The client returns tentative metadata only;
-atomic high-water/publication and an accepting daemon/current-caller assembly
-remain absent because of the
-[observation/current-check timing conflict](docs/lab-b1-observation-budget-stop.md).
+The tagged Unix observation client and C0b reader have paired adversarial
+construction tests. C0d now supplies durable publication-pair versus periodic
+single consumption: singles advance S, never F or publication, and independent
+freshness/containment fences close continued use. The native managed adapter
+reuses the protected projection and generation journal. These internal APIs are
+not an installed authority factory. The historical timing stop is resolved;
+the accepting daemon remains blocked on the
+[protected installation binding record](docs/lab-b1-installation-binding-stop.md).
 No real-key enrollment, vendor call, native qualification or production
 activation follows from these construction tests.
 

@@ -174,6 +174,15 @@ func readObservationFrame(connection *net.UnixConn) ([]byte, error) {
 }
 
 func (client *observationClient) collect(ctx context.Context, floor int64) (observationSample, error) {
+	return client.collectFor(ctx, floor, observationPurpose{kind: "start"})
+}
+
+type observationPurpose struct {
+	kind     string
+	effectID string
+}
+
+func (client *observationClient) collectFor(ctx context.Context, floor int64, purpose observationPurpose) (observationSample, error) {
 	var sample observationSample
 	if client == nil || ctx == nil || ctx.Err() != nil || client.pins.daemonUID == 0 || client.pins.daemonUID != uint32(os.Geteuid()) || floor < 0 || floor >= 9007199254740991 {
 		return sample, ErrUnknown
@@ -233,13 +242,17 @@ func (client *observationClient) collect(ctx context.Context, floor int64) (obse
 		}
 	}
 	sample.after, err = bootNanos()
-	if err != nil || ctx.Err() != nil || sample.after < sample.before || sample.after >= sample.deadline || !client.valid(sample, floor) {
+	if err != nil || ctx.Err() != nil || sample.after < sample.before || sample.after >= sample.deadline || !client.validFor(sample, floor, purpose) {
 		return observationSample{}, fmt.Errorf("%w: interval or semantic join", ErrUnknown)
 	}
 	return sample, nil
 }
 
 func (client *observationClient) valid(sample observationSample, floor int64) bool {
+	return client.validFor(sample, floor, observationPurpose{kind: "start"})
+}
+
+func (client *observationClient) validFor(sample observationSample, floor int64, purpose observationPurpose) bool {
 	record := sample.record
 	manager := record["manager"].(map[string]any)
 	store := record["store"].(map[string]any)
@@ -247,7 +260,8 @@ func (client *observationClient) valid(sample observationSample, floor int64) bo
 	if !labcontract.Equal(manager, client.pins.manager) || manager["uid"] != int64(0) || store["generation"] != client.pins.storeGeneration || record["sequence_generation"] != client.pins.storeGeneration || !labcontract.Equal(store["manager_head"], client.pins.managerHead) || store["generation_current"] != true || record["complete"] != true || record["sequence"].(int64) <= floor {
 		return false
 	}
-	if record["operation_id"] != client.pins.start["operation_id"] || record["start_id"] != client.pins.start["start_id"] || start["phase"] != "admitted" {
+	narrowing := purpose.kind == "stop" || purpose.kind == "invalidation"
+	if record["operation_id"] != client.pins.start["operation_id"] || record["start_id"] != client.pins.start["start_id"] || (!narrowing && start["phase"] != "admitted") || (narrowing && start["phase"] != "terminal") {
 		return false
 	}
 	copy, err := object(start)
@@ -263,7 +277,10 @@ func (client *observationClient) valid(sample observationSample, floor int64) bo
 		return false
 	}
 	receipts, debits := record["receipts"].([]any), record["debits"].([]any)
-	if len(receipts) != 1 || len(debits) != 1 || len(record["invalidations"].([]any)) != 0 || len(record["stops"].([]any)) != 0 {
+	if len(receipts) != 1 || len(debits) != 1 || (!narrowing && (len(record["invalidations"].([]any)) != 0 || len(record["stops"].([]any)) != 0)) {
+		return false
+	}
+	if narrowing && !client.validNarrowing(record, purpose) {
 		return false
 	}
 	receipt, debit := receipts[0].(map[string]any), debits[0].(map[string]any)
@@ -279,6 +296,35 @@ func (client *observationClient) valid(sample observationSample, floor int64) bo
 		return false
 	}
 	return true
+}
+
+func (client *observationClient) validNarrowing(record map[string]any, purpose observationPurpose) bool {
+	start := record["start"].(map[string]any)
+	stops := record["stops"].([]any)
+	invalidations := record["invalidations"].([]any)
+	matched := 0
+	for _, value := range stops {
+		stop := value.(map[string]any)
+		if stop["generation"] != start["generation"] || stop["start_id"] != start["start_id"] || stop["phase"] != "terminal" {
+			return false
+		}
+		if stop["operation_id"] == purpose.effectID {
+			matched++
+		}
+	}
+	seen := map[string]bool{}
+	for _, value := range invalidations {
+		invalidation := value.(map[string]any)
+		key := digest(invalidation)
+		if invalidation["generation"] != start["generation"] || invalidation["execution_id"] != start["start_id"] || invalidation["boot_id"] != client.pins.manager["boot_id"] || seen[key] {
+			return false
+		}
+		seen[key] = true
+	}
+	if purpose.kind == "stop" {
+		return purpose.effectID != "" && matched == 1
+	}
+	return purpose.kind == "invalidation" && purpose.effectID == client.pins.start["operation_id"] && len(invalidations) > 0
 }
 
 func waitObservationCooldown(ctx context.Context, until int64) error {
