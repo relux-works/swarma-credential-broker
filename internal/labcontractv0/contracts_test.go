@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "93c3301da1eab5ff2c3a54af4903c95952f4f69f44f8b55a8707fa655b449925"
+const indexSHA256 = "1aac476d6b2b51c95de8292c760b95e1c6288261305ecc5a0225039caff3dfe0"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -89,7 +89,7 @@ func checkFields(object map[string]any, shape recordShape, set contractSet) erro
 	for name, fieldType := range shape.Fields {
 		value, present := object[name]
 		if !present || value == nil {
-			return fmt.Errorf("field_set: %s", name)
+			return fmt.Errorf("field_set")
 		}
 		if err := checkValue(value, fieldType, set); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
@@ -217,7 +217,7 @@ func checkRecord(data []byte, shape recordShape, set contractSet) error {
 	return checkFields(object, shape, set)
 }
 
-func loadContracts(test *testing.T) (contractSet, []contractCase) {
+func loadExternalContracts(test *testing.T) (contractSet, []contractCase) {
 	test.Helper()
 	var set contractSet
 	decodeContract(test, "surfaces.json", &set)
@@ -226,6 +226,24 @@ func loadContracts(test *testing.T) (contractSet, []contractCase) {
 	}
 	decodeContract(test, "fixtures.json", &fixtures)
 	return set, fixtures.Cases
+}
+
+func loadContracts(test *testing.T) (contractSet, []contractCase) {
+	test.Helper()
+	set, fixtures := loadExternalContracts(test)
+	var private contractSet
+	decodeContract(test, "recovery-surfaces.json", &private)
+	for name, shape := range private.Structures {
+		if _, exists := set.Structures[name]; exists {
+			test.Fatalf("private structure shadows external C0: %s", name)
+		}
+		set.Structures[name] = shape
+	}
+	var examples struct {
+		Cases []contractCase `json:"cases"`
+	}
+	decodeContract(test, "recovery-fixtures.json", &examples)
+	return contractSet{Structures: set.Structures, Surfaces: append(set.Surfaces, private.Surfaces...)}, append(fixtures, examples.Cases...)
 }
 
 func contentPinValid(data []byte, expected string) bool {
@@ -313,7 +331,7 @@ func checkInventory(wanted map[string]bool, set contractSet, fixtures []contract
 
 // Claim: profile section 5.2 has exactly one closed schema/fixture per format; missing, duplicated and undeclared surfaces fail beside the complete valid inventory.
 func TestLabClosedInventory(test *testing.T) {
-	set, fixtures := loadContracts(test)
+	set, fixtures := loadExternalContracts(test)
 	profile, err := os.ReadFile("../../docs/lab-profile-v0.md")
 	if err != nil {
 		test.Fatal(err)
@@ -1182,7 +1200,7 @@ func fixtureFields(object map[string]any, shape recordShape, set contractSet) []
 
 // Claim: every nested type rejects unknown/missing/null at closure before seals, while every re-sealed target passes its independent seal-only control.
 func TestLabNestedClosurePairs(test *testing.T) {
-	set, fixtures := loadContracts(test)
+	set, fixtures := loadExternalContracts(test)
 	covered := map[string]bool{}
 	for position, shape := range set.Surfaces {
 		fixture := fixtures[position]

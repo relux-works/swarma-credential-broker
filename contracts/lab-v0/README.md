@@ -1,5 +1,11 @@
 # Lab contract C0 with C0b/C0c/C0d/C0e addenda, revision 10
 
+Private addendum (2026-11-20): [B1 recovery](recovery.md) and its separate
+`recovery-surfaces.json` / `recovery-fixtures.json` inventory are private to B1,
+never exported or read by another component. They preserve the exact 27 external
+surfaces and use the same canonical grammar and operator catalogue. The sealed
+index includes this addendum. This is not a change to any public journal field.
+
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
 This is the closed byte inventory of [lab profile §5.2](../../docs/lab-profile-v0.md#52-c0s-closed-byte-inventory-and-consumer-joins).
@@ -381,6 +387,12 @@ fixture/reproduction section; C0c
 reference checks are test-only, not an observation server or client.
 
 ## C0e gateway accounting consumption
+
+The PRIVATE B1 recovery envelope additionally retains C0d F/S and the last
+accepted comparison baseline in its one atomic service-snapshot CAS. These
+members are never an external surface, never exported, and never native ledger
+authority. See `recovery.md`; its independent envelope revision lets periodic
+seen updates preserve the unchanged existing-engine operation revision.
 
 [attempt-accounting.md](attempt-accounting.md) refines the C0b executor boundary:
 G1b is the only billable-forward gate; M1 checks start admission and serves C0c,

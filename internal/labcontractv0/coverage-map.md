@@ -1,5 +1,18 @@
 # C0 construction coverage map
 
+## Private B1 recovery addendum
+
+| Surface / gate | Valid and negative controls | Narrowing mutant / named failure |
+| --- | --- | --- |
+| Private recovery inventory and B1-only visibility | `TestLabRecoveryPrivateInventory` | Add G1 reader; same test rejects broadened audience. |
+| Closed recovery fields and canonical bytes | `TestLabGeneratedGrammarPairs`, `TestLabGeneratedClosedFieldPairs`, `TestLabGeneratedObjectBytePairs` include the private inventory and every recovery structure | Permit extra fields; `TestLabGeneratedClosedFieldPairs/RecoveryState/unknown-extra` fails. |
+| Atomic snapshot/recovery revision, installation and digest join | `TestLabRecoveryJoinPairs` | Ignore external digest; same test fails its changed-digest control. |
+| Private C0d observation recovery, independent outer revision and S/F | `TestLabRecoveryObservationJoinPairs`, nonempty recovery fixture; empty bootstrap control remains | `private-observation-floor`, `private-observation-generation`, `private-observation-size`; named semantic test rejects the mismatch. |
+| Typed replay alternatives and optional-field cardinality | `TestLabRecoveryReplayPairs` | Admit multiple replay variants; same test fails its double-variant control. |
+
+These are reference-reader controls, not B1 runtime/effect acceptance. The 30
+external surface definitions and fixtures remain byte-for-byte unchanged.
+
 Scope: the 30 byte formats (24 base, C0b, two C0c frames and three C0e records) in lab profile section 5.2, not runtime A01–A12 acceptance.
 No separate attack-surface catalog was supplied; the profile inventory is the
 bounded construction surface. Own-format controls are canonical public fixtures.
