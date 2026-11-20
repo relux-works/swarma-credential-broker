@@ -1,0 +1,5 @@
+--- a/internal/protectedio/read_linux.go
++++ b/internal/protectedio/read_linux.go
+@@ -194 +194 @@
+-	if metadata.UID != policy.UID || metadata.GID != policy.GID || metadata.Mode != fs.ModeDir|policy.Mode {
++	if metadata.UID != policy.UID || metadata.GID != policy.GID || metadata.Mode&^(fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky) != fs.ModeDir|policy.Mode {

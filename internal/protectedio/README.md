@@ -4,7 +4,9 @@ This Linux-only library implements construction stage C1, using the unchanged
 `assemblyv0.ProtectedFilePolicy`, `FileIdentity`, `ProtectedRead` and `ConfigGate`
 ports. `Reader` always walks descriptor-relatively from `/`; it has no root,
 environment or installed fixture selector. Tests use real files under their
-private temporary root and explicit expected ownership. No files are created
+private temporary root and explicit expected ownership, except the read-only
+public `/etc/passwd` owner-comparison control and the task-owned process's
+kernel-generated `/proc/<pid>/stat` byte-count refusal described below. No files are created
 by the library, no daemon imports it, and default behavior is unchanged.
 
 `Reader.Read` accepts clean absolute paths and a regular, single-link file
@@ -25,9 +27,13 @@ root versus broker ancestor boundaries.
 real reader and lock factory beside valid non-root controls. It isolates
 directory UID/GID, regular-file GID and ancestor-zero enforcement. Its file
 and lock UID-zero refusals also encounter the root-only ancestor rule;
-isolating the regular-file UID comparison requires privileged provisioning
-and is not claimed. The corresponding private P1 plant survives for that
-stated reason, not as evidence of a product defect.
+`TestReviewerLeafOwnerComparison` separately admits the root-owned public
+`/etc/passwd` source at its literal production policy, then refuses the same
+leaf for the non-root broker UID without returning bytes or identity. It
+fails, rather than skips, if the host source is not root:root 0644, regular,
+single-link and bounded. It never changes or logs the source's contents.
+The narrower P1 zero-owner and process-EUID wildcard variants still require
+privileged provisioning; ordinary leaf-owner equality does not.
 `TestProductionPolicyComparisons` exercises 0640/0644 file modes, 0750/0700
 directory modes, single links and exact zero/one-MiB bounds, with accepted
 boundary controls and one-step violations. `TestPolicyShapeComparisons`
@@ -35,6 +41,20 @@ uses a missing leaf to distinguish early policy validation from later file
 metadata checks. `TestConfigGatePolicyComparisons` distinguishes the gate's
 0640/zero-bound requirements from otherwise valid ordinary reads. Directory
 link and size fields are unused, not additional enforced directory policy.
+
+`TestReviewerAncestorModeBits` independently checks world-write, group-write,
+setuid, setgid and sticky ancestors beside safe reads.
+`TestReviewerDirectorySpecialBits` checks all three special bits at both
+0750 and 0700 beside accepted directory controls. The AST mutation driver
+enumerates the complete two target files, not a manually selected comparison
+list. Its result table distinguishes named assertion kills, syntactic
+identities, surviving changes and execution errors; a survivor is not a
+completeness proof or automatically an equivalent mutation.
+`TestMechanicalReadByteCount` rejects nonempty task-owned proc metadata when
+the kernel reports size zero, without logging the process contents. Direct
+descriptor-pin tests independently exercise mode, mtime and ctime equality;
+gate tests cover construction-time parent/leaf refusal and nil inputs. The
+driver exits nonzero while any raw survivor or execution error remains.
 
 `NewConfigGate` opens an existing 0640, single-link, zero-byte lock and pins
 its device/inode and metadata; it never creates or replaces it. Its immediate
@@ -70,6 +90,7 @@ temporary variables; `TestTempAncestry` retains unsafe-ancestor refusals.
 | Race tests | `go test -race ./internal/protectedio` | Real synthetic read/ancestor/lock controls and paired refusals. |
 | Vet and repository tests | `go vet ./...`; `go test -race ./...` | Separate commands and real exit codes in task scratch. |
 | Narrowing plants | Apply each `testdata/PL-*.patch` independently in an isolated checkout with `git apply --unidiff-zero --check` and `git apply --unidiff-zero`, then run its mapped test. | Exact failing assertion and adjacent unchanged control in task scratch; never runtime switches. |
+| Mechanical mutation | `go run ./internal/protectedio/testdata/mutation -root . -scratch "$PWD/.temp/mutation-work" -output "$PWD/.temp/mutation.jsonl"`; use `-list` to inspect the inventory without executing it. | New task-owned scratch copy, one standalone two-package test per mutant under 022, per-mutant logs and JSONL real exits; checked-in `testdata/mutation/results.tsv` records the audited run. |
 
 Book-first sources and the still-open acceptance points are recorded in C1
 and the applicability register. This unit establishes protected equality and

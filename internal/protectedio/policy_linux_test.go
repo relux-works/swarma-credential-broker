@@ -11,7 +11,7 @@ import (
 )
 
 // Claim: production root zero is an exact owner/group/ancestor requirement, not an unset wildcard, beside unchanged non-root filesystem controls.
-// The regular-file UID-zero and lock-UID-zero refusals are masked by the root-only ancestor rule: isolating the regular-file UID comparison requires privileged provisioning, not claimed here.
+// These UID-zero refusals are ancestor-masked; the separate public-passwd witness isolates ordinary leaf-owner equality, not the zero-wildcard variant.
 func TestRootZeroBoundary(test *testing.T) {
 	uid, gid := uint32(os.Getuid()), uint32(os.Getgid())
 	if uid == 0 || gid == 0 {

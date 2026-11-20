@@ -284,6 +284,18 @@ func TestNewComposedProductionCalls(test *testing.T) {
 					}
 				})
 			}
+			test.Run("gate-refusal", func(test *testing.T) {
+				production, recorder := fresh()
+				pins := load(test, production, recorder)
+				if err := os.Rename(fixture.reader.paths.lock, fixture.reader.paths.lock+"-old"); err != nil {
+					test.Fatal(err)
+				}
+				write(test, fixture.reader.paths.lock, nil, 0640)
+				called, err := invoke(test, production, &pins)
+				if !errors.Is(err, protectedio.ErrProtection) || called || len(recorder.calls) != 0 {
+					test.Fatalf("production gate refusal retried or returned output: %v callback=%v calls=%+v", err, called, recorder.calls)
+				}
+			})
 			for index, refused := range current {
 				for pass := 1; pass <= 2; pass++ {
 					test.Run(fmt.Sprintf("source-%d/pass-%d", index, pass), func(test *testing.T) {

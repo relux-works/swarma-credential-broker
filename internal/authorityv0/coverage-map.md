@@ -33,8 +33,8 @@ call site through New, not privileged provisioning or arbitrary rebinding.
 | AUTHORITY-LOCUS | `TestAUTHORITYLOCUSEquality` | PL-AUTHORITY-LOCUS | Installation, broker, exact observer/account sets, selected legacy allowlists and installed socket/store joins; no precedence. |
 | AUTH-ROLE: U02 local directory slice | `TestAUTHROLEDirectoryPins` | PL-DIRECTORY-PIN | Current protected UID/name/home, distinct roles and present broker primary/explicit group membership; no dedicated-human creation/history provenance. |
 | VIEW/SINGLE-SEQ: U02 protected-facts slice | `TestVIEWProtectedFactsAndLockContinuity`; `TestVIEWFinalRecheckAndConcurrentReaders` | PL-FINAL-RECHECK | Protected sources and bounded final local rechecks, callback errors, cancellation and concurrent readers; no sequence, journal, publication or integrated View claim. |
-| File protection | `TestProtectedFileAndAncestorProtection`; `TestProtectedAbsenceCancellationAndRecheck`; `TestDescriptorNameReplacement/leaf` | PL-PROTECTED-MODE | Real regular/single-link/owner/group/exact-mode/special-bit/size and descriptor/name checks, safe absence and no partial result. |
-| Ancestor and installed-directory protection | `TestProtectedFileAndAncestorProtection/ancestor-mode`; `/ancestor-symlink`; `TestDescriptorNameReplacement/ancestor`; `TestVIEWProtectedFactsAndLockContinuity` | PL-ANCESTOR-MODE | Descriptor-relative no-symlink walk, safe owners/modes and root-config/data/store joins; deterministic replacement witnesses, not exhaustive scheduling proof. |
+| File protection | `TestProtectedFileAndAncestorProtection`; `TestReviewerLeafOwnerComparison`; `TestProtectedAbsenceCancellationAndRecheck`; `TestDescriptorNameReplacement/leaf` | PL-PROTECTED-MODE, PL-LEAF-OWNER | Real regular/single-link/group/exact-mode/special-bit/size and descriptor/name checks; the read-only root-owned public passwd control isolates leaf-owner equality. Safe absence and no partial result. |
+| Ancestor and installed-directory protection | `TestProtectedFileAndAncestorProtection/ancestor-mode`; `/ancestor-symlink`; `TestReviewerAncestorModeBits`; `TestDescriptorNameReplacement/ancestor`; `TestVIEWProtectedFactsAndLockContinuity` | PL-ANCESTOR-MODE, PL-ANCESTOR-WORLD-WRITE, PL-ANCESTOR-SPECIAL-BITS | Descriptor-relative no-symlink walk, independently refused group/world write and all three special bits, safe owners and root-config/data/store joins; deterministic replacement witnesses, not exhaustive scheduling proof. |
 | Configuration-lock continuity | `TestConfigurationLockContinuity`; `TestDirectorySiblingDoesNotReplaceLock`; `TestVIEWProtectedFactsAndLockContinuity` | PL-LOCK-INODE | Existing zero-byte exact-policy inode, real shared nonblocking flock, contention, replacement, exact parent mode, deadline and final recheck. Sibling changes and identical authority replacement remain valid. |
 | Identity-only independence | `TestIdentityOnlyIndependence` | PL-IDENTITY-USE-GATE | Current unmanaged identity survives startup/use-policy drift without activation, history, managed projection or UTC; malformed/unavailable current identity still refuses. |
 | File/ancestor owner boundary | `TestDirectoryAncestorOwnerBoundary` | PL-ANCESTOR-OWNER | Same real directory and leaf policy, distinct ancestor UID; the test does not chown or change privileged host ancestors. |
@@ -44,8 +44,8 @@ call site through New, not privileged provisioning or arbitrary rebinding.
 | Composed production constructor contract | `TestNewProductionPolicies`; `TestNewPreservesConfiguration`; `TestNewInitialState` | PL-NEW-ROOT-OWNERS, PL-NEW-ROOT-UID, PL-NEW-ROOT-GID, PL-NEW-AUTHORITY-PATH, PL-NEW-BROKER-CAPTURE | Override-free literal production paths, root/process owners, modes, links, bounds and ancestors with a distinct configured broker UID; all configuration values, duplicate-field slice copies, process/root IDs, zero mutex and initially absent lazy gate are pinned. Concrete seams are covered by the preceding row. |
 | Composed production call-site values | `TestNewComposedProductionCalls` | PL-PRODUCTION-ANCESTOR-DEFAULT, PL-PRODUCTION-LOCK-DEFAULT, PL-PRODUCTION-AUTHORITY-DEFAULT; retained MR1-MR4 | Literal production paths, owners (including root zero), modes, links, size bounds and ancestor owners through New and every public window; strict path remapping happens only after recording. No Reader field except its two I/O seams is replaced. |
 | Exact-policy refusal propagation | `TestNewComposedProductionCalls`; `TestRecordingRefusalPolicyMatch` | PL-PRODUCTION-ANCESTOR-RETRY, PL-PRODUCTION-LOCK-RETRY, PL-PRODUCTION-ACCOUNT-RETRY, PL-PRODUCTION-AUTHORITY-RETRY, PL-RECORDER-PATH-ONLY | Complete trace prefixes after each source refusal in both passes of all windows; fresh lock-factory refusals in Load/WithIdentity. Final-pass callbacks are not rolled back; refused Load returns no partial output. |
-| Production root-zero callee enforcement | `TestRootZeroBoundary` | PL-ROOT-ZERO-DIRECTORY-OWNER, PL-ROOT-ZERO-ANCESTOR, PL-ROOT-ZERO-GROUP, PL-ROOT-ZERO-DIRECTORY-GROUP | Real directory UID/GID, file GID and ancestor-zero refusals beside valid controls. File/lock UID-zero refusal is ancestor-masked; no isolated leaf-UID comparison or privileged provisioning claim. |
-| Policy metadata comparisons | `TestProductionPolicyComparisons` | PL-PROTECTED-MODE, PL-POLICY-FILE-LINKS, PL-POLICY-FILE-SIZE, PL-POLICY-DIRECTORY-MODE | Production 0640/0644, 0750/0700, one link and zero/one-MiB bounds with accepted boundaries and neighboring violations; group and directory-owner mismatches included. |
+| Production root-zero callee enforcement | `TestRootZeroBoundary` | PL-ROOT-ZERO-DIRECTORY-OWNER, PL-ROOT-ZERO-ANCESTOR, PL-ROOT-ZERO-GROUP, PL-ROOT-ZERO-DIRECTORY-GROUP | Real directory UID/GID, file GID and ancestor-zero refusals beside valid controls. File/lock UID-zero refusal is ancestor-masked; no isolated zero-wildcard leaf-UID comparison or privileged provisioning claim. |
+| Policy metadata comparisons | `TestProductionPolicyComparisons`; `TestReviewerDirectorySpecialBits` | PL-PROTECTED-MODE, PL-POLICY-FILE-LINKS, PL-POLICY-FILE-SIZE, PL-POLICY-DIRECTORY-MODE, PL-POLICY-DIRECTORY-SPECIAL-BITS, PL-POLICY-DIRECTORY-SPECIAL | Production 0640/0644, exact 0750/0700 including each special bit, one link and zero/one-MiB bounds with accepted boundaries and neighboring violations; group and directory-owner mismatches included. |
 | Policy-shape and gate comparisons | `TestPolicyShapeComparisons`; `TestConfigGatePolicyComparisons` | PL-POLICY-SHAPE-MODE, PL-POLICY-SHAPE-LINKS, PL-POLICY-SHAPE-SIZE-LOWER, PL-POLICY-SHAPE-SIZE-UPPER, PL-POLICY-GATE-MODE, PL-POLICY-GATE-SIZE | Missing-leaf controls isolate each early policy comparison; ordinary-read controls isolate the gate's stricter mode/size policy. |
 | Uninitialized reader refusal | `TestUninitializedReaderRefuses` | PL-UNINITIALIZED-READER | Nil, zero-value and missing-seam readers refuse all public windows without panic, callback or startup output beside a valid real-filesystem control. |
 | Fixture root under supported umasks | `TestTempDirUmask022`; `TestTempDirUmask002` | PL-FIXTURE-UMASK, PL-FIXTURE-FRESH-LEAF | Deterministic 0700 fresh leaf and unchanged reader under 022 and 002; widened leaves still refuse without a skip. |
@@ -133,16 +133,24 @@ claimed as a kill.
 | `testdata/PL-PRODUCTION-ACCOUNT-RETRY.patch` | RF3: retry refused passwd/group with broker ownership | `TestNewComposedProductionCalls` | `production refusal call binding differs` |
 | `testdata/PL-PRODUCTION-AUTHORITY-RETRY.patch` | RF4: retry refused authority with broker ownership | `TestNewComposedProductionCalls` | `production refusal call binding differs` |
 | `testdata/PL-RECORDER-PATH-ONLY.patch` | Refusal instrumentation ignores the exact policy and call kind | `TestRecordingRefusalPolicyMatch` | `refusal instrument ignored an exact call field` |
+| `../protectedio/testdata/PL-ANCESTOR-WORLD-WRITE.patch` | Ancestor world-write is ignored while group-write remains checked | `TestReviewerAncestorModeBits` | `ancestor mode bits admitted` |
+| `../protectedio/testdata/PL-ANCESTOR-SPECIAL-BITS.patch` | Ancestor setuid, setgid and sticky bits are ignored | `TestReviewerAncestorModeBits` | `ancestor mode bits admitted` |
+| `../protectedio/testdata/PL-LEAF-OWNER.patch` | Only the regular-file leaf-owner equality is removed | `TestReviewerLeafOwnerComparison` | `root-owned leaf admitted for non-root owner policy` |
+| `../protectedio/testdata/PL-POLICY-DIRECTORY-SPECIAL-BITS.patch` | Directory comparison checks type/permission bits but drops special bits | `TestReviewerDirectorySpecialBits` | `directory special bits admitted` |
+| `../protectedio/testdata/PL-POLICY-DIRECTORY-SPECIAL.patch` | Directory comparison explicitly clears all three special bits | `TestReviewerDirectorySpecialBits` | `directory special bits admitted` |
 
 The identity-use mutant tests intentional asymmetry: imposing the use gate on
 the identity-only leg is forbidden over-rejection. The inode mutant replaces
 the lock with another empty 0640 file, not a wrongly chmodded substitute.
 All mapped shipped plants must be killed by their named assertions; this
 finite plant set is not a completeness proof for every implementation defect.
-A separate private P1 zero-file-UID plant survives because the earlier
-root-only ancestor rejection masks the leaf comparison. That explicit
-unprivileged-fixture bound is not claimed as an isolated leaf-UID witness or
-as a request for privileged provisioning.
+A separate private P1 zero-file-UID wildcard plant survives because the
+earlier root-only ancestor rejection masks that particular zero comparison.
+The process-EUID wildcard has the same limit. Ordinary leaf-owner equality
+is separately isolated by `TestReviewerLeafOwnerComparison` using only the
+read-only public `/etc/passwd` source. The machine-generated decision inventory
+and results are in `../protectedio/testdata/mutation/results.tsv`; remaining
+survivors and errors are not silently reclassified as equivalence.
 
 ## Inactivity and unresolved boundaries
 
@@ -167,5 +175,8 @@ dedicated-human creation/history (O-03), C selection (O-21), and final
 acceptor approval (O-19). These exclusions follow C1 and U02 section 4, not
 test skips. `TestOtherContinuityStaysOpen` pairs production with an explicit
 `STOP:O-21` refusal. All other open points remain open. No daemon import,
-default change, production fixture selector, provisioning or live protected
-file access is part of this delivery.
+default change, production fixture selector, provisioning or live broker
+access is part of this delivery. The public passwd read-only control is the
+sole persistent host-source exception to otherwise private synthetic filesystem
+fixtures. The byte-count refusal additionally reads only the test process's
+own kernel-generated `/proc/<pid>/stat`, never its memory or credentials.

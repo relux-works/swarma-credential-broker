@@ -302,11 +302,28 @@ Implementation integration questions:
 - The source-walk import-guard integration note is resolved by retaining the
   landed toolchain-graph guard unchanged and adding exactly the two U02 rows.
   No fixture-helper production import requires a further consumer grant.
-- Direct read size/post-read timing clauses and the privileged `/` check lack
-  isolated narrowing witnesses. Existing final-window checks cover the public
-  authority path; no unprivileged fixture claims to replace the root check.
+- The direct byte-count comparison now has an isolated task-owned proc-stat
+  witness, and descriptor mode/mtime/ctime comparisons have direct pin controls.
+  The privileged `/` check, read-I/O-error injection and some post-read timing
+  clauses still lack isolated narrowing witnesses. No unprivileged fixture
+  claims to replace the root check or to prove a surviving mutation equivalent.
   Descriptor close releases flock even without the redundant explicit unlock.
 - Ancestor special-bit refusal is an intentionally stricter current reader
   bound, documented in its README; it is not a relaxed spec or a new authority
   source. Directory alias/blank/NIS refusals and repeatable `Load` pins are also
   documented as current behavior, not provisioning or startup enforcement.
+
+### Mechanical mutation qualification boundary
+
+The round-seven driver enumerates both complete target files rather than a
+hand-selected comparison list. Its checked-in `internal/protectedio/testdata/
+mutation/results.tsv` distinguishes named kills, mathematical equivalences and
+remaining survivors. A healthy root-owned `/` cannot distinguish removing its
+owner/mode refusal from the correct implementation: an unsafe root inode is
+required. Changing the host root is neither permitted nor available to this
+non-root producer. These mutants are not equivalent and are not reported green.
+Other unproved owner/IO boundaries are stated per surviving row in that table.
+The whole-class handoff remains stopped pending an authorized isolated
+qualification environment or an explicit acceptance-scope decision. No new
+production seam is introduced merely to make the tests pass; the production
+implementation remains unchanged and no production defect is asserted.
