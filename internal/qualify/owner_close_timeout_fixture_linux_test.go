@@ -20,6 +20,13 @@ import (
 // The barrier exists only in the overlay; production keeps its nonblocking reads.
 func TestOwnerCloseTimeoutSnapshot(t *testing.T) {
 	output, err := runOwnerCloseTimeoutFixture(t, false)
+	for _, kind := range []string{"timeout", "clean", "cancelled"} {
+		t.Run(kind, func(t *testing.T) {
+			if !strings.Contains(output, "--- PASS: TestOwnerCloseTimeoutSnapshotOverlay/"+kind+" ") {
+				t.Fatalf("%s lifecycle control did not pass: %v\n%s", kind, err, output)
+			}
+		})
+	}
 	if err != nil || !strings.Contains(output, "--- PASS: TestOwnerCloseTimeoutSnapshotOverlay") {
 		t.Fatalf("timeout snapshot overlay: %v\n%s", err, output)
 	}
