@@ -126,6 +126,9 @@ func hexMutations(kind string) []grammarMutation {
 }
 
 func scalarMutations(kind string) []grammarMutation {
+	if kind == "usd" {
+		return usdMutations()
+	}
 	if strings.HasPrefix(kind, "=") || strings.Contains(kind, "|") {
 		members := []string{strings.TrimPrefix(kind, "=")}
 		if strings.Contains(kind, "|") {
@@ -158,7 +161,7 @@ func scalarMutations(kind string) []grammarMutation {
 		}
 		return append(result, grammarMutation{"non-ascii", "é", false})
 	}
-	bounds := map[string][2]int64{"uint": {0, 9007199254740991}, "positive": {1, 9007199254740991}, "root": {0, 0}, "lifetime": {1, 900}, "alignment": {0, 2}, "exit": {0, 255}, "poll": {250, 250}, "capture-timeout": {300, 300}}
+	bounds := map[string][2]int64{"invocation-count": {1, 256}, "output-tokens": {1, 128000}, "wall-ms": {1, 900000}, "uint": {0, 9007199254740991}, "positive": {1, 9007199254740991}, "root": {0, 0}, "lifetime": {1, 900}, "alignment": {0, 2}, "exit": {0, 255}, "poll": {250, 250}, "capture-timeout": {300, 300}}
 	if bound, exists := bounds[kind]; exists {
 		var result []grammarMutation
 		for _, value := range []int64{bound[0] - 1, bound[0], bound[0] + 1, bound[1] - 1, bound[1], bound[1] + 1} {

@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "4f9a81562d391153764b5ae75d7914cf83f03c1bb3d956461211d8eb36f6e7d8"
+const indexSHA256 = "bcfcd0ada15d9f1e4dd066605419157985e8bfbf0ed58651943c2d7c3cc2e966"
 
 type recordShape struct {
 	Format     string            `json:"format"`
@@ -143,6 +143,12 @@ func checkValue(value any, fieldType string, set contractSet) error {
 		}
 		return nil
 	}
+	if fieldType == "usd" {
+		if _, ok := parseUSDMicros(value); !ok {
+			return fmt.Errorf("usd")
+		}
+		return nil
+	}
 	if fieldType == "bool" {
 		if _, ok := value.(bool); !ok {
 			return fmt.Errorf("boolean")
@@ -168,6 +174,12 @@ func checkValue(value any, fieldType string, set contractSet) error {
 		minimum = 1
 	case "root":
 		maximum = 0
+	case "invocation-count":
+		minimum, maximum = 1, 256
+	case "output-tokens":
+		minimum, maximum = 1, 128000
+	case "wall-ms":
+		minimum, maximum = 1, 900000
 	case "lifetime":
 		minimum, maximum = 1, 900
 	case "alignment":
@@ -283,7 +295,7 @@ func TestLabContractContentPins(test *testing.T) {
 }
 
 func checkInventory(wanted map[string]bool, set contractSet, fixtures []contractCase) error {
-	if len(wanted) != 24 || len(set.Surfaces) != len(wanted) || len(fixtures) != len(wanted) {
+	if len(wanted) != 25 || len(set.Surfaces) != len(wanted) || len(fixtures) != len(wanted) {
 		return fmt.Errorf("inventory size")
 	}
 	seen := map[string]bool{}
@@ -316,7 +328,7 @@ func TestLabClosedInventory(test *testing.T) {
 		test.Fatalf("valid inventory refused: %v", err)
 	}
 	missing := set
-	missing.Surfaces = set.Surfaces[:23]
+	missing.Surfaces = set.Surfaces[:len(set.Surfaces)-1]
 	if checkInventory(wanted, missing, fixtures) == nil {
 		test.Fatal("missing surface admitted")
 	}
@@ -1269,22 +1281,26 @@ func grammarValues(kind string) grammarPair {
 	}
 	maximum := int64(9007199254740991)
 	pairs := map[string]grammarPair{
-		"id":              {"id", []any{"!", "~", "x", strings.Repeat("x", 128)}, []any{"", strings.Repeat("x", 129), "with space", "line\nfeed", "x\x7f", "é"}},
-		"digest":          {"digest", []any{"sha256:" + strings.Repeat("a", 64), "sha256:" + strings.Repeat("0", 64), "sha256:" + strings.Repeat("9", 64), "sha256:" + strings.Repeat("f", 64)}, []any{"sha256:" + strings.Repeat("A", 64), "sha256:" + strings.Repeat("a", 63), "sha256:" + strings.Repeat("a", 65), "sha512:" + strings.Repeat("a", 64), "sha255:" + strings.Repeat("a", 64), "sha257:" + strings.Repeat("a", 64)}},
-		"operation":       {"operation", []any{strings.Repeat("a", 32), strings.Repeat("0", 32), strings.Repeat("9", 32), strings.Repeat("f", 32)}, []any{strings.Repeat("a", 31), strings.Repeat("a", 33), strings.Repeat("A", 32)}},
-		"uuid":            {"uuid", []any{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "00000000-0000-0000-0000-000000000000", "99999999-9999-9999-9999-999999999999", "ffffffff-ffff-ffff-ffff-ffffffffffff"}, []any{"AAAAAAAA-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
-		"commit":          {"commit", []any{strings.Repeat("a", 40), strings.Repeat("0", 40), strings.Repeat("9", 40), strings.Repeat("f", 40)}, []any{strings.Repeat("A", 40), strings.Repeat("a", 39), strings.Repeat("a", 41)}},
-		"material":        {"material", []any{"!", "~", "PUBLIC-SYNTHETIC", strings.Repeat("x", 4096)}, []any{"", strings.Repeat("x", 4097), "with space", "line\nfeed", "x\x7f", "é"}},
-		"time":            {"time", []any{"1970-01-01T00:00:00.000000001Z", "2027-01-01T00:00:00Z", "2027-01-01T00:00:00.000000001Z", "9999-12-31T23:59:59.999999999Z"}, []any{"2027-01-01T00:00:00+00:00", "2027-01-01T00:00:00.000Z", "1970-01-01T00:00:00Z", "1969-12-31T23:59:59.999999999Z", "10000-01-01T00:00:00Z", "not-time", false}},
-		"bool":            {"boolean", []any{true, false}, []any{"true", int64(1)}},
-		"uint":            {"range: uint", []any{int64(0), maximum}, []any{int64(-1), "0"}},
-		"positive":        {"range: positive", []any{int64(1), maximum}, []any{int64(0), int64(-1), "1"}},
-		"root":            {"range: root", []any{int64(0)}, []any{int64(1), int64(-1), "0"}},
-		"lifetime":        {"range: lifetime", []any{int64(1), int64(900)}, []any{int64(0), int64(901), "900"}},
-		"alignment":       {"range: alignment", []any{int64(0), int64(2)}, []any{int64(-1), int64(3), "0"}},
-		"exit":            {"range: exit", []any{int64(0), int64(255)}, []any{int64(-1), int64(256), "0"}},
-		"poll":            {"range: poll", []any{int64(250)}, []any{int64(249), int64(251), "250"}},
-		"capture-timeout": {"range: capture-timeout", []any{int64(300)}, []any{int64(299), int64(301), "300"}},
+		"usd":              {"usd", []any{"0.000001", "0.000002", "1.000000", "9007199254.740990", "9007199254.740991"}, []any{"0.000000", "9007199254.740992", "1", "1.0", "01.000000", "1.0000000", "+1.000000", "1e0", int64(1)}},
+		"invocation-count": {"range: invocation-count", []any{int64(1), int64(256)}, []any{int64(0), int64(257), "1"}},
+		"output-tokens":    {"range: output-tokens", []any{int64(1), int64(128000)}, []any{int64(0), int64(128001), "1"}},
+		"wall-ms":          {"range: wall-ms", []any{int64(1), int64(900000)}, []any{int64(0), int64(900001), "1"}},
+		"id":               {"id", []any{"!", "~", "x", strings.Repeat("x", 128)}, []any{"", strings.Repeat("x", 129), "with space", "line\nfeed", "x\x7f", "é"}},
+		"digest":           {"digest", []any{"sha256:" + strings.Repeat("a", 64), "sha256:" + strings.Repeat("0", 64), "sha256:" + strings.Repeat("9", 64), "sha256:" + strings.Repeat("f", 64)}, []any{"sha256:" + strings.Repeat("A", 64), "sha256:" + strings.Repeat("a", 63), "sha256:" + strings.Repeat("a", 65), "sha512:" + strings.Repeat("a", 64), "sha255:" + strings.Repeat("a", 64), "sha257:" + strings.Repeat("a", 64)}},
+		"operation":        {"operation", []any{strings.Repeat("a", 32), strings.Repeat("0", 32), strings.Repeat("9", 32), strings.Repeat("f", 32)}, []any{strings.Repeat("a", 31), strings.Repeat("a", 33), strings.Repeat("A", 32)}},
+		"uuid":             {"uuid", []any{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "00000000-0000-0000-0000-000000000000", "99999999-9999-9999-9999-999999999999", "ffffffff-ffff-ffff-ffff-ffffffffffff"}, []any{"AAAAAAAA-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+		"commit":           {"commit", []any{strings.Repeat("a", 40), strings.Repeat("0", 40), strings.Repeat("9", 40), strings.Repeat("f", 40)}, []any{strings.Repeat("A", 40), strings.Repeat("a", 39), strings.Repeat("a", 41)}},
+		"material":         {"material", []any{"!", "~", "PUBLIC-SYNTHETIC", strings.Repeat("x", 4096)}, []any{"", strings.Repeat("x", 4097), "with space", "line\nfeed", "x\x7f", "é"}},
+		"time":             {"time", []any{"1970-01-01T00:00:00.000000001Z", "2027-01-01T00:00:00Z", "2027-01-01T00:00:00.000000001Z", "9999-12-31T23:59:59.999999999Z"}, []any{"2027-01-01T00:00:00+00:00", "2027-01-01T00:00:00.000Z", "1970-01-01T00:00:00Z", "1969-12-31T23:59:59.999999999Z", "10000-01-01T00:00:00Z", "not-time", false}},
+		"bool":             {"boolean", []any{true, false}, []any{"true", int64(1)}},
+		"uint":             {"range: uint", []any{int64(0), maximum}, []any{int64(-1), "0"}},
+		"positive":         {"range: positive", []any{int64(1), maximum}, []any{int64(0), int64(-1), "1"}},
+		"root":             {"range: root", []any{int64(0)}, []any{int64(1), int64(-1), "0"}},
+		"lifetime":         {"range: lifetime", []any{int64(1), int64(900)}, []any{int64(0), int64(901), "900"}},
+		"alignment":        {"range: alignment", []any{int64(0), int64(2)}, []any{int64(-1), int64(3), "0"}},
+		"exit":             {"range: exit", []any{int64(0), int64(255)}, []any{int64(-1), int64(256), "0"}},
+		"poll":             {"range: poll", []any{int64(250)}, []any{int64(249), int64(251), "250"}},
+		"capture-timeout":  {"range: capture-timeout", []any{int64(300)}, []any{int64(299), int64(301), "300"}},
 	}
 	pair := pairs[kind]
 	for _, mutation := range scalarMutations(kind) {

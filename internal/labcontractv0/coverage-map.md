@@ -1,6 +1,6 @@
 # C0 construction coverage map
 
-Scope: the 24 byte formats in lab profile section 5.2, not runtime A01–A12 acceptance.
+Scope: the 25 byte formats (24 base plus C0b) in lab profile section 5.2, not runtime A01–A12 acceptance.
 No separate attack-surface catalog was supplied; the profile inventory is the
 bounded construction surface. Own-format controls are canonical public fixtures.
 The source overlay mutant `foreign-format` disables string-singleton checking;
@@ -204,3 +204,25 @@ qualification and the owner-only admission gates remain outside C0 acceptance.
 Only ASCII case folding applies to header names. SP and HTAB, not CR/LF, are
 beta OWS. The reference sees decoded fixture maps: raw duplicate-member checks
 remain test-local parser evidence, not end-to-end wire-reader acceptance.
+
+
+## C0b bounded invocation
+
+| Surface / rule | Cases and adjacent valid control | Intended gate / test | Source-overlay control |
+| --- | --- | --- | --- |
+| `swarma-broker-lab-bounded-invocation/1`, B5 → M1/B4 | Every required root/Context member; catalogue labels, missing/extra/alias/null/wrong kind, duplicate and wrong nesting; foreign format; 65536/65537-byte preflight | `TestLabClosedSurfacePairs`, `TestLabGeneratedClosedFieldPairs`, `TestLabGeneratedObjectBytePairs`, `TestLabPayloadLimitPairs` | `c0b-discriminator`, `c0b-closure`, `c0b-payload-limit` |
+| All 15 field grammars | Existing catalogue traversal includes each new field and Context; new count 1..256, output 1..128000 and wall 1..900000 endpoints and neighbors, number-lexeme operators | `TestLabFieldGrammarPairs`, `TestLabGeneratedGrammarPairs`, `TestLabGeneratedNumberLexemePairs` | `c0b-count-range`, `c0b-output-range`, `c0b-wall-range` |
+| Positive canonical USD | Independent big-integer/byte oracle; min-1/min/min+1/max-1/max/max+1, every literal and decimal-separator operator, both leading/redundant-zero sides, scale, sign, exponent, non-ASCII, null/all wrong kinds | `TestLabBoundedUSDPairs`, `TestLabGeneratedGrammarPairs`, intended `usd` grammar gate | `c0b-usd-zero`, `c0b-usd-upper`, `c0b-usd-scale`, `c0b-usd-leading-zero` |
+| No default approval; exact owner target/full digest | Published 22-case corpus; false/unverified/revoked/expired and mismatch witnesses; every mutable plan bound/pin/context/operation/generation retaining original approval | `TestLabBoundedAdmissionPairs`, `TestLabBoundedJoinPairs` | `c0b-approval-flag`, `c0b-owner`, `c0b-revocation`, `c0b-approval-digest`, `c0b-approval-seal`, `c0b-target`, `c0b-full-plan` |
+| Fresh current protected observations | Both approval window endpoints, off-VM ordering, qualification expiry, every current observation field, unknown clock and missing enforcement controls | `TestLabBoundedAdmissionPairs`, `TestLabBoundedJoinPairs` | `c0b-freshness`, `c0b-clock`, `c0b-controls`, `c0b-current`, `c0b-context` |
+| Reviewed client/wire/model/output/executor/cap | Re-sealed mismatches avoid stale-approval masking; original client remains inert | `TestLabBoundedAdmissionPairs`, `TestLabBoundedProfileOperatorPairs` | `c0b-model-casefold`, `c0b-output-neighbor`, `c0b-client-pin`, `c0b-wire-pin`, `c0b-wire-values`, `c0b-client-binary`, `c0b-executor`, `c0b-wall-relation`, `c0b-vendor-cap` |
+| Launch/context/operation/generation/head joins and four unique pins | Each input pin missing/changed/duplicated; each joined launch member changed independently | `TestLabBoundedJoinPairs` | `c0b-launch-join`, `c0b-input-value`, `c0b-input-missing`, `c0b-input-duplicate` |
+| Durable ledger identity, ordinal and reservation model | Wrong operation/plan, active retry status-only, exact/over/zero/unknown reservation; settlement preserves actual debit/count, second start consumes final ordinal | `TestLabBoundedExecutorPairs` | `c0b-ledger-join`, `c0b-active-retry`, `c0b-quote`, `c0b-reservation`, `c0b-ordinal`, `c0b-reserve-before-start` |
+| First-bound stop and sticky UNKNOWN model | Each count/output/USD/per-wall/total-wall bound one below/at/above, no retry after stop, gaps, regression of each observed counter, incomplete response/settlement and retained reservation/ordinal | `TestLabBoundedExecutorPairs` | `c0b-count-stop`, `c0b-output-stop`, `c0b-cost-stop`, `c0b-per-wall-stop`, `c0b-total-wall-stop`, `c0b-known-overshoot`, `c0b-observed-debit`, `c0b-unknown-observe`, `c0b-unreserved-charge`, `c0b-unknown-settle`, `c0b-unknown-sticky` |
+
+The new reference is test-only and accepts synthetic provenance facts, not actual
+owner authority. Native hard cost/output/deadline controls, persistent/recovered
+ledgers, process-tree teardown and authenticated off-VM observation remain M1,
+B5 and B4 obligations. No live budget, production or native acceptance is claimed.
+The handoff records actual overlay exits and named failing assertions; an overlay
+not killed there is not silently covered by this planned allocation.

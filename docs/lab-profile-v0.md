@@ -673,9 +673,9 @@ valid own-format controls; production acceptance is never widened to pass it.
 Existing manager-owned production records are the explicit exception in 3.1.
 
 The C0 freeze is [contracts/lab-v0/README.md](../contracts/lab-v0/README.md), with
-24 closed format definitions, paired inert fixtures, exact amendment/API/join
-text pins and a content-sealed artifact index. Its test-only readers establish
-construction bytes, not production acceptance or any owner/native execution gate.
+25 closed formats, including C0b's `swarma-broker-lab-bounded-invocation/1` (B5 → M1/B4).
+The [C0b addendum](../contracts/lab-v0/bounded-invocation.md) freezes owner-set bounds and exact approval/executor joins.
+These are construction bytes, not production acceptance or any owner/native execution gate.
 
 | Byte surface / lab format | Writer → readers |
 | --- | --- |
@@ -741,7 +741,7 @@ As of source inspection, broker tag `v0.1.0` is at `d6350aa2b2c00fa4015189f24d34
 and manager tag `v0.1.1` at `b61b1eadc7cc7ef9fcd4e8e94b254f5766317f2b`;
 there is no gateway `v*` tag. Those are **not** a usable lab release: they do not
 contain the proposed lab assembly and the manager tag predates the inspected
-launch mapping. Never substitute these tags or inspected source HEADs for an
+launch mapping. [C0b](../contracts/lab-v0/bounded-invocation.md) requires explicit owner-set invocation bounds at approval; the inert probe grants none. Never substitute these tags or inspected source HEADs for an
 approved future set. Release API observations are retained in the review packet.
 
 Proposed reserved labels, to be created only by the separately authorized release

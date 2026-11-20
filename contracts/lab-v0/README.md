@@ -1,9 +1,9 @@
-# Lab contract C0, revision 4
+# Lab contract C0 with C0b addendum, revision 6
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
 This is the closed byte inventory of [lab profile §5.2](../../docs/lab-profile-v0.md#52-c0s-closed-byte-inventory-and-consumer-joins).
-The 24 entries in `surfaces.json` are authoritative together with this document;
+The 25 entries in `surfaces.json` (24 base plus C0b) are authoritative together with this document;
 `fixtures.json` pairs every own-format valid record with an unknown-field
 negative. Nested negatives carry a complete mutated record, path (array indices
 are integers), structure, field and mutation; each is paired with that surface's
@@ -281,7 +281,7 @@ Unfinished/resumed lines fail closed and may require a new clean observation.
 
 ## Normative negative operator catalogue
 
-Revision 5 freezes the following **finite operator catalogue**, not a claim to
+Revision 6 freezes the following **finite operator catalogue**, not a claim to
 exhaust all possible adversaries. `literalMutations`, `separatorMutations`,
 `scalarMutations`, `labelCases` and `headerNameCases` in `internal/labcontractv0` implement it.
 Traversal applies every applicable operator to every grammar node, enum member,
@@ -297,6 +297,7 @@ part of the catalogue, not exemptions silently selected by the implementation.
 | Beta byte class and OWS | Insert NUL, CR, LF, all other non-HTAB C0 controls, DEL and each byte 128..255 at **every** byte boundary, including both ends and each side of every comma; all refuse. At each boundary insert SP and HTAB: admitted only outside token interiors. Each group includes admitted SP/HTAB at a token boundary and every negative includes the unchanged request control. Existing token wrappers and separator operators classify CR/LF/CRLF as negatives, never valid OWS. | `beta` in `TestLabGeneratedBetaOWSBytePairs`, `TestLabGeneratedBetaSeparatorPairs` and `TestLabGeneratedWireEnvelopePairs`. |
 | Every separator occurrence | Delete, duplicate, replace by **each other** character in `TZ_,.-:/;= ?&()[]{}\"` plus backslash, tab, CR and LF; surround by space, tab or CRLF. Time's `T` and `Z` are separators too. The ten beta commas receive the same operations. | Scalar grammar; `beta` in `TestLabGeneratedBetaSeparatorPairs`. |
 | Hex group and length/count/byte bound | Alphabet on both sides (`/`, `0`, `9`, `:`, backtick, `a`, `f`, `g`, `A`); every group's length one below/above; whole-value literal operators, including UUID braces and `urn:uuid:`; min-1/min/min+1/max-1/max/max+1 where representable; arrays 0/1/255/256/257; every frozen payload ceiling at limit and one above. Open ASCII values use both character boundaries and byte lengths, not fixed-literal restrictions. | `TestLabGeneratedGrammarPairs`, `TestLabPayloadLimitPairs`, `TestLabExactLimitRecordPairs`, `TestLabArrayLimitPairs`. |
+| USD decimal string | The C0b positive micro-USD bounds and both neighbors; zero/nonzero seeds, integer and six-digit fractional component lengths on both sides, signs, leading/redundant zeros on both sides, fractions/exponents, every literal and decimal-separator operator, null and all wrong JSON kinds. Valid significant fractional zeros and the required fixed six-digit scale remain accepted; no floating-point conversion. | `usd` in `TestLabGeneratedGrammarPairs` and `TestLabBoundedUSDPairs`. |
 | Integer spelling and canonical bytes | At both in-range endpoints and zero/nonzero lexical seeds: one/two leading zeros, plus/minus sign, `.0`/`.00`/`.5`, Cartesian `e`/`E` × absent/plus/minus sign × `0`/`00`/`1` exponent, beside canonical integer bytes. Numeric range and wrong-kind refusals are separate from lexical refusals. Out-of-range lexical seeds use the nearest valid bound as their control; singleton endpoints are deliberately exercised twice. | CCJ parser then range in `TestLabGeneratedNumberLexemePairs`; `TestLabGeneratedCanonicalBytePairs` also rejects whitespace and redundant escapes without changing decoded values. |
 | Canonical time | Epoch and four-digit-year bounds on both sides; calendar-component bounds; 0/1/8/9/10 fraction digits; all-zero fractions of lengths 1..10; nonzero fractions with/without trailing zero at lengths 1..9; significant leading fractional zeros with/without redundant trailing zeros; signed/leading-zero year, signed/exponent fraction, non-UTC offset; literal and every time-separator operator. Canonical significant leading zeros **remain valid**; `.10Z`, `.120Z`, `.100000000Z` and `.000000010Z` refuse. | Exact time grammar in `TestLabGeneratedGrammarPairs`. |
 | Every typed value | Null and each of the other five JSON kinds, excluding only its required kind; fixed Boolean opposite where the measured value is fixed. | Direct grammar node, `TestLabGeneratedWirePairs`, `TestLabGeneratedWireJSONTypePairs`. |
@@ -323,3 +324,17 @@ pass, not generated by the unary catalogue. Its twelve interaction witnesses
 must remain refused beside the valid request; additions discovered there require
 an explicit catalogue revision, not a silent widening of the checker. All these
 are inert reference-reader checks; none qualify a live client or production.
+
+
+## C0b bounded-invocation addendum
+
+[bounded-invocation.md](bounded-invocation.md) freezes the B5 → M1/B4
+`swarma-broker-lab-bounded-invocation/1` file surface, detached approval target,
+full-plan/client/wire/launch/executor joins, owner-set values, first-bound stop
+and sticky UNKNOWN/debit semantics. It does not approve a live budget or change
+`probe/client.json`; new model/output wire bytes still require the reviewed
+profile/probe revision described above. `bounded-invocation-fixtures.json`
+publishes synthetic admitted and intended-step refused joins. The original 24
+surface fixtures and all probe/wire bytes remain unchanged. Native enforcement,
+durable reservations, owner provenance and actual executor controls remain M1,
+B5 and B4 release/qualification obligations, not C0b implementation evidence.

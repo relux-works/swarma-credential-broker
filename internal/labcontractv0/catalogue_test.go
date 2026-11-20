@@ -417,7 +417,7 @@ func TestLabGeneratedObjectBytePairs(test *testing.T) {
 // Claim: each integer grammar's lexical alternatives fail CCJ canonical admission, while both in-range bound controls survive; this does not impose CCJ spelling on HTTP bodies.
 func TestLabGeneratedNumberLexemePairs(test *testing.T) {
 	set, _ := loadContracts(test)
-	bounds := map[string][2]int64{"uint": {0, 9007199254740991}, "positive": {1, 9007199254740991}, "root": {0, 0}, "lifetime": {1, 900}, "alignment": {0, 2}, "exit": {0, 255}, "poll": {250, 250}, "capture-timeout": {300, 300}}
+	bounds := map[string][2]int64{"invocation-count": {1, 256}, "output-tokens": {1, 128000}, "wall-ms": {1, 900000}, "uint": {0, 9007199254740991}, "positive": {1, 9007199254740991}, "root": {0, 0}, "lifetime": {1, 900}, "alignment": {0, 2}, "exit": {0, 255}, "poll": {250, 250}, "capture-timeout": {300, 300}}
 	for kind, bound := range bounds {
 		for _, number := range []int64{0, 1, bound[0], bound[1]} {
 			text := strconv.FormatInt(number, 10)
