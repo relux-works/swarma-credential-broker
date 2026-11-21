@@ -1,6 +1,6 @@
 # C0 construction coverage map
 
-Scope: the 30 byte formats (24 base, C0b, two C0c frames and three C0e records) in lab profile section 5.2, not runtime A01–A12 acceptance.
+Scope: the 31 byte formats (24 base, C0b, two C0c frames, three C0e records and C0f) in lab profile section 5.2, not runtime A01–A12 acceptance.
 No separate attack-surface catalog was supplied; the profile inventory is the
 bounded construction surface. Own-format controls are canonical public fixtures.
 The source overlay mutant `foreign-format` disables string-singleton checking;
@@ -13,6 +13,7 @@ actual production-reader cross-read integration. Those remain assigned by sectio
 | `swarma-broker-lab-model-price/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-model-price/1`; canonical valid fixture | `c0e-format`; `c0e-member-closure` |
 | `swarma-broker-lab-attempt-group/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-attempt-group/1`; canonical valid fixture | `c0e-format`; `c0e-member-closure` |
 | `swarma-broker-lab-attempt-ledger/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-attempt-ledger/1`; canonical valid fixture | `c0e-format`; `c0e-member-closure` |
+| `swarma-broker-lab-installation-binding/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-installation-binding/1`; canonical synthetic control | `c0f-format`; `c0f-member-closure` |
 | `swarma-broker-lab-activation/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-activation/1`; adjacent canonical valid fixture | `foreign-format` |
 | `swarma-broker-lab-authority/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-authority/1`; adjacent canonical valid fixture | `foreign-format` |
 | `swarma-broker-lab-preparation/1` | `TestLabClosedSurfacePairs/swarma-broker-lab-preparation/1`; adjacent canonical valid fixture | `foreign-format` |
@@ -507,3 +508,161 @@ overlays were also replayed against this candidate; all fail their named tests.
 | c0e-null-closure | Delegate null closure to a later grammar check | TestLabNestedClosurePairs/swarma-broker-lab-model-price/1/GatewayPrices/null |
 | c0e-array-bound | Admit 257 attempt members | TestLabGatewayArrayPairs/257 |
 | c0e-byte-bound | Admit one byte above the frozen ceiling | TestLabPayloadLimitPairs/swarma-broker-lab-model-price/1 |
+
+## C0f protected installation binding
+
+Scope: one external I format with Context, ObservationManager and the existing
+nested Approval; retained R0 uses the existing release-set format. No production
+constructor, runtime reader/installer, private recovery format or native DAC
+change. The full recursive C0 catalogue applies to every I field and nested
+Approval. Semantic target labels/pins, historical installation versus current
+start authority, runtime provenance, coherent expected joins and each reader's
+private adoption transition have adjacent valid controls and intended-step
+refusals. The preliminary setup plan is not a final C0f installation admission.
+
+| Rule / cases | Named paired tests | Source-overlay witnesses |
+| --- | --- | --- |
+| Closed I and nested Approval: missing/extra/alias/null/wrong kinds; literal/member/separator/case operators; both bounds and 16384-byte limit | TestLabClosedSurfacePairs; TestLabNestedClosurePairs; TestLabGeneratedClosedFieldPairs; TestLabGeneratedGrammarPairs; TestLabGeneratedObjectBytePairs; TestLabGeneratedCanonicalBytePairs; TestLabPayloadLimitPairs | c0f-format; c0f-member-closure; c0f-null-closure; c0f-nested-closure; c0f-byte-bound; c0f-epoch-positive |
+| Exact opened-inode protection, complete fresh current path and sticky active-group close | TestLabInstallationProtectionPairs; TestLabInstallationJoinPairs/current-read | c0f-protection-*; c0f-current-read; c0f-sticky; c0f-fence |
+| Typed runtime TI includes retained R0 and every runtime field, excludes only its own installation approval/digest; exact complete I pins, executable product/mode/digest | TestLabInstallationFixturePairs; TestLabInstallationTargetPairs; TestLabInstallationLiteralPairs; TestLabInstallationInputPinPairs; TestLabInstallationExecutablePairs | c0f-target-approval; c0f-target-read; c0f-target-domain; c0f-approval; c0f-release; c0f-pin-*; c0f-executable-* |
+| Historical installation approval/R0 survives a distinct freshly approved next operation; current start expiry/revocation/foreign A still closes; install provenance/revocation/protected release/seal remain required | TestLabInstallationApprovalLifecyclePairs; TestLabInstallationJoinPairs | c0f-chain; c0f-per-start-approval-latch; c0f-per-start-release-latch; c0f-install-owner; c0f-install-revoked; c0f-release-protected; c0f-release-owner-seal |
+| Current R assets/index and Context equal installed R0/I, independently resealed current/retained Context mismatches | TestLabInstallationReleaseIdentityPairs | c0f-release-assets; c0f-release-index; c0f-current-context; c0f-retained-context |
+| I is the expected source: coherent foreign store.generation AND sequence_generation; approved changed I versus stale response/secondary Expected for each variable manager field/store and actual daemon UID/GID/image; fixed UID/socket literals refuse at shape | TestLabInstallationExpectedJoinPairs; TestLabInstallationExpectedDaemonPairs; TestLabInstallationJoinPairs; TestLabInstallationFixturePairs | c0f-store-self-consistency; c0f-store-secondary-expected; c0f-manager-secondary-expected; c0f-daemon-secondary-expected; c0f-manager-*; c0f-store; c0f-daemon-*; c0f-boot; c0f-native |
+| B5 publication: both installation approval windows independently, owner/revocation/readback/seals; runtime boot/instance/epoch values do not alter tagged archive provenance or require an archive carrier | TestLabInstallationRuntimePublicationPairs | c0f-publication-*; c0f-installation-window; c0f-release-window; c0f-runtime-archive-edit; c0f-archive-carrier-required |
+| Nonroot daemon/root manager, both UID/GID bounds and each/both role swaps | TestLabInstallationRolePairs; TestLabInstallationJoinPairs/coherent-root-daemon | c0f-role-*; c0f-roles-read |
+| B5 rotation: root/new approval/quiescence, exactly-next epoch, fresh instance, verified fresh baseline; no B5 private recovery access | TestLabInstallationRotationPairs | c0f-writer-*; c0f-rotation-* |
+| B1/M1 private adoption: fresh epoch 1, identical restart, exactly-next rotation; lower/skipped/same-epoch-different/lost state refuse without advancement; durable readiness; old groups remain closed. M1 setup uses native readback with no start/pair; B1 needs its existing fresh approved start/pair | TestLabInstallationEpochAdoptionPairs; TestLabInstallationJoinPairs | c0f-adoption-*; c0f-epoch; c0f-epoch-only; c0f-digest-only |
+| Preliminary non-enabling setup versus final approved install plan with exact I pin, own current operation/head authority and release/Context joins | TestLabInstallationSetupPlanPairs; TestLabInstallationInstallPlanPairs | c0f-install-context; c0f-install-approval; c0f-install-release; c0f-install-pin; c0f-pin-missing |
+
+### C0f replay evidence
+
+All 108 source overlays below were run against the revised candidate. Each real
+Go process exits 1 at its named intended assertion; no compile/setup failure,
+wrong-step-only setup error or no-tests run counts as a kill. Zero survivors.
+The two explicit construction regression controls are c0f-target-domain and
+c0f-runtime-archive-edit; valid-control/lifecycle narrowing is labeled separately
+by each row's effect. These controls are not claims of native enforcement.
+Independent source/witness reconciliation checks the entire overlay bytes against
+the tested candidate, actual exit files and assertion ownership, including I
+witnesses for shared grammar gates. Evidence: `.temp/lab-c0f-r1/mutants-final/`,
+`mutation-run-05.log` and `mutation-audit-03.log` in that same task directory.
+Earlier quota/compile-control diagnostics were corrected, not counted green.
+Historical C0b-C0e overlay reports above are not claimed replayed here; their
+committed test names remain present and run in the full suites.
+
+Native stat/ACL/NSS/SO_PEERCRED/path-race, authentic owner/revocation provenance,
+root setup under the real native lock, fsync/crash/quiescence, private durable
+adoption and existing timing budgets remain B5/B1/M1 qualification obligations
+under installation-binding.md's construction-only clause. Reference proof flags
+are externally supplied synthetic facts, not collectors or real authority.
+
+| Source overlay | Gate narrowing / regression control | Named failing test | Exit |
+| --- | --- | --- | --- |
+| c0f-protection-present | Ignore opened-file protection present | TestLabInstallationProtectionPairs/absence | 1 |
+| c0f-protection-regular | Ignore opened-file protection regular | TestLabInstallationProtectionPairs/regular | 1 |
+| c0f-protection-ancestors | Ignore opened-file protection ancestors | TestLabInstallationProtectionPairs/ancestors | 1 |
+| c0f-protection-acl | Ignore opened-file protection acl | TestLabInstallationProtectionPairs/acl | 1 |
+| c0f-protection-owner | Ignore opened-file protection owner | TestLabInstallationProtectionPairs/owner | 1 |
+| c0f-protection-group | Ignore opened-file protection group | TestLabInstallationProtectionPairs/group | 1 |
+| c0f-protection-mode | Ignore opened-file protection mode | TestLabInstallationProtectionPairs/mode-read | 1 |
+| c0f-protection-links | Ignore opened-file protection links | TestLabInstallationProtectionPairs/links-two | 1 |
+| c0f-protection-parent-owner | Ignore opened-file protection parent-owner | TestLabInstallationProtectionPairs/parent-owner | 1 |
+| c0f-protection-parent-group | Ignore opened-file protection parent-group | TestLabInstallationProtectionPairs/parent-group | 1 |
+| c0f-protection-parent-mode | Ignore opened-file protection parent-mode | TestLabInstallationProtectionPairs/parent-write | 1 |
+| c0f-current-read | Trust a cached or replaced path instead of a fresh complete protected read | TestLabInstallationJoinPairs/current-read | 1 |
+| c0f-sticky | Reopen the same group after its binding check failed | TestLabInstallationProtectionPairs/absence | 1 |
+| c0f-fence | Refuse without closing the active group | TestLabInstallationProtectionPairs/absence | 1 |
+| c0f-epoch | Adopt a new epoch in an active group | TestLabInstallationJoinPairs/new-epoch | 1 |
+| c0f-epoch-only | Ignore the private epoch high-water | TestLabInstallationJoinPairs/old-epoch | 1 |
+| c0f-digest-only | Ignore a changed full installation image at the same epoch | TestLabInstallationJoinPairs/same-epoch-new-digest | 1 |
+| c0f-chain | Treat unverified owner provenance as sufficient | TestLabInstallationJoinPairs/owner | 1 |
+| c0f-approval | Omit installation approval validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/approval_record_sha256 | 1 |
+| c0f-release | Omit installation release validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/release_set_sha256 | 1 |
+| c0f-target-read | Omit installation target-read validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/unapproved-coherent-native-tuple | 1 |
+| c0f-manager-executable-read | Omit installation manager-executable-read validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/manager-unapproved-executable | 1 |
+| c0f-daemon-executable-read | Omit installation daemon-executable-read validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/daemon-unapproved-executable | 1 |
+| c0f-pin-read | Omit installation pin-read validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/launch-binding-pin | 1 |
+| c0f-roles-read | Omit installation roles-read validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/coherent-root-daemon | 1 |
+| c0f-boot | Omit installation boot validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/boot | 1 |
+| c0f-native | Omit installation native validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/native | 1 |
+| c0f-store | Omit installation store validation (remaining independent gates stay enabled) | TestLabInstallationJoinPairs/store | 1 |
+| c0f-daemon-daemon-uid | Ignore the actual daemon daemon_uid | TestLabInstallationJoinPairs/daemon-uid | 1 |
+| c0f-daemon-daemon-gid | Ignore the actual daemon daemon_gid | TestLabInstallationJoinPairs/daemon-gid | 1 |
+| c0f-daemon-daemon-executable | Ignore the actual daemon daemon_executable_sha256 | TestLabInstallationJoinPairs/daemon-executable | 1 |
+| c0f-daemon-daemon-socket | Ignore the actual daemon daemon_socket_path | TestLabInstallationJoinPairs/daemon-socket | 1 |
+| c0f-daemon-observation-socket | Ignore the actual daemon observation_socket_path | TestLabInstallationJoinPairs/observation-socket | 1 |
+| c0f-manager-identity | Ignore observed manager identity while comparing every other member | TestLabInstallationJoinPairs/observed-manager-identity | 1 |
+| c0f-manager-instance_id | Ignore observed manager instance_id while comparing every other member | TestLabInstallationJoinPairs/observed-manager-instance_id | 1 |
+| c0f-manager-executable_sha256 | Ignore observed manager executable_sha256 while comparing every other member | TestLabInstallationJoinPairs/observed-manager-executable_sha256 | 1 |
+| c0f-manager-boot_id | Ignore observed manager boot_id while comparing every other member | TestLabInstallationJoinPairs/observed-manager-boot_id | 1 |
+| c0f-target-domain | Construct a different target domain than the frozen approved preimage | TestLabInstallationFixturePairs | 1 |
+| c0f-pin-unique | Ignore typed I pin unique | TestLabInstallationInputPinPairs/install/unrelated-duplicate | 1 |
+| c0f-pin-digest | Ignore typed I pin digest | TestLabInstallationInputPinPairs/install/wrong-digest | 1 |
+| c0f-pin-missing | Ignore typed I pin missing | TestLabInstallationInputPinPairs/install/missing | 1 |
+| c0f-role-uid-low | Widen installation native role uid-low | TestLabInstallationRolePairs/uid/0 | 1 |
+| c0f-role-uid-high | Widen installation native role uid-high | TestLabInstallationRolePairs/uid/4294967295 | 1 |
+| c0f-role-gid-low | Widen installation native role gid-low | TestLabInstallationRolePairs/gid/0 | 1 |
+| c0f-role-gid-high | Widen installation native role gid-high | TestLabInstallationRolePairs/gid/4294967295 | 1 |
+| c0f-role-manager | Widen installation native role manager | TestLabInstallationRolePairs/manager-only-swap | 1 |
+| c0f-executable-product | Accept unapproved executable product | TestLabInstallationExecutablePairs/manager/product | 1 |
+| c0f-executable-mode | Accept unapproved executable mode | TestLabInstallationExecutablePairs/manager/mode | 1 |
+| c0f-executable-digest | Accept unapproved executable digest | TestLabInstallationExecutablePairs/manager/digest | 1 |
+| c0f-install-context | Skip B5 install-plan context join | TestLabInstallationInstallPlanPairs/context | 1 |
+| c0f-install-approval | Skip B5 install-plan approval join | TestLabInstallationInstallPlanPairs/off_vm_approval_sha256 | 1 |
+| c0f-install-release | Skip B5 install-plan release join | TestLabInstallationInstallPlanPairs/release_set_sha256 | 1 |
+| c0f-install-pin | Skip B5 install-plan pin join | TestLabInstallationInstallPlanPairs/binding-pin | 1 |
+| c0f-writer-root | Permit B5 rotation without root boundary | TestLabInstallationRotationPairs/not-root | 1 |
+| c0f-writer-approval | Permit B5 rotation without approval boundary | TestLabInstallationRotationPairs/unapproved | 1 |
+| c0f-writer-quiescence | Permit B5 rotation without quiescence boundary | TestLabInstallationRotationPairs/in-flight | 1 |
+| c0f-writer-private | Permit B5 rotation without private boundary | TestLabInstallationRotationPairs/private-read-or-write | 1 |
+| c0f-rotation-fresh | Weaken rotation fresh guard before any write | TestLabInstallationRotationPairs/missing-prior | 1 |
+| c0f-rotation-first | Weaken rotation first guard before any write | TestLabInstallationRotationPairs/fresh-not-one | 1 |
+| c0f-rotation-overflow | Weaken rotation overflow guard before any write | TestLabInstallationRotationPairs/overflow | 1 |
+| c0f-rotation-next | Weaken rotation next guard before any write | TestLabInstallationRotationPairs/skip-epoch | 1 |
+| c0f-rotation-instance | Weaken rotation instance guard before any write | TestLabInstallationRotationPairs/reused-instance | 1 |
+| c0f-format | Treat fixed discriminator/literal fields as arbitrary values | TestLabClosedSurfacePairs/swarma-broker-lab-installation-binding/1 | 1 |
+| c0f-member-closure | Check named fields but accept additional members | TestLabClosedSurfacePairs/swarma-broker-lab-installation-binding/1 | 1 |
+| c0f-null-closure | Delegate null refusal to type checks instead of the required closure gate | TestLabClosedSurfacePairs/swarma-broker-lab-installation-binding/1 | 1 |
+| c0f-nested-closure | Check nested JSON kind only, not nested closure | TestLabNestedClosurePairs/swarma-broker-lab-installation-binding/1/Context/unknown | 1 |
+| c0f-byte-bound | Skip pre-decode 16384-byte bound | TestLabPayloadLimitPairs/swarma-broker-lab-installation-binding/1 | 1 |
+| c0f-epoch-positive | Accept zero positive install epoch | TestLabGeneratedGrammarPairs/swarma-broker-lab-installation-binding/1/[install_epoch]/positive/integer-0 | 1 |
+| c0f-store-self-consistency | Compare store only to its own sequence generation instead of I | TestLabInstallationExpectedJoinPairs/store_generation | 1 |
+| c0f-manager-secondary-expected | Compare manager to stale secondary C0c Expected instead of I | TestLabInstallationExpectedJoinPairs/instance_id | 1 |
+| c0f-store-secondary-expected | Compare store to stale secondary C0c Expected instead of I | TestLabInstallationExpectedJoinPairs/store_generation | 1 |
+| c0f-daemon-secondary-expected | Compare actual daemon UID to stale secondary C0c Expected instead of I | TestLabInstallationExpectedDaemonPairs/daemon_uid | 1 |
+| c0f-target-approval | Accept installation target without checking the embedded owner approval | TestLabInstallationTargetPairs/field-daemon_executable_sha256 | 1 |
+| c0f-install-owner | Ignore installation authority fact install-owner | TestLabInstallationApprovalLifecyclePairs/unknown-installation-owner | 1 |
+| c0f-install-revoked | Ignore installation authority fact install-revoked | TestLabInstallationApprovalLifecyclePairs/revoked-installation | 1 |
+| c0f-release-protected | Ignore installation authority fact release-protected | TestLabInstallationApprovalLifecyclePairs/unprotected-release | 1 |
+| c0f-release-assets | Permit current start with changed installation release assets | TestLabInstallationReleaseIdentityPairs/assets | 1 |
+| c0f-release-index | Permit current start with changed installation release index | TestLabInstallationReleaseIdentityPairs/contract_index_sha256 | 1 |
+| c0f-per-start-release-latch | Require every current start release digest to equal the install release digest | TestLabInstallationApprovalLifecyclePairs/second-start-valid | 1 |
+| c0f-per-start-approval-latch | Treat the installation approval digest as the current per-start A digest | TestLabInstallationApprovalLifecyclePairs/second-start-valid | 1 |
+| c0f-publication-owner | Skip install publication owner guard | TestLabInstallationRuntimePublicationPairs/owner | 1 |
+| c0f-publication-revoked | Skip install publication revoked guard | TestLabInstallationRuntimePublicationPairs/revoked | 1 |
+| c0f-publication-readback | Skip install publication readback guard | TestLabInstallationRuntimePublicationPairs/readback | 1 |
+| c0f-publication-lower-time | Skip install publication lower-time guard | TestLabInstallationRuntimePublicationPairs/before | 1 |
+| c0f-publication-upper-time | Skip install publication upper-time guard | TestLabInstallationRuntimePublicationPairs/at-expiry | 1 |
+| c0f-installation-window | Consume only one of the two required installation approval windows | TestLabInstallationRuntimePublicationPairs/install-only-expiry | 1 |
+| c0f-release-window | Consume only one of the two required installation approval windows | TestLabInstallationRuntimePublicationPairs/release-only-expiry | 1 |
+| c0f-adoption-new-group | Permit private adoption without new-group | TestLabInstallationEpochAdoptionPairs/B1/not-new-group | 1 |
+| c0f-adoption-quiescent | Permit private adoption without quiescent | TestLabInstallationEpochAdoptionPairs/B1/in-flight | 1 |
+| c0f-adoption-start | Permit private adoption without start | TestLabInstallationEpochAdoptionPairs/B1/no-start | 1 |
+| c0f-adoption-pair | Permit private adoption without pair | TestLabInstallationEpochAdoptionPairs/B1/no-pair | 1 |
+| c0f-adoption-durable | Permit private adoption without durable | TestLabInstallationEpochAdoptionPairs/B1/not-durable | 1 |
+| c0f-adoption-fresh-baseline | Permit private adoption without fresh-baseline | TestLabInstallationEpochAdoptionPairs/B1/lost-latch | 1 |
+| c0f-adoption-fresh-one | Permit private adoption without fresh-one | TestLabInstallationEpochAdoptionPairs/B1/fresh-not-one | 1 |
+| c0f-adoption-fresh-clean | Permit private adoption without fresh-clean | TestLabInstallationEpochAdoptionPairs/B1/fresh-dirty | 1 |
+| c0f-adoption-instance | Permit private adoption without instance | TestLabInstallationEpochAdoptionPairs/B1/reused-instance | 1 |
+| c0f-adoption-next | Accept a skipped higher epoch rather than exactly the successor | TestLabInstallationEpochAdoptionPairs/B1/skip | 1 |
+| c0f-adoption-same-digest | Restart at the same epoch after its approved bytes changed | TestLabInstallationEpochAdoptionPairs/B1/same-epoch-different | 1 |
+| c0f-adoption-all-changes-refused | Refuse all legitimate epoch rotations | TestLabInstallationEpochAdoptionPairs/B1/rotation-valid | 1 |
+| c0f-current-context | Ignore independently different current-context | TestLabInstallationReleaseIdentityPairs/current-context | 1 |
+| c0f-retained-context | Ignore independently different retained-context | TestLabInstallationReleaseIdentityPairs/context | 1 |
+| c0f-release-owner-seal | Trust a retained installation release without its owner seal | TestLabInstallationApprovalLifecyclePairs/invalid-installation-release-seal | 1 |
+| c0f-publication-seal-target | Publish installation without the target seal | TestLabInstallationRuntimePublicationPairs/target-seal | 1 |
+| c0f-publication-seal-release | Publish installation without the release seal | TestLabInstallationRuntimePublicationPairs/release-seal | 1 |
+| c0f-adoption-reader | Allow a role other than the two private installation readers | TestLabInstallationEpochAdoptionPairs/B1/unknown-reader | 1 |
+| c0f-adoption-manager-readback | Allow M1 setup adoption without complete native readback | TestLabInstallationEpochAdoptionPairs/M1/foreign-native | 1 |
+| c0f-runtime-archive-edit | Regression control: reinsert runtime target bytes into an otherwise unchanged tagged archive | TestLabInstallationRuntimePublicationPairs/release-only-expiry | 1 |
+| c0f-archive-carrier-required | Require install-generated target to exist in the tagged build archive | TestLabInstallationRuntimePublicationPairs/valid | 1 |
