@@ -9,9 +9,9 @@ import (
 )
 
 const installationFormat = "swarma-broker-lab-installation-binding/1"
-const installationTargetMember = "contracts/lab-v0/installation-binding-target.json"
 
 type installationFixtureCase struct {
+	Release     map[string]any     `json:"installation_release_set"`
 	Binding     map[string]any     `json:"binding"`
 	Bounded     boundedCase        `json:"bounded"`
 	Install     map[string]any     `json:"install_plan"`
@@ -33,6 +33,7 @@ func installationFixture(test *testing.T) installationFixtureCase {
 		test.Fatal("installation fixture inventory")
 	}
 	fixture.Binding = normalizedBounded(test, fixture.Binding)
+	fixture.Release = normalizedBounded(test, fixture.Release)
 	fixture.Install = normalizedBounded(test, fixture.Install)
 	fixture.Bounded.Plan = normalizedBounded(test, fixture.Bounded.Plan)
 	fixture.Bounded.Release = normalizedBounded(test, fixture.Bounded.Release)
@@ -47,25 +48,13 @@ func installationFixture(test *testing.T) installationFixtureCase {
 func installationTarget(test *testing.T, binding map[string]any) map[string]any {
 	record := cloneObject(test, binding)
 	delete(record, "approval_record_sha256")
-	delete(record, "release_set_sha256")
+	delete(record, "installation_approval")
 	return map[string]any{"domain": "swarma-broker-lab-installation-binding-target/1", "record": record}
 }
 
-func installationMember(test *testing.T, binding, release map[string]any) bool {
-	matches := 0
-	for _, raw := range release["assets"].([]any) {
-		asset := raw.(map[string]any)
-		for _, rawMember := range asset["members"].([]any) {
-			member := rawMember.(map[string]any)
-			if member["path"] == installationTargetMember {
-				if asset["product"] != "broker" || member["mode"] != "0644" || member["sha256"] != boundedDigest(test, installationTarget(test, binding)) {
-					return false
-				}
-				matches++
-			}
-		}
-	}
-	return matches == 1
+func installationTargetApproved(test *testing.T, binding map[string]any) bool {
+	approval := binding["installation_approval"].(map[string]any)
+	return approval["approved_sha256"] == boundedDigest(test, installationTarget(test, binding))
 }
 
 func installationExecutable(release map[string]any, product string, expected any) bool {
@@ -101,7 +90,8 @@ func installationInputPin(plan map[string]any, digest string) bool {
 	return matches == 1
 }
 
-func installationInstallPlan(test *testing.T, binding, plan map[string]any) string {
+func installationInstallPlan(test *testing.T, fixture installationFixtureCase, plan map[string]any) string {
+	binding := fixture.Binding
 	set, _ := loadContracts(test)
 	if checkRecord(canonicalObject(test, plan), boundedShape(set, "swarma-broker-lab-install-plan/1"), set) != nil {
 		return "shape"
@@ -109,7 +99,7 @@ func installationInstallPlan(test *testing.T, binding, plan map[string]any) stri
 	if !installationInputPin(plan, boundedDigest(test, binding)) {
 		return "binding_pin"
 	}
-	if !reflect.DeepEqual(plan["context"], binding["context"]) || plan["pins"].(map[string]any)["off_vm_approval_sha256"] != binding["approval_record_sha256"] || plan["pins"].(map[string]any)["release_set_sha256"] != binding["release_set_sha256"] {
+	if !reflect.DeepEqual(plan["context"], binding["context"]) || plan["pins"].(map[string]any)["off_vm_approval_sha256"] != boundedDigest(test, fixture.Bounded.Approval) || plan["pins"].(map[string]any)["release_set_sha256"] != binding["release_set_sha256"] {
 		return "install_join"
 	}
 	return "admitted"
@@ -122,19 +112,21 @@ func installationRoles(uid, gid, managerUID int64) bool {
 type installationProof struct {
 	Present, Regular, Ancestors, NoACL, CurrentRead, NativeValidated bool
 	Owner, GID, Mode, Links, ParentOwner, ParentGID, ParentMode      int64
+	InstallationOwnerVerified, ReleaseProtected, InstallationRevoked bool
 	DaemonUID, DaemonGID                                             int64
 	DaemonExecutable, DaemonSocket, ObservationSocket, Boot          string
 }
 
 type installationLatch struct {
-	Epoch  int64
-	Digest string
-	Closed bool
+	Epoch    int64
+	Digest   string
+	Instance string
+	Closed   bool
 }
 
 func installationControlProof(fixture installationFixtureCase) installationProof {
 	binding := fixture.Binding
-	return installationProof{Present: true, Regular: true, Ancestors: true, NoACL: true, CurrentRead: true, NativeValidated: true,
+	return installationProof{InstallationOwnerVerified: true, ReleaseProtected: true, Present: true, Regular: true, Ancestors: true, NoACL: true, CurrentRead: true, NativeValidated: true,
 		Owner: 0, GID: binding["daemon_gid"].(int64), Mode: 0640, Links: 1, ParentOwner: 0, ParentGID: binding["daemon_gid"].(int64), ParentMode: 0750,
 		DaemonUID: binding["daemon_uid"].(int64), DaemonGID: binding["daemon_gid"].(int64), DaemonExecutable: binding["daemon_executable_sha256"].(string), DaemonSocket: binding["daemon_socket_path"].(string), ObservationSocket: binding["observation_socket_path"].(string), Boot: binding["manager"].(map[string]any)["boot_id"].(string)}
 }
@@ -147,7 +139,7 @@ func installationRead(test *testing.T, fixture installationFixtureCase, proof in
 	return result
 }
 
-func installationReadResult(test *testing.T, fixture installationFixtureCase, proof installationProof, latch installationLatch) string {
+func installationBindingResult(test *testing.T, fixture installationFixtureCase, proof installationProof, latch installationLatch) string {
 	test.Helper()
 	if latch.Closed {
 		return "closed"
@@ -163,39 +155,35 @@ func installationReadResult(test *testing.T, fixture installationFixtureCase, pr
 	for _, record := range []struct {
 		value  map[string]any
 		format string
-	}{{binding, installationFormat}, {fixture.Observation.Response, observationResponse}} {
+	}{{binding, installationFormat}, {fixture.Release, "swarma-lab-release-set/1"}} {
 		if checkRecord(canonicalObject(test, record.value), boundedShape(set, record.format), set) != nil {
 			return "shape"
 		}
 	}
-	if latch.Epoch != binding["install_epoch"] || latch.Digest != boundedDigest(test, binding) {
+	if latch.Epoch != binding["install_epoch"] || latch.Digest != boundedDigest(test, binding) || latch.Instance != binding["manager"].(map[string]any)["instance_id"] {
 		return "epoch_changed"
 	}
-	candidate := fixture.Bounded
-	if boundedAdmission(test, candidate, candidate) != "admitted" {
-		return "approval"
-	}
-	if !reflect.DeepEqual(binding["context"], candidate.Plan["context"]) {
+	if !reflect.DeepEqual(binding["context"], fixture.Release["context"]) {
 		return "context"
 	}
-	if binding["approval_record_sha256"] != boundedDigest(test, candidate.Approval) {
+	if binding["approval_record_sha256"] != boundedDigest(test, binding["installation_approval"].(map[string]any)) {
 		return "approval_digest"
 	}
-	if binding["release_set_sha256"] != boundedDigest(test, candidate.Release) {
+	if binding["release_set_sha256"] != boundedDigest(test, fixture.Release) {
 		return "release_digest"
 	}
-	if !installationMember(test, binding, candidate.Release) {
+	if !installationTargetApproved(test, binding) {
 		return "target"
 	}
+	if !proof.InstallationOwnerVerified || proof.InstallationRevoked || !proof.ReleaseProtected || !approvalTargetValid(fixture.Release) {
+		return "installation_authority"
+	}
 	manager := binding["manager"].(map[string]any)
-	if !installationExecutable(candidate.Release, "manager", manager["executable_sha256"]) {
+	if !installationExecutable(fixture.Release, "manager", manager["executable_sha256"]) {
 		return "manager_executable"
 	}
-	if !installationExecutable(candidate.Release, "broker", binding["daemon_executable_sha256"]) {
+	if !installationExecutable(fixture.Release, "broker", binding["daemon_executable_sha256"]) {
 		return "daemon_executable"
-	}
-	if !installationInputPin(candidate.Launch, boundedDigest(test, binding)) {
-		return "binding_pin"
 	}
 
 	if !installationRoles(binding["daemon_uid"].(int64), binding["daemon_gid"].(int64), manager["uid"].(int64)) {
@@ -207,6 +195,31 @@ func installationReadResult(test *testing.T, fixture installationFixtureCase, pr
 	if proof.Boot != manager["boot_id"] {
 		return "boot"
 	}
+	return "admitted"
+}
+
+func installationReadResult(test *testing.T, fixture installationFixtureCase, proof installationProof, latch installationLatch) string {
+	if result := installationBindingResult(test, fixture, proof, latch); result != "admitted" {
+		return result
+	}
+	set, _ := loadContracts(test)
+	if checkRecord(canonicalObject(test, fixture.Observation.Response), boundedShape(set, observationResponse), set) != nil {
+		return "shape"
+	}
+	binding, candidate := fixture.Binding, fixture.Bounded
+	if boundedAdmission(test, candidate, candidate) != "admitted" {
+		return "approval"
+	}
+	if !reflect.DeepEqual(binding["context"], candidate.Plan["context"]) {
+		return "context"
+	}
+	if !reflect.DeepEqual(fixture.Release["assets"], candidate.Release["assets"]) || fixture.Release["contract_index_sha256"] != candidate.Release["contract_index_sha256"] {
+		return "release_inventory"
+	}
+	if !installationInputPin(candidate.Launch, boundedDigest(test, binding)) {
+		return "binding_pin"
+	}
+	manager := binding["manager"].(map[string]any)
 	if !reflect.DeepEqual(fixture.Observation.Response["manager"], manager) {
 		return "manager"
 	}
@@ -220,28 +233,16 @@ func installationReadResult(test *testing.T, fixture installationFixtureCase, pr
 }
 
 func installationLatchFor(test *testing.T, fixture installationFixtureCase) installationLatch {
-	return installationLatch{Epoch: fixture.Binding["install_epoch"].(int64), Digest: boundedDigest(test, fixture.Binding)}
+	return installationLatch{Epoch: fixture.Binding["install_epoch"].(int64), Digest: boundedDigest(test, fixture.Binding), Instance: fixture.Binding["manager"].(map[string]any)["instance_id"].(string)}
 }
 
 func installationApprove(test *testing.T, fixture *installationFixtureCase) {
 	test.Helper()
-	memberDigest := boundedDigest(test, installationTarget(test, fixture.Binding))
-	for _, raw := range fixture.Bounded.Release["assets"].([]any) {
-		for _, rawMember := range raw.(map[string]any)["members"].([]any) {
-			member := rawMember.(map[string]any)
-			if member["path"] == installationTargetMember {
-				member["sha256"] = memberDigest
-			}
-		}
-	}
-	fixture.Bounded.Approval["release_set_sha256"] = boundedDigest(test, fixture.Bounded.Release)
+	fixture.Binding["release_set_sha256"] = boundedDigest(test, fixture.Release)
+	fixture.Binding["installation_approval"].(map[string]any)["approved_sha256"] = boundedDigest(test, installationTarget(test, fixture.Binding))
+	fixture.Binding["approval_record_sha256"] = boundedDigest(test, fixture.Binding["installation_approval"].(map[string]any))
 	boundedRebind(test, &fixture.Bounded)
-	fixture.Binding["approval_record_sha256"] = boundedDigest(test, fixture.Bounded.Approval)
-	fixture.Binding["release_set_sha256"] = boundedDigest(test, fixture.Bounded.Release)
 	for _, plan := range []map[string]any{fixture.Install, fixture.Bounded.Launch} {
-		pins := plan["pins"].(map[string]any)
-		pins["off_vm_approval_sha256"] = fixture.Binding["approval_record_sha256"]
-		pins["release_set_sha256"] = fixture.Binding["release_set_sha256"]
 		for _, raw := range plan["input_pins"].([]any) {
 			pin := raw.(map[string]any)
 			if pin["name"] == "installation-binding" {
@@ -253,13 +254,13 @@ func installationApprove(test *testing.T, fixture *installationFixtureCase) {
 	fixture.Observation.Expected["start"].(map[string]any)["plan_sha256"] = boundedDigest(test, fixture.Bounded.Launch)
 }
 
-// Claim: the published synthetic install record has a typed acyclic target and complete valid approval/native joins; each published refusal closes without changing the private latch.
+// Claim: the published synthetic install record has an embedded install-only approval and complete current start/native joins; each published refusal closes without changing the private latch.
 func TestLabInstallationFixturePairs(test *testing.T) {
 	fixture := installationFixture(test)
 	if !reflect.DeepEqual(normalizedBounded(test, installationTarget(test, fixture.Binding)), normalizedBounded(test, fixture.Target)) {
 		test.Fatal("typed target valid control")
 	}
-	if got := installationInstallPlan(test, fixture.Binding, fixture.Install); got != "admitted" {
+	if got := installationInstallPlan(test, fixture, fixture.Install); got != "admitted" {
 		test.Fatalf("install fixture control: %s", got)
 	}
 	if got := observationAdmission(test, fixture.Observation, true); got != "valid" {
@@ -281,6 +282,7 @@ func TestLabInstallationFixturePairs(test *testing.T) {
 				current.Observation.Response["manager"].(map[string]any)["instance_id"] = strings.Repeat("d", 32)
 			case "observed-store-not-expected":
 				current.Observation.Response["store"].(map[string]any)["generation"] = strings.Repeat("d", 32)
+				current.Observation.Response["sequence_generation"] = strings.Repeat("d", 32)
 			case "new-epoch-in-flight":
 				current.Binding["install_epoch"] = int64(2)
 				installationApprove(test, &current)
@@ -362,6 +364,7 @@ func TestLabInstallationJoinPairs(test *testing.T) {
 	}
 	run("store", "store_generation", func(fixture *installationFixtureCase, proof *installationProof, latch *installationLatch) {
 		fixture.Observation.Response["store"].(map[string]any)["generation"] = strings.Repeat("d", 32)
+		fixture.Observation.Response["sequence_generation"] = strings.Repeat("d", 32)
 	})
 	run("current-read", "current_read", func(fixture *installationFixtureCase, proof *installationProof, latch *installationLatch) {
 		proof.CurrentRead = false
@@ -442,9 +445,7 @@ func TestLabInstallationJoinPairs(test *testing.T) {
 		*latch = installationLatchFor(test, *fixture)
 	})
 	run("same-epoch-new-digest", "epoch_changed", func(fixture *installationFixtureCase, proof *installationProof, latch *installationLatch) {
-		instance := strings.Repeat("d", 32)
-		fixture.Binding["manager"].(map[string]any)["instance_id"] = instance
-		fixture.Observation.Response["manager"].(map[string]any)["instance_id"] = instance
+		fixture.Binding["installation_approval"].(map[string]any)["record_id"] = "other-installation-approval"
 		installationApprove(test, fixture)
 	})
 	run("new-epoch", "epoch_changed", func(fixture *installationFixtureCase, proof *installationProof, latch *installationLatch) {
@@ -460,47 +461,18 @@ func TestLabInstallationJoinPairs(test *testing.T) {
 	})
 }
 
-// Claim: every target field is owner-bound before observation, and exact member product/mode/uniqueness cannot be replaced by a digest-only name.
+// Claim: every runtime target field, including R0, is owner-bound before observation rather than fabricated as an archive member.
 func TestLabInstallationTargetPairs(test *testing.T) {
 	fixture := installationFixture(test)
 	for name := range installationTarget(test, fixture.Binding)["record"].(map[string]any) {
 		test.Run("field-"+name, func(test *testing.T) {
 			current := installationFixture(test)
-			if !installationMember(test, current.Binding, current.Bounded.Release) {
+			if !installationTargetApproved(test, current.Binding) {
 				test.Fatal("target valid control")
 			}
 			current.Binding[name] = "changed-target-field"
-			if installationMember(test, current.Binding, current.Bounded.Release) {
+			if installationTargetApproved(test, current.Binding) {
 				test.Fatal("target field refusal")
-			}
-		})
-	}
-	for _, name := range []string{"missing", "duplicate", "cross-asset-duplicate", "product", "mode", "digest"} {
-		test.Run(name, func(test *testing.T) {
-			current := installationFixture(test)
-			if !installationMember(test, current.Binding, current.Bounded.Release) {
-				test.Fatal("target valid control")
-			}
-			asset := current.Bounded.Release["assets"].([]any)[0].(map[string]any)
-			members := asset["members"].([]any)
-			member := members[len(members)-1].(map[string]any)
-			switch name {
-			case "missing":
-				asset["members"] = members[:len(members)-1]
-			case "duplicate":
-				asset["members"] = append(members, member)
-			case "cross-asset-duplicate":
-				other := current.Bounded.Release["assets"].([]any)[1].(map[string]any)
-				other["members"] = append(other["members"].([]any), member)
-			case "product":
-				asset["product"] = "gateway"
-			case "mode":
-				member["mode"] = "0755"
-			case "digest":
-				member["sha256"] = "sha256:" + strings.Repeat("d", 64)
-			}
-			if installationMember(test, current.Binding, current.Bounded.Release) {
-				test.Fatal("target member refusal")
 			}
 		})
 	}
@@ -703,9 +675,9 @@ func TestLabInstallationExecutablePairs(test *testing.T) {
 	}
 }
 
-// Claim: the complete literal/value catalogue attacks each new semantic label, target domain and approved member selector at its own gate, without relying on a broken approval seal.
+// Claim: the complete literal/value catalogue attacks each target label/domain and typed input-pin name at its own gate.
 func TestLabInstallationLiteralPairs(test *testing.T) {
-	tokens := map[string]string{"domain": "swarma-broker-lab-installation-binding-target/1", "path": installationTargetMember, "product": "broker", "mode": "0644", "input-name": "installation-binding", "label-domain": "domain", "label-record": "record"}
+	tokens := map[string]string{"domain": "swarma-broker-lab-installation-binding-target/1", "input-name": "installation-binding", "label-domain": "domain", "label-record": "record"}
 	for element, token := range tokens {
 		mutations := literalMutations(token)
 		if !strings.HasPrefix(element, "label-") {
@@ -714,25 +686,21 @@ func TestLabInstallationLiteralPairs(test *testing.T) {
 		for _, mutation := range mutations {
 			test.Run(element+"/"+mutation.Name, func(test *testing.T) {
 				fixture := installationFixture(test)
-				if !installationMember(test, fixture.Binding, fixture.Bounded.Release) {
+				if !installationTargetApproved(test, fixture.Binding) {
 					test.Fatal("literal target control")
 				}
 				if !installationInputPin(fixture.Install, boundedDigest(test, fixture.Binding)) {
 					test.Fatal("literal pin control")
 				}
-				asset := fixture.Bounded.Release["assets"].([]any)[0].(map[string]any)
-				members := asset["members"].([]any)
-				member := members[len(members)-1].(map[string]any)
 				var admitted bool
-				switch element {
-				case "input-name":
+				if element == "input-name" {
 					pins := fixture.Install["input_pins"].([]any)
 					pins[len(pins)-1].(map[string]any)["name"] = mutation.Value
 					set, _ := loadContracts(test)
 					if checkRecord(canonicalObject(test, fixture.Install), boundedShape(set, "swarma-broker-lab-install-plan/1"), set) == nil {
 						admitted = installationInputPin(fixture.Install, boundedDigest(test, fixture.Binding))
 					}
-				case "domain", "label-domain", "label-record":
+				} else {
 					target := installationTarget(test, fixture.Binding)
 					if element == "domain" {
 						target["domain"] = mutation.Value
@@ -741,15 +709,8 @@ func TestLabInstallationLiteralPairs(test *testing.T) {
 						delete(target, token)
 						target[mutation.Value.(string)] = value
 					}
-					member["sha256"] = boundedDigest(test, target)
-					admitted = installationMember(test, fixture.Binding, fixture.Bounded.Release)
-				default:
-					if element == "product" {
-						asset[element] = mutation.Value
-					} else {
-						member[element] = mutation.Value
-					}
-					admitted = installationMember(test, fixture.Binding, fixture.Bounded.Release)
+					fixture.Binding["installation_approval"].(map[string]any)["approved_sha256"] = boundedDigest(test, target)
+					admitted = installationTargetApproved(test, fixture.Binding)
 				}
 				if admitted != mutation.Admit {
 					test.Fatalf("installation literal refusal: %s %s got %v want %v", element, mutation.Name, admitted, mutation.Admit)
@@ -759,12 +720,12 @@ func TestLabInstallationLiteralPairs(test *testing.T) {
 	}
 }
 
-// Claim: B5 validates its own root-only install envelope against complete I; B1 need not gain access to that envelope to use the protected binding.
+// Claim: B5 validates the published install plan against I and its separate install-operation authority; B1 needs no root-only installer envelope.
 func TestLabInstallationInstallPlanPairs(test *testing.T) {
 	for _, name := range []string{"context", "off_vm_approval_sha256", "release_set_sha256", "binding-pin", "shape"} {
 		test.Run(name, func(test *testing.T) {
 			fixture := installationFixture(test)
-			if got := installationInstallPlan(test, fixture.Binding, fixture.Install); got != "admitted" {
+			if got := installationInstallPlan(test, fixture, fixture.Install); got != "admitted" {
 				test.Fatalf("install plan control: %s", got)
 			}
 			want := "install_join"
@@ -781,7 +742,7 @@ func TestLabInstallationInstallPlanPairs(test *testing.T) {
 			default:
 				fixture.Install["pins"].(map[string]any)[name] = "sha256:" + strings.Repeat("d", 64)
 			}
-			if got := installationInstallPlan(test, fixture.Binding, fixture.Install); got != want {
+			if got := installationInstallPlan(test, fixture, fixture.Install); got != want {
 				test.Fatalf("install plan refusal: %s want %s", got, want)
 			}
 		})

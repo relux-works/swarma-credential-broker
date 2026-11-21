@@ -1,4 +1,4 @@
-# Lab contract C0 with C0b/C0c/C0d/C0e/C0f addenda, revision 11
+# Lab contract C0 with C0b/C0c/C0d/C0e/C0f addenda, revision 12
 
 Status: CONTRACT CANDIDATE FOR REVIEW. Inert construction only, not production
 acceptance, a release, owner consent or permission to capture/use a key.
@@ -404,13 +404,23 @@ rule witnesses and source-overlay mutations.
 ## C0f protected installation binding
 
 [installation-binding.md](installation-binding.md) freezes the sole root-written
-B5 -> B1/M1 installation record, typed approval preimage, exact protected
-placement, expected manager/store/daemon tuple and epoch rotation. It uses
-C0b's sealed R/A/P chain and a typed installation-binding InputPin, never a
-C0c response as the expected manifest. B1/M1 read only; B5 never touches B1
-private recovery, native DAC is unchanged and the broker remains nonroot.
-The existing complete recursive catalogue applies to every new field, literal,
-member, bound and paired role; intended-step protection, seal-independent
-identity joins, same/new/old epoch controls and source-overlay witnesses are
-in the coverage map. Synthetic installation-binding-fixtures.json is not
-root installation, native provisioning or consumer adoption evidence.
+B5 -> B1/M1 runtime installation record and embedded installation Approval,
+retained installation release R0, exact protected placement and reader-owned
+epoch adoption. Its typed runtime target is NOT a tagged archive member. R0 and
+the installation approval are historical install authorization; every current
+C0b R/A/P/L remains independently fresh, approved and joined to the same installed
+release inventory. Changing only a start approval never rotates I. B1/M1 read
+only, retain their own adoption latches, and never take first-response pins;
+B5 never accesses B1-private recovery. Native DAC and nonroot broker are unchanged.
+The complete recursive operator catalogue applies to every new field, including
+the embedded Approval, target labels, installation-binding InputPin, closed
+nested objects and bounds. Semantic catalogue: historical-install/current-start
+separation; runtime provenance without archive edits; protected R0 and authority;
+exact assets/index/Context joins; coherent stale secondary manager/store pins;
+fresh/identical/exactly-next private adoption, quiescence, new start/pair and
+durable readiness. Each has a nearby valid control and a narrowing overlay in
+the coverage map. The unchanged bounded-invocation-fixtures.json launch records
+are C0b-scope controls ONLY: composed C0f admission additionally requires the
+complete-I installation-binding pin and protected typed preimage. Synthetic
+fixtures and reference metadata are not owner acts, native installation or
+consumer implementation/qualification evidence.

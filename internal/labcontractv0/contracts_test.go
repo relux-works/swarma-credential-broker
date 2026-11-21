@@ -18,7 +18,7 @@ import (
 )
 
 const contractRoot = "../../contracts/lab-v0"
-const indexSHA256 = "075e36c040fb975dc95668d62a17cb15f9ea2d2a281b62e4b20445071d23b44f"
+const indexSHA256 = "65789d8ccb9619801a4f8ee2c26bb9216e8817ac8c5e9b2d9e430ee6b6c56204"
 
 type recordShape struct {
 	Format     string            `json:"format"`
